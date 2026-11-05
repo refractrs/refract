@@ -1,0 +1,50 @@
+use refract::prelude::*;
+
+#[view]
+pub fn application(cx: &mut ViewContext<'_>) -> impl View {
+    #[state]
+    let count: u32 = 0;
+
+    #[action(count)]
+    let increment = |cx| count.update(cx.runtime(), |value| *value = value.saturating_add(1));
+
+    v_stack()
+        .gap(16.0)
+        .child(text("Hello, Refract.").font_size(32.0))
+        .child(
+            h_stack()
+                .alignment(Alignment::Center)
+                .justify(Alignment::Center)
+                .child(text(format!("Count: {}", cx.read(&count))))
+                .on_press(increment)
+                .padding(16.0),
+        )
+        .padding(32.0)
+}
+
+#[cfg(target_arch = "wasm32")]
+mod browser {
+    use wasm_bindgen::prelude::*;
+
+    #[wasm_bindgen]
+    pub struct Application {
+        mount: refract_web::Mount,
+    }
+
+    #[wasm_bindgen]
+    impl Application {
+        pub fn dispose(&self) {
+            self.mount.dispose();
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn start(host: web_sys::Element) -> Result<Application, JsValue> {
+        std::panic::set_hook(Box::new(|info| {
+            web_sys::console::error_1(&JsValue::from_str(&info.to_string()));
+        }));
+        Ok(Application {
+            mount: refract_web::mount(host, super::application(), refract_web::MountOptions::default())?,
+        })
+    }
+}

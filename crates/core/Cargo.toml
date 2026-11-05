@@ -1,0 +1,21 @@
+[package]
+name = "refract-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+description = "Portable views, composition, and retained UI runtime for Refract"
+documentation = "https://docs.rs/refract-core"
+keywords = ["gui", "ui", "reactive", "web", "desktop"]
+categories = ["gui"]
+include = ["/src/**", "/tests/**", "/Cargo.toml", "/README.md", "/LICENSE*"]
+
+[dependencies]
+refract-graph.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

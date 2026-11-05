@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#faf9f6">
+  <meta name="description" content="A quiet space to think. A composable Rust chat application, built with Refract.">
+  <title>Chat — Refract</title>
+  <style>
+    html,body{margin:0;width:100%;height:100%;background:#faf9f6;color:#2b302a}
+    #app{width:100%;height:100svh;min-width:360px}
+    #loading{font:14px system-ui;color:#777a6f;padding:48px;text-align:center}
+  </style>
+</head>
+<body>
+  <main id="app" aria-label="Refract chat"><p id="loading" role="status">Opening your workspace…</p></main>
+  <script type="module">
+    import init, { start } from './pkg/refract_chat.js';
+    try {
+      await init();
+      document.getElementById('loading').remove();
+      window.chatApp = start(document.getElementById('app'));
+    } catch (error) {
+      console.error(error);
+      document.getElementById('app').textContent = 'Chat could not start. See the browser console for details.';
+    }
+  </script>
+</body>
+</html>

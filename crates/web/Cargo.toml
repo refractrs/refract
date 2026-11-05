@@ -1,0 +1,28 @@
+[package]
+name = "refract-web"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+description = "Browser DOM adapter for the Refract framework"
+documentation = "https://docs.rs/refract-web"
+keywords = ["gui", "ui", "reactive", "web", "desktop"]
+categories = ["gui"]
+include = ["/src/**", "/tests/**", "/Cargo.toml", "/README.md", "/LICENSE*"]
+
+[dependencies]
+refract-core.workspace = true
+wasm-bindgen.workspace = true
+js-sys.workspace = true
+
+[dependencies.web-sys]
+workspace = true
+features = ["PointerEvent", "DomRect", "ResizeObserver", "Blob", "BlobPropertyBag", "Url", "Window", "Document", "Node", "Element", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement", "HtmlButtonElement", "CssStyleDeclaration", "Event", "EventTarget", "MouseEvent", "KeyboardEvent", "InputEvent", "CompositionEvent", "ShadowRoot", "ShadowRootInit", "ShadowRootMode", "console", "Performance", "NodeList"]
+
+[package.metadata.docs.rs]
+default-target = "wasm32-unknown-unknown"
+all-features = true

@@ -1,0 +1,85 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Refract chat checks</title>
+<style>body{font:15px system-ui;background:#faf9f6;color:#2b302a;padding:24px}li{margin:10px 0}#fixture{position:absolute;left:-1200px;width:1100px;height:720px;overflow:hidden}</style>
+<h1>Chat browser checks</h1><p id="status">Running…</p><ol id="results"></ol><div id="fixture"></div>
+<script type="module">
+import init, {start} from './pkg/refract_chat.js';
+const status = document.querySelector('#status'), results = document.querySelector('#results');
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+function check(ok, message) {
+  const li = document.createElement('li'); li.textContent = `${ok ? 'PASS' : 'FAIL'} — ${message}`; results.append(li);
+  if (!ok) throw Error(message);
+}
+let app;
+try {
+  await init(); app = start(document.querySelector('#fixture'));
+  const root = document.querySelector('#fixture').shadowRoot;
+  const find = label => root.querySelector(`[aria-label="${label}"]`);
+  const disabled = label => find(label).getAttribute('aria-disabled') === 'true' && find(label).tabIndex === -1;
+  const press = async label => { find(label).click(); await settle(); };
+  const input = async (label, value) => { const el = find(label); el.value = value; el.dispatchEvent(new InputEvent('input', {bubbles:true, composed:true})); await settle(); };
+  const key = async (label, options) => { find(label).dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true, composed:true, cancelable:true, ...options})); await settle(); };
+  const create = find('New conversation');
+  const composerSurface = [...root.querySelectorAll('[data-refract-id]')].find(el => getComputedStyle(el).boxShadow !== 'none');
+  const composerPaint = composerSurface && getComputedStyle(composerSurface);
+  check(composerSurface?.contains(find('Message Refract')) && composerSurface.contains(find('Send message')) && composerPaint.boxShadow.includes('0px 4px 20px') && composerPaint.borderRadius === '14px', 'composer has a subtle rounded outer box shadow');
+  const buttonPaint = getComputedStyle(create);
+  check(buttonPaint.backgroundImage.startsWith('linear-gradient(') && buttonPaint.backgroundImage.includes('160deg') && buttonPaint.backgroundOrigin === 'border-box' && buttonPaint.borderRadius === '9px', 'New conversation uses a rounded gradient background');
+  const outer = create.getBoundingClientRect(), inner = create.firstElementChild.getBoundingClientRect();
+  check(getComputedStyle(create).display === 'flex' && Math.abs((outer.left+outer.right-inner.left-inner.right)/2) < 1, 'button content is centered like desktop');
+  await press('Send message');
+  check(disabled('Send message') && app.active_streams() === 0, 'initial composer rejects disabled activation and no idle timer runs');
+  await input('Message Refract', '  \n ');
+  await key('Message Refract', {ctrlKey:true});
+  check(disabled('Send message') && app.active_streams() === 0, 'blank submissions are ignored');
+  await input('Message Refract', 'Saved draft');
+  await press('Open A weekend away');
+  check(find('Message Refract').value === '', 'a different chat owns a separate draft');
+  await press('Open A calmer kind of workspace');
+  check(find('Message Refract').value === 'Saved draft', 'switching back restores the draft');
+  await input('Search conversations', 'weekend');
+  check(find('Open A weekend away') && !find('Open Designing with intention'), 'search filters sidebar conversations');
+  await press('New conversation');
+  check(find('Search conversations').value === '' && root.textContent.includes('Where shall we begin?'), 'new chat clears search and shows prompt suggestions');
+  await input('Message Refract', 'Explain Rust state');
+  const composer = find('Message Refract'); composer.focus();
+  composer.dispatchEvent(new CompositionEvent('compositionstart', {bubbles:true, composed:true}));
+  await key('Message Refract', {ctrlKey:true, isComposing:true});
+  check(app.active_streams() === 0, 'Enter during IME composition cannot submit');
+  composer.dispatchEvent(new CompositionEvent('compositionend', {bubbles:true, composed:true}));
+  await key('Message Refract', {ctrlKey:true});
+  check(app.active_streams() === 1 && composer.value === '', 'Ctrl+Enter sends and clears the draft');
+  check(composer === find('Message Refract') && root.activeElement === composer, 'submission retains editor identity and focus');
+  const ids = [...root.querySelectorAll('[data-refract-id]')].map(e => e.dataset.refractId).join(',');
+  const changes = [];
+  const observer = new MutationObserver(records => changes.push(...records));
+  observer.observe(root, {subtree:true, childList:true, characterData:true, attributes:true});
+  await delay(150); observer.disconnect();
+  check(ids === [...root.querySelectorAll('[data-refract-id]')].map(e => e.dataset.refractId).join(','), 'streaming retains every host element identity');
+  check(changes.length > 0 && new Set(changes.map(r => r.target.nodeType === 3 ? r.target.parentElement : r.target)).size === 1, 'ordinary chunks mutate only one text element');
+  await press('Stop response');
+  const stopped = root.textContent;
+  await delay(100);
+  check(app.active_streams() === 0 && root.textContent === stopped && stopped.includes('RESPONSE STOPPED'), 'Stop cancels the timer and preserves the partial response');
+  await input('Message Refract', 'Explain Rust state again');
+  await press('Send message');
+  await delay(300);
+  const scroll = [...root.querySelectorAll('[data-refract-id]')].find(e => getComputedStyle(e).overflowAnchor === 'none');
+  check(scroll && scroll.scrollHeight-scroll.clientHeight-scroll.scrollTop <= 2, 'the transcript follows streaming content at the bottom');
+  scroll.scrollTop = 0;
+  await delay(150);
+  check(scroll.scrollTop === 0, 'scrolling upward opts out of automatic following');
+  await press('Open A weekend away');
+  check(app.active_streams() === 1, 'switching chats does not cancel a background reply');
+  await press('Find a change of scene');
+  check(app.active_streams() === 2, 'different conversations can stream independently');
+  await press('Delete chat');
+  check(app.active_streams() === 1, 'deleting a conversation cancels only its own stream');
+  app.dispose();
+  check(app.active_streams() === 0 && !root.querySelector('[data-refract-id]'), 'disposing cancels all streams and removes mounted elements');
+  status.textContent = `${results.children.length} checks passed`;
+} catch(error) { console.error(error); status.textContent = `FAILED: ${error.message}`; }
+finally { app?.dispose(); }
+</script>

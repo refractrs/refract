@@ -1,0 +1,27 @@
+[package]
+name = "refract-counter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+refract.workspace = true
+refract-web.workspace = true
+wasm-bindgen.workspace = true
+web-sys = { workspace = true, features = ["Window", "Document", "Element"] }
+
+[features]
+desktop = ["dep:refract-desktop"]
+browser-tests = []
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+refract-desktop = { workspace = true, optional = true }
+
+[[bin]]
+name = "refract-counter-desktop"
+path = "src/desktop.rs"
+required-features = ["desktop"]

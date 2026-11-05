@@ -1,0 +1,31 @@
+[package]
+name = "refract-clock"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+refract.workspace = true
+refract-web.workspace = true
+wasm-bindgen.workspace = true
+js-sys.workspace = true
+web-sys = { workspace = true, features = ["Window", "Document", "Element"] }
+
+[dev-dependencies]
+refract-test.workspace = true
+
+[features]
+desktop = ["dep:refract-desktop", "dep:chrono"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+refract-desktop = { workspace = true, optional = true }
+chrono = { version = "0.4", optional = true }
+
+[[bin]]
+name = "refract-clock-desktop"
+path = "src/desktop.rs"
+required-features = ["desktop"]

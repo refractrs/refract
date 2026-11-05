@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Refract clock checks</title>
+<style>body{font:15px/1.6 system-ui;max-width:700px;padding:32px;margin:auto;color:#223021}li{padding:4px}#result{padding:16px;background:#eef3e9}</style>
+<h1>Refract clock checks</h1>
+<p id="result" role="status">Observing three seconds of clock updates…</p>
+<ol id="checks"></ol>
+<div id="fixture"></div>
+<script type="module">
+import init, { start } from './pkg/refract_clock.js';
+const checks = document.querySelector('#checks');
+const failures = [];
+const check = (name, condition) => {
+  const li = document.createElement('li');
+  li.textContent = `${condition ? 'PASS' : 'FAIL'} — ${name}`;
+  checks.append(li);
+  if (!condition) failures.push(name);
+};
+const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+try {
+  await init();
+  const host = document.querySelector('#fixture');
+  const app = start(host);
+  const root = host.shadowRoot;
+  const time = [...root.querySelectorAll('span')].find(node => /^\d{2}:\d{2}:\d{2}$/.test(node.textContent));
+  check('Clock starts immediately with local time', !!time && app.is_running());
+  const initial = time.textContent;
+  const textNode = time.firstChild;
+  const nodes = [...root.querySelectorAll('[data-refract-id]')];
+  const calls = app.dom_calls();
+  await delay(3200);
+  check('Timer updates the displayed text every second', app.ticks() >= 3 && time.textContent !== initial);
+  check('Ticks retain all mounted elements and the clock text node', time.firstChild === textNode && nodes.every(node => node.isConnected));
+  check('Each tick only writes changed clock text', app.dom_calls() - calls <= BigInt(app.ticks() + 1) && app.dom_calls() > calls);
+  app.dispose(); app.dispose();
+  const stoppedTicks = app.ticks();
+  check('Disposal cancels the interval and removes the UI', !app.is_running() && root.childNodes.length === 0);
+  await delay(1200);
+  check('No timer callbacks run after disposal', app.ticks() === stoppedTicks);
+  document.querySelector('#result').textContent = `${checks.children.length - failures.length}/${checks.children.length} checks passed${failures.length ? ': '+failures.join(', ') : ''}.`;
+} catch (error) {
+  console.error(error);
+  document.querySelector('#result').textContent = `FAILED: ${error.message}`;
+}
+</script>

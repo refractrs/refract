@@ -1,0 +1,14 @@
+#[cfg(not(target_arch = "wasm32"))]
+fn main() -> refract_desktop::Result<()> {
+    refract_desktop::run(
+        refract_desktop::DesktopOptions {
+            title: "{{name}}".into(),
+            diagnostics: std::env::var_os("REFRACT_DIAGNOSTICS").is_some(),
+            ..Default::default()
+        },
+        |_| {{crate}}::application(),
+    )
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}

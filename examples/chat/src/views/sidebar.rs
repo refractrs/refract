@@ -1,0 +1,188 @@
+use super::*;
+use crate::model::Conversation;
+
+#[view]
+pub(super) fn sidebar(cx: &mut ViewContext<'_>) -> impl View {
+    #[environment_object]
+    let model: Rc<ChatModel>;
+    #[action(model)]
+    let create = |action| model.new_chat(action.runtime());
+    v_stack()
+        .gap(24.0)
+        .child(
+            h_stack()
+                .gap(9.0)
+                .alignment(Alignment::Center)
+                .child(
+                    h_stack()
+                        .alignment(Alignment::Center)
+                        .child(
+                            text("r")
+                                .font_family(SERIF)
+                                .font_size(32.0)
+                                .line_height(32.0)
+                                .foreground(GREEN)
+                                // Lift the lowercase mark slightly within its centered box.
+                                .padding(Insets {
+                                    bottom: 6.0,
+                                    ..Default::default()
+                                }),
+                        )
+                        .height(48.0),
+                )
+                .child(text("refract").font_size(21.0).font_weight(600)),
+        )
+        .child(
+            h_stack()
+                .alignment(Alignment::Center)
+                .justify(Alignment::Center)
+                .child(
+                    h_stack()
+                        .gap(12.0)
+                        .alignment(Alignment::Center)
+                        .child(text("+").font_size(21.0))
+                        .child(text("New conversation").font_size(13.0)),
+                )
+                .on_press(create)
+                .label("New conversation")
+                .fill_width()
+                .height(44.0)
+                .background(GREEN)
+                .background_gradient(LinearGradient::new(
+                    160.0,
+                    Color::rgb(81, 111, 72),
+                    Color::rgb(55, 78, 51),
+                ))
+                .foreground(Color::WHITE)
+                .radius(9.0),
+        )
+        .child(
+            field(model.query.binding())
+                .label("Search conversations")
+                .placeholder("Search conversations…")
+                .style(refract::Style {
+                    font_size: Some(12.0),
+                    fill_width: true,
+                    height: Some(36.0),
+                    padding: Insets::symmetric(10.0, 6.0),
+                    background: Some(SIDE),
+                    border: Some(Border::all(1.0, LINE)),
+                    radius: 7.0.into(),
+                    ..Default::default()
+                }),
+        )
+        .child(
+            v_stack()
+                .gap(13.0)
+                .child(
+                    text("YOUR CONVERSATIONS")
+                        .font_family(MONO)
+                        .font_size(9.0)
+                        .foreground(MUTED),
+                )
+                .child(conversation_list())
+                .scrollable()
+                .grow(1.0)
+                .min_height(0.0),
+        )
+        .child(
+            v_stack()
+                .gap(16.0)
+                .child(
+                    text("A little space to think.")
+                        .font_family(SERIF)
+                        .font_size(17.0)
+                        .foreground(MUTED),
+                )
+                .child(
+                    h_stack()
+                        .gap(10.0)
+                        .alignment(Alignment::Center)
+                        .child(
+                            h_stack()
+                                .alignment(Alignment::Center)
+                                .justify(Alignment::Center)
+                                .child(text("Y").font_size(12.0).line_height(12.0))
+                                .width(40.0)
+                                .height(40.0)
+                                .foreground(GREEN)
+                                .background(PALE)
+                                .radius(20.0),
+                        )
+                        .child(
+                            v_stack()
+                                .gap(3.0)
+                                .child(text("Your workspace").font_size(12.0).font_weight(600))
+                                .child(
+                                    text("On this device · this session")
+                                        .font_size(10.0)
+                                        .foreground(MUTED),
+                                ),
+                        ),
+                ),
+        )
+        .fill_height()
+        .padding(Insets::symmetric(18.0, 24.0))
+        .width(262.0)
+        .fill_height()
+        .background(SIDE)
+}
+
+#[view]
+fn conversation_list(cx: &mut ViewContext<'_>) -> impl View {
+    #[environment_object]
+    let model: Rc<ChatModel>;
+    let chats = cx.read_state(&model.conversations);
+    let query = cx.read_state(&model.query).to_lowercase();
+    let matches: Vec<_> = chats
+        .into_iter()
+        .filter(|chat| cx.read_state(&chat.title).to_lowercase().contains(&query))
+        .collect();
+    if matches.is_empty() {
+        text("No conversations found.")
+            .font_size(12.0)
+            .foreground(MUTED)
+            .padding(8.0)
+            .into_any()
+    } else {
+        v_stack()
+            .gap(6.0)
+            .children(matches.into_iter().map(|chat| {
+                let key = chat.id.0.to_string();
+                conversation_row(chat).key(key)
+            }))
+            .into_any()
+    }
+}
+
+#[view]
+fn conversation_row(cx: &mut ViewContext<'_>, chat: Rc<Conversation>) -> impl View {
+    #[environment_object]
+    let model: Rc<ChatModel>;
+    let selected = cx.read_state(&model.selected) == chat.id;
+    let title = cx.read_state(&chat.title);
+    let active = cx.read_state(&chat.request).is_some();
+    #[action(model, chat)]
+    let select = |action| model.select(action.runtime(), chat.id);
+    h_stack()
+        .alignment(Alignment::Center)
+        .justify(Alignment::Center)
+        .child(
+            h_stack()
+                .gap(8.0)
+                .alignment(Alignment::Center)
+                .child(
+                    text(if active { "●" } else { "○" })
+                        .font_size(13.0)
+                        .foreground(if active { GREEN } else { MUTED }),
+                )
+                .child(text(&title).font_size(12.0).line_height(19.0).grow(1.0))
+                .padding(10.0)
+                .fill_width(),
+        )
+        .on_press(select)
+        .label(format!("Open {title}"))
+        .fill_width()
+        .background(if selected { PALE } else { SIDE })
+        .radius(7.0)
+}

@@ -1,0 +1,23 @@
+[package]
+name = "refract-macros"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+description = "View authoring macros for the Refract framework"
+documentation = "https://docs.rs/refract-macros"
+keywords = ["gui", "ui", "reactive", "web", "desktop"]
+categories = ["gui"]
+include = ["/src/**", "/tests/**", "/Cargo.toml", "/README.md", "/LICENSE*"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "fold", "visit"] }
+quote = "1"
+proc-macro2 = "1"

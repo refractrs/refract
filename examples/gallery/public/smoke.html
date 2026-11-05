@@ -1,0 +1,77 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Refract gallery image checks</title>
+<style>body{background:#111315;color:#edede4;font:15px system-ui;padding:24px}li{margin:12px 0}.fixtures{position:absolute;left:-1200px;width:1120px;height:820px;overflow:hidden}</style>
+<h1>Gallery image checks</h1>
+<p id="status">Running…</p><ol id="results"></ol><div class="fixtures" id="fixtures"></div>
+<script type="module">
+const results = document.querySelector('#results');
+const status = document.querySelector('#status');
+const created = new Set(), revoked = new Set();
+const originalCreate = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
+URL.createObjectURL = function(blob) { const url = originalCreate.call(this,blob); created.add(url); return url; };
+URL.revokeObjectURL = function(url) { revoked.add(url); return originalRevoke.call(this,url); };
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+function check(condition, message) {
+  const row = document.createElement('li'); row.textContent = `${condition ? 'PASS' : 'FAIL'} — ${message}`; results.append(row);
+  if (!condition) throw Error(message);
+}
+async function loaded(img) { await img.decode(); check(img.complete && img.naturalWidth > 0, 'image decodes successfully'); }
+function host() { const node = document.createElement('div'); node.style.cssText='width:1120px;height:820px'; document.querySelector('#fixtures').append(node); return node; }
+let gallery, fixture;
+try {
+  const module = await import('./pkg/refract_gallery.js');
+  await module.default();
+  if (!module.start_image_fixture) throw Error('Run refract dev -p refract-gallery --features browser-tests to include the image fixture.');
+  const galleryHost = host(); gallery = module.start(galleryHost);
+  const root = galleryHost.shadowRoot;
+  const images = [...root.querySelectorAll('img')];
+  check(images.length === 3, 'gallery contains three semantic image elements');
+  await Promise.all(images.map(img => img.decode()));
+  check(images.every(img => img.naturalWidth === 1200 && img.alt.length > 20), 'all bundled photographs load with descriptive alt text');
+  const sources = images.map(img => img.src), ids = images.map(img => img.dataset.refractId), count = created.size;
+  root.querySelector('[role=button]').click(); await settle();
+  check(images.every((img,i) => img === root.querySelectorAll('img')[i] && img.dataset.refractId === ids[i]), 'fit change retains DOM image identity');
+  check(images.every((img,i) => img.src === sources[i] && getComputedStyle(img).objectFit === 'contain') && created.size === count, 'fit change updates object-fit without recreating URLs');
+  root.querySelector('[role=button]').click(); await settle();
+  check(images.every(img => getComputedStyle(img).objectFit === 'cover'), 'cover mode can be restored');
+  gallery.dispose(); gallery = null;
+  check(sources.every(url => revoked.has(url)), 'disposing gallery revokes all embedded image URLs');
+
+  const fixtureHost = host(); fixture = module.start_image_fixture(fixtureHost);
+  const img = fixtureHost.shadowRoot.querySelector('img'); await loaded(img);
+  const old = img.src;
+  const resourcesBeforeAlt = created.size;
+  check(img.getAttribute('alt') === '' && !img.hasAttribute('aria-label'), 'omitted alternative text emits an empty alt attribute');
+  fixture.set_alt('Updated description'); await settle();
+  check(img.alt === 'Updated description' && img.getAttribute('aria-label') === 'Updated description', 'label modifier updates the styled image semantic label');
+  fixture.set_alt(''); await settle();
+  check(img.getAttribute('alt') === '', 'explicit empty alternative text clears the image description');
+  fixture.set_alt(undefined); await settle();
+  check(img.getAttribute('alt') === '' && !img.hasAttribute('aria-label'), 'removing the label modifier clears stale semantic labels');
+  fixture.set_alt('Fixture image'); await settle();
+  check(img === fixtureHost.shadowRoot.querySelector('img') && img.src === old && created.size === resourcesBeforeAlt, 'label-only changes retain the image element and resource');
+  fixture.select(1); await settle(); await loaded(img);
+  check(img === fixtureHost.shadowRoot.querySelector('img') && img.src !== old && revoked.has(old), 'source replacement retains element and revokes old URL');
+  const current = img.src;
+  fixture.select(1); await settle();
+  check(img.src === current && !revoked.has(current), 'equal source writes retain the current resource');
+  // Caller-owned URLs must never be revoked by an adapter.
+  const external = originalCreate.call(URL, new Blob([await (await fetch(current)).arrayBuffer()], {type:'image/jpeg'}));
+  fixture.use_url(external); await settle(); await loaded(img);
+  check(revoked.has(current) && img.src === external, 'URL sources replace embedded assets');
+  fixture.select(99); await settle();
+  await img.decode().then(() => {throw Error('corrupt image unexpectedly decoded')}, () => {});
+  check(!fixture.last_error() && img.alt === 'Fixture image' && !revoked.has(external), 'broken pixels keep alt text without faulting mount or revoking caller URLs');
+  originalRevoke.call(URL, external);
+  const broken = img.src;
+  fixture.dispose(); fixture = null;
+  check(revoked.has(broken) && [...created].every(url => revoked.has(url)), 'all owned image URLs are released');
+  status.textContent = `${results.children.length} checks passed`;
+} catch (error) {
+  console.error(error); status.textContent = `FAILED: ${error.message}`;
+} finally {
+  gallery?.dispose(); fixture?.dispose();
+  URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke;
+}
+</script>

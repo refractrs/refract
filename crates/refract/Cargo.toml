@@ -1,0 +1,56 @@
+[package]
+name = "refract"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+description = "Refract framework for the web and native desktop"
+documentation = "https://docs.rs/refract"
+keywords = ["gui", "ui", "reactive", "web", "desktop"]
+categories = ["gui"]
+include = ["/src/**", "/tests/**", "/Cargo.toml", "/README.md", "/LICENSE*", "/cli/src/**", "/cli/templates/**"]
+
+[[bin]]
+name = "refract"
+path = "cli/src/main.rs"
+required-features = ["cli"]
+
+[[test]]
+name = "cli_lifecycle"
+path = "tests/cli_lifecycle.rs"
+required-features = ["cli"]
+
+[dependencies]
+refract-core.workspace = true
+refract-macros = { workspace = true, optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+ctrlc = { version = "3", features = ["termination"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+tiny_http = { version = "0.12", optional = true }
+toml = { version = "0.8", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", optional = true }
+
+[features]
+default = ["macros"]
+macros = ["dep:refract-macros"]
+cli = ["dep:clap", "dep:ctrlc", "dep:serde", "dep:serde_json", "dep:tiny_http", "dep:toml", "dep:libc"]
+
+[dev-dependencies]
+refract-test.workspace = true
+tempfile = "3"
+
+[package.metadata.docs.rs]
+all-features = true
+
+# Versions emitted by the installed CLI, which has no workspace checkout.
+# Keep these in sync with the workspace's browser dependencies.
+[package.metadata.refract.scaffold]
+wasm-bindgen = "=0.2.130"
+web-sys = "=0.3.107"

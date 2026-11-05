@@ -1,0 +1,21 @@
+[package]
+name = "refract-test"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+description = "Deterministic in-memory host for testing Refract views"
+documentation = "https://docs.rs/refract-test"
+keywords = ["gui", "ui", "reactive", "web", "desktop"]
+categories = ["gui"]
+include = ["/src/**", "/tests/**", "/Cargo.toml", "/README.md", "/LICENSE*"]
+
+[dependencies]
+refract-core.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

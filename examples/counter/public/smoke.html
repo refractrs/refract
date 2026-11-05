@@ -1,0 +1,232 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Refract browser conformance</title>
+<style>body{font:15px/1.6 system-ui;max-width:850px;padding:32px;margin:auto;color:#223021}h1{font:32px Georgia}li{padding:4px}#fixtures{display:flex;gap:12px}#fixtures>div{max-width:320px}#result{padding:16px;background:#eef3e9}</style>
+<h1>Refract browser conformance</h1>
+<p id="result" role="status">Running…</p>
+<ol id="checks"></ol>
+<div id="fixtures"></div>
+<script type="module">
+import init, { start } from './pkg/refract_counter.js';
+const module = await import('./pkg/refract_counter.js');
+const checks = document.querySelector('#checks');
+const failures = [];
+const test = (name, condition) => {
+  const li = document.createElement('li');
+  li.textContent = `${condition ? 'PASS' : 'FAIL'} — ${name}`;
+  checks.append(li);
+  if (!condition) failures.push(name);
+};
+const host = () => {const element = document.createElement('div');document.querySelector('#fixtures').append(element);return element;};
+const tick = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
+try {
+  await init();
+  const a = host(), b = host();
+  const first = start(a), second = start(b);
+  const root = a.shadowRoot;
+  const count = root.querySelector('[role=status]');
+  const textNode = count.firstChild;
+  const increment = root.querySelector('[role=button][aria-label=Increment]');
+  const decrement = root.querySelector('[role=button][aria-label="Decrease count"]');
+  const reset = root.querySelector('[role=button][aria-label="Reset to zero"]');
+  test('Initial mount uses an open ShadowRoot and displays zero', !!root && count.textContent === '0');
+  const records = [];
+  const observer = new MutationObserver(changes => records.push(...changes));
+  observer.observe(root, {subtree:true,childList:true,attributes:true,characterData:true});
+  const before = first.dom_calls();
+  increment.click(); increment.click(); increment.click();
+  await tick();
+  test('Three actions coalesce into one committed update', count.textContent === '3' && first.revision() === 2n);
+  test('Counter update performs exactly one DOM write', first.dom_calls() - before === 1n);
+  test('Number and controls retain their element identity', count === root.querySelector('[role=status]') && count.firstChild === textNode && increment === root.querySelector('[role=button][aria-label=Increment]'));
+  test('Independent mount keeps its own state', b.shadowRoot.querySelector('[role=status]').textContent === '0');
+  test('Only the count content changes', records.length === 1 && (records[0].target === count || count.contains(records[0].target)));
+  decrement.click(); await tick();
+  test('Decrement changes the count', count.textContent === '2');
+  reset.click(); await tick();
+  test('Reset restores zero', count.textContent === '0');
+  const revision = first.revision(); reset.click(); await tick();
+  test('Equal writes do not create another commit', first.revision() === revision);
+  await tick(); await tick();
+  test('Idle application does not generate commits', first.revision() === revision);
+  observer.disconnect();
+  first.dispose(); first.dispose(); increment.click(); await tick();
+  test('Disposal is idempotent and detaches DOM and listeners', a.shadowRoot.childNodes.length === 0 && first.revision() === revision);
+  second.dispose();
+  if (!module.start_fixture) throw new Error('Run refract dev -p refract-counter --features browser-tests to include the form fixture.');
+  const formHost = host(); const form = module.start_fixture(formHost); const formRoot = formHost.shadowRoot;
+  const input = formRoot.querySelector('input[aria-label=Name]');
+  input.focus(); input.value = 'typed'; input.setSelectionRange(2,2);
+  input.dispatchEvent(new InputEvent('input', {bubbles:true,composed:true,inputType:'insertText'}));
+  await tick();
+  test('Native text input writes through to graph state', formRoot.textContent.includes('Model: typed;'));
+  test('Text input retains node, focus, and caret', input === formRoot.querySelector('input[aria-label=Name]') && formRoot.activeElement === input && input.selectionStart === 2);
+  const notes = formRoot.querySelector('textarea');
+  test('Field sizing targets the input without adding a layout wrapper',
+    input.style.width === '260px' && input.parentElement === notes.parentElement);
+  test('Multiline field modifiers style the editable element directly',
+    notes.style.width === '280px' && notes.style.height === '160px' && notes.style.fontSize === '18px');
+  test('A second binding sees the same source of truth', notes.value === 'typed');
+  input.dispatchEvent(new CompositionEvent('compositionstart', {bubbles:true,composed:true}));
+  input.value = '未';
+  input.dispatchEvent(new InputEvent('input', {bubbles:true,composed:true,isComposing:true}));
+  formRoot.querySelector('[role=button]').click(); await tick();
+  test('An external update does not overwrite active IME composition', input.value === '未');
+  input.dispatchEvent(new CompositionEvent('compositionend', {bubbles:true,composed:true,data:'未'}));
+  input.dispatchEvent(new InputEvent('input', {bubbles:true,composed:true})); await tick();
+  test('Newer explicit external value wins at composition completion', input.value === 'external' && notes.value === 'external');
+  const checkbox = formRoot.querySelector('[role=checkbox]');
+  checkbox.click(); await tick();
+  test('Composed checkbox activation updates its binding',
+    checkbox.getAttribute('aria-checked') === 'true' && formRoot.textContent.includes('enabled: true'));
+  checkbox.focus();
+  checkbox.dispatchEvent(new KeyboardEvent('keydown', {key:' ', bubbles:true, composed:true, cancelable:true}));
+  await tick();
+  test('A focused composed checkbox can be activated by keyboard',
+    checkbox.getAttribute('aria-checked') === 'false' && formRoot.textContent.includes('enabled: false'));
+  const enter = (node, modifiers = {}) => {
+    const event = new KeyboardEvent('keydown', {key:'Enter', bubbles:true, composed:true, cancelable:true, ...modifiers});
+    node.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  test('Single-line Enter submits, multiline Enter keeps native newline behavior',
+    enter(input) && !enter(notes));
+  test('Multiline Command/Ctrl+Enter submits without a newline',
+    enter(notes, {metaKey:true}) && enter(notes, {ctrlKey:true}));
+  await tick();
+  test('Both input modes dispatch semantic submit events', formRoot.textContent.includes('submissions: 3'));
+  test('Multiline input disables native resizing', getComputedStyle(notes).resize === 'none');
+
+  input.focus(); input.setSelectionRange(2,2);
+  input.dispatchEvent(new CompositionEvent('compositionstart', {bubbles:true,composed:true}));
+  input.value = '未';
+  input.dispatchEvent(new InputEvent('input', {bubbles:true,composed:true,isComposing:true}));
+  test('Enter during composition does not submit', !enter(input, {isComposing:true}));
+  const changeMode = formRoot.querySelector('[aria-label="Change input mode"]');
+  changeMode.click(); await tick();
+  const replacement = formRoot.querySelector('textarea[aria-label=Name]');
+  test('Changing mode replaces the input with a textarea and retains the committed value',
+    !!replacement && !input.isConnected && replacement.value === 'external' && replacement.dataset.refractId !== input.dataset.refractId);
+  test('Mode changes reset focus and preserve unaffected controls',
+    formRoot.activeElement !== replacement && notes === formRoot.querySelector('textarea[aria-label=Notes]'));
+  input.dispatchEvent(new CompositionEvent('compositionend', {bubbles:true,composed:true,data:'未'}));
+  await tick();
+  test('Detached composition events cannot overwrite the retained binding',
+    replacement.value === 'external' && notes.value === 'external' && formRoot.textContent.includes('submissions: 3'));
+  changeMode.click(); await tick();
+  const restored = formRoot.querySelector('input[aria-label=Name]');
+  test('Returning to single-line mode recreates an input with the same bound value',
+    !!restored && !replacement.isConnected && restored.value === 'external');
+  test('Restored single-line control uses Enter to submit', enter(restored));
+  await tick();
+  test('Restored input handler remains connected to state', formRoot.textContent.includes('submissions: 4'));
+  test('Input mode changes leave the mount healthy', !form.last_error());
+  form.dispose();
+  test('Form disposal removes retained elements', formHost.shadowRoot.childNodes.length === 0);
+  const interactionHost = host();
+  const interactions = module.start_interaction_fixture(interactionHost);
+  const interactionRoot = interactionHost.shadowRoot;
+  const pressCount = () => Number(interactionRoot.querySelector('[role=status]').textContent);
+  let expected = 0;
+  for (const [label, tag] of [['box', 'DIV'], ['text', 'SPAN'], ['image', 'IMG']]) {
+    const target = interactionRoot.querySelector(`[aria-label="${label}"]`);
+    test(`${label} activation preserves the primitive tag and exposes button semantics`,
+      target.tagName === tag && target.getAttribute('role') === 'button' && target.tabIndex === 0);
+    target.focus();
+    test(`${label} activation target accepts keyboard focus`, interactionRoot.activeElement === target);
+    target.click(); await tick(); expected += 1;
+    test(`${label} pointer activation dispatches once`, pressCount() === expected);
+    for (const key of ['Enter', ' ']) {
+      const event = new KeyboardEvent('keydown', {key, bubbles:true, composed:true, cancelable:true});
+      target.dispatchEvent(event); await tick(); expected += 1;
+      test(`${label} ${JSON.stringify(key)} activation dispatches once`, event.defaultPrevented && pressCount() === expected);
+    }
+    target.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', repeat:true, bubbles:true, composed:true}));
+    await tick();
+    test(`${label} repeated keydown does not duplicate activation`, pressCount() === expected);
+    test(`${label} handler updates retain the target`, target === interactionRoot.querySelector(`[aria-label="${label}"]`));
+  }
+  const disabledTarget = interactionRoot.querySelector('[aria-label=disabled]');
+  disabledTarget.click(); enter(disabledTarget); await tick();
+  test('Disabled styled text rejects activation and is excluded from tab traversal',
+    pressCount() === expected && disabledTarget.tabIndex === -1 && disabledTarget.getAttribute('aria-disabled') === 'true');
+  interactionRoot.querySelector('[aria-label=composed]').click(); await tick(); expected += 11;
+  test('Press callbacks compose across style modifiers', pressCount() === expected);
+  test('Primitive activation leaves the mount healthy', !interactions.last_error());
+  interactions.dispose();
+  const borderHost = host();
+  const borders = module.start_border_fixture(borderHost);
+  const borderElement = borderHost.shadowRoot.querySelector('[aria-label="border fixture"]');
+  let borderStyle = getComputedStyle(borderElement);
+  test('Border edges use independent widths and colors', borderStyle.borderTopWidth === '2px' &&
+    borderStyle.borderLeftWidth === '8px' && borderStyle.borderRightWidth === '1px' &&
+    borderStyle.borderTopColor === 'rgb(45, 87, 232)' && borderStyle.borderLeftColor === 'rgb(0, 0, 0)');
+  test('All four corner values reach the DOM', borderStyle.borderTopLeftRadius === '0px' &&
+    borderStyle.borderTopRightRadius === '12px' && borderStyle.borderBottomRightRadius === '24px' &&
+    borderStyle.borderBottomLeftRadius === '12px');
+  test('Independent borders are included in declared dimensions', borderElement.getBoundingClientRect().width === 120 &&
+    borderElement.getBoundingClientRect().height === 80 && borderElement.clientWidth === 111 && borderElement.clientHeight === 77);
+  borderElement.click(); await tick(); borderStyle = getComputedStyle(borderElement);
+  test('Uniform values replace asymmetric values', ['Top','Right','Bottom','Left'].every(side => borderStyle[`border${side}Width`] === '3px') &&
+    borderStyle.borderTopLeftRadius === '6px' && borderStyle.borderBottomRightRadius === '6px');
+  borderElement.click(); await tick(); borderStyle = getComputedStyle(borderElement);
+  test('Removing a border clears every edge', ['Top','Right','Bottom','Left'].every(side => borderStyle[`border${side}Width`] === '0px'));
+  borderElement.click(); await tick(); borderStyle = getComputedStyle(borderElement);
+  test('Single-edge border leaves other edges empty', borderStyle.borderBottomWidth === '5px' &&
+    ['Top','Right','Left'].every(side => borderStyle[`border${side}Width`] === '0px'));
+  test('Border updates preserve the host element', borderElement === borderHost.shadowRoot.querySelector('[aria-label="border fixture"]') && !borders.last_error());
+  borders.dispose();
+  const eventHost = host();
+  const events = module.start_events_fixture(eventHost);
+  const eventRoot = eventHost.shadowRoot;
+  const eventTarget = eventRoot.querySelector('[aria-label="event target"]');
+  const eventField = eventRoot.querySelector('input');
+  const plainTarget = eventRoot.querySelector('[aria-label="keyboard target"]');
+  events.take_events();
+  test('Custom focusability does not add button semantics', plainTarget.tabIndex === 0 && !plainTarget.hasAttribute('role'));
+  eventTarget.focus(); await tick();
+  test('Focus callback reports focus gain', events.take_events().includes('focus:true'));
+  eventField.focus(); await tick();
+  test('Focus callback reports focus loss', events.take_events().includes('focus:false'));
+  const escape = new KeyboardEvent('keydown', {key:'Escape',code:'Escape',bubbles:true,composed:true,cancelable:true});
+  eventTarget.dispatchEvent(escape); await tick();
+  let eventLog = events.take_events();
+  test('Typed key handler prevents default and stops ancestor handlers', escape.defaultPrevented && eventLog.includes('key:Escape:Down:false:false') && !eventLog.includes('parent-key'));
+  test('Stopping propagation preserves other handlers on the same element', eventLog.includes('second-key'));
+  eventTarget.dispatchEvent(new KeyboardEvent('keyup', {key:'Escape',code:'Escape',bubbles:true,composed:true})); await tick();
+  eventLog = events.take_events();
+  test('Key release bubbles with typed state', eventLog.includes('key:Escape:Up:false:false') && eventLog.includes('parent-key'));
+  eventTarget.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown',code:'ArrowDown',repeat:true,isComposing:true,bubbles:true,composed:true})); await tick();
+  test('Key payload retains repeat and IME composition', events.take_events().includes('key:ArrowDown:Down:true:true'));
+  eventTarget.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',bubbles:true,composed:true,cancelable:true})); await tick();
+  test('Preventing key default suppresses semantic activation', !events.take_events().split('|').includes('press'));
+  eventTarget.dispatchEvent(new PointerEvent('pointerenter', {pointerId:71,pointerType:'mouse'})); await tick();
+  eventLog = events.take_events();
+  test('Hover and pointer enter target one element without bubbling', eventLog.includes('hover:true') && eventLog.includes('pointer:Enter') && !eventLog.includes('parent-hover'));
+  eventTarget.dispatchEvent(new PointerEvent('pointerleave', {pointerId:71,pointerType:'mouse'})); await tick();
+  test('Hover leave is delivered', events.take_events().includes('hover:false'));
+  const pointerDown = new PointerEvent('pointerdown', {pointerId:71,pointerType:'mouse',buttons:1,button:0,bubbles:true,composed:true,cancelable:true});
+  eventTarget.dispatchEvent(pointerDown); await tick();
+  test('Pointer default prevention is synchronous', pointerDown.defaultPrevented && events.take_events().includes('pointer:Down'));
+  eventTarget.dispatchEvent(new PointerEvent('pointercancel', {pointerId:71,pointerType:'mouse',bubbles:true,composed:true})); await tick();
+  test('Pointer cancellation reaches handlers', events.take_events().includes('pointer:Cancel'));
+  eventField.value = 'typed'; eventField.dispatchEvent(new Event('input', {bubbles:true,composed:true})); await tick();
+  test('Input callback observes the updated binding', events.take_events().includes('input:typed:typed'));
+  events.set_value('programmatic'); await tick();
+  test('Programmatic field updates do not fire input callbacks', eventField.value === 'programmatic' && !events.take_events().includes('input:'));
+  const fieldArrow = new KeyboardEvent('keydown', {key:'ArrowDown',bubbles:true,composed:true,cancelable:true});
+  eventField.dispatchEvent(fieldArrow); await tick();
+  test('Field keyboard handlers compose with binding handlers', fieldArrow.defaultPrevented && events.take_events().includes('field-key'));
+  eventField.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',bubbles:true,composed:true,cancelable:true})); await tick();
+  test('Field submit remains available with keyboard and input handlers', events.take_events().includes('submit'));
+  events.set_disabled(true); await tick(); events.take_events();
+  eventTarget.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape',bubbles:true,composed:true,cancelable:true})); await tick();
+  test('Disabled target rejects typed events and leaves tab order', eventTarget.tabIndex === -1 && events.take_events() === '');
+  test('Event changes preserve element identity and mount health', eventTarget === eventRoot.querySelector('[aria-label="event target"]') && !events.last_error());
+  events.dispose();
+  document.querySelector('#result').textContent = `${checks.children.length - failures.length}/${checks.children.length} checks passed${failures.length ? ': '+failures.join(', ') : ''}.`;
+} catch(error) {
+  console.error(error);
+  document.querySelector('#result').textContent = `FAILED: ${error.message}`;
+}
+</script>

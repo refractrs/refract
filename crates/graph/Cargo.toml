@@ -1,0 +1,21 @@
+[package]
+name = "refract-graph"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+description = "Single-threaded reactive state, bindings, and dependency tracking for Refract"
+documentation = "https://docs.rs/refract-graph"
+keywords = ["gui", "ui", "reactive", "web", "desktop"]
+categories = ["gui"]
+include = ["/src/**", "/tests/**", "/Cargo.toml", "/README.md", "/LICENSE*"]
+
+[dependencies]
+
+
+[package.metadata.docs.rs]
+all-features = true
