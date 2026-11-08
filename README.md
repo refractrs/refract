@@ -37,6 +37,19 @@ The CLI watches for changes and rebuilds your app. To create a new project again
 this checkout, run `refract new ../my-app --framework-path .`, then `cd ../my-app`
 and `refract dev --open`.
 
+## Build for distribution
+
+```sh
+refract build --release
+refract build --release --platform desktop
+```
+
+Serve `dist/web/` with a static HTTP server. Desktop builds put the executable
+and `assets/` in `dist/desktop/`; run the executable from that directory.
+
+Use `--base-path /my-app/` when hosting under a URL prefix, or `--out-dir` to
+choose an output directory. Run `refract build --help` for all options.
+
 ## License
 
 [MIT](https://github.com/refractrs/refract/blob/HEAD/LICENSE).

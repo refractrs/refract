@@ -33,6 +33,7 @@ serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 tiny_http = { version = "0.12", optional = true }
 toml = { version = "0.8", optional = true }
+tempfile = { version = "3", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
@@ -40,7 +41,7 @@ libc = { version = "0.2", optional = true }
 [features]
 default = ["macros"]
 macros = ["dep:refract-macros"]
-cli = ["dep:clap", "dep:ctrlc", "dep:serde", "dep:serde_json", "dep:tiny_http", "dep:toml", "dep:libc"]
+cli = ["dep:clap", "dep:ctrlc", "dep:serde", "dep:serde_json", "dep:tiny_http", "dep:toml", "dep:libc", "dep:tempfile"]
 
 [dev-dependencies]
 refract-test.workspace = true

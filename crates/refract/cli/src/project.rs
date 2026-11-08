@@ -1,4 +1,4 @@
-use crate::{process, DevOptions, Platform, Result};
+use crate::{process, Platform, ProjectOptions, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -57,7 +57,7 @@ pub struct Project {
 }
 
 impl Project {
-    pub fn load(options: &DevOptions, stopped: &AtomicBool) -> Result<Self> {
+    pub fn load(options: &ProjectOptions, stopped: &AtomicBool) -> Result<Self> {
         // Select the package without resolving unrelated workspace dependencies or
         // applying app features to a virtual workspace root.
         let mut command = Command::new("cargo");
@@ -222,7 +222,7 @@ fn select_target(package: &Package, platform: Platform, binary: Option<&str>) ->
             .find(|t| t.crate_types.iter().any(|kind| kind == "cdylib"))
             .cloned()
             .ok_or_else(|| {
-                "web development requires a library with crate-type = [\"cdylib\", \"rlib\"]".into()
+                "web builds require a library with crate-type = [\"cdylib\", \"rlib\"]".into()
             });
     }
     let targets: Vec<_> = package
@@ -246,7 +246,7 @@ fn select_target(package: &Package, platform: Platform, binary: Option<&str>) ->
     })
 }
 
-pub fn cargo_options(command: &mut Command, options: &DevOptions) {
+pub fn cargo_options(command: &mut Command, options: &ProjectOptions) {
     if options.offline {
         command.arg("--offline");
     }
