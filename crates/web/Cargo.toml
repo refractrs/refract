@@ -26,3 +26,8 @@ features = ["PointerEvent", "DomRect", "ResizeObserver", "Blob", "BlobPropertyBa
 [package.metadata.docs.rs]
 default-target = "wasm32-unknown-unknown"
 all-features = true
+
+[[example]]
+name = "channel_fixture"
+path = "tests/browser/channel_fixture.rs"
+crate-type = ["cdylib"]

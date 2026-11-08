@@ -50,7 +50,11 @@ impl TestHost {
         self.updates.push(update.clone());
         Ok(())
     }
+    /// Drain one bounded message batch and commit affected views. Returns whether
+    /// a view update was committed, not whether messages were delivered. Use
+    /// `app.runtime().has_pending_messages()` to drive additional drains explicitly.
     pub fn flush(&mut self, app: &mut App) -> Result<bool, ViewError> {
+        app.runtime_mut().drain_messages();
         let Some(pending) = app.prepare()? else {
             return Ok(false);
         };

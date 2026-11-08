@@ -44,6 +44,7 @@ pub struct GraphStats {
 /// State writes settle derived computations and invalidate observers. The caller
 /// decides when to evaluate observers and when to collect retired attributes.
 pub struct Runtime {
+    pub(crate) channels: crate::channel::Channels,
     attributes: HashMap<AttributeId, Attribute>,
 
     // A stack isolates reads made by nested captures.
@@ -74,6 +75,7 @@ impl Default for Runtime {
 impl Runtime {
     pub fn new() -> Self {
         Self {
+            channels: Default::default(),
             attributes: HashMap::new(),
             tracking: RefCell::new(Vec::new()),
             retired: Rc::default(),

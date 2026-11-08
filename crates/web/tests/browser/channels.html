@@ -1,0 +1,82 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Refract channel browser tests</title>
+<pre id="results">Running…</pre>
+<div id="host"></div>
+<script type="module">
+import init, { start_channel_fixture } from './channel_fixture.js';
+const results = document.querySelector('#results');
+const checks = [];
+const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+function assert(condition, label) {
+  if (!condition) throw new Error(label);
+  checks.push(`PASS: ${label}`);
+}
+let app;
+try {
+  await init();
+  app = start_channel_fixture(document.querySelector('#host'));
+  // The default mount uses shadow DOM.
+  const content = () => {
+    const host = document.querySelector('#host');
+    const root = host.shadowRoot ?? host;
+    return root.textContent;
+  };
+  await tick();
+  assert(content().includes('effect started'), 'effect setup wakes the mounted host');
+
+  const response = await fetch('data:text/plain,async%20result');
+  app.send(0, await response.text());
+  await tick();
+  assert(content().includes('async result'), 'async fetch completion updates the DOM');
+  const revision = app.revision();
+  app.send(0, 'async result');
+  await tick();
+  assert(app.revision() === revision, 'equal completion avoids a new commit');
+
+  const workerUrl = URL.createObjectURL(new Blob([
+    'onmessage = () => postMessage("worker result")'
+  ], { type: 'text/javascript' }));
+  const worker = new Worker(workerUrl);
+  try {
+    const value = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('worker timeout')), 5000);
+      worker.onmessage = event => { clearTimeout(timer); resolve(event.data); };
+      worker.onerror = event => { clearTimeout(timer); reject(new Error(event.message)); };
+      worker.postMessage('start');
+    });
+    app.send(0, value);
+    await tick();
+    assert(content().includes('worker result'), 'Worker postMessage reaches the graph and DOM');
+  } finally {
+    worker.terminate();
+    URL.revokeObjectURL(workerUrl);
+  }
+
+  for (let n = 0; n < 300; n++) app.send(0, `burst ${n}`);
+  // Follow-up drains can yield from microtasks to a browser task.
+  for (let n = 0; n < 20 && !content().includes('burst 299'); n++) await tick();
+  assert(content().includes('burst 299'), 'bounded drains rearm until the inbox is empty');
+
+  app.replace();
+  await tick();
+  let closed = false;
+  try { app.send(0, 'stale'); } catch (error) { closed = String(error).includes('closed'); }
+  assert(closed, 'replaced effect rejects late completions');
+  app.send(1, 'new request');
+  await tick();
+  assert(content().includes('new request'), 'replacement channel delivers normally');
+  assert(app.last_error() === undefined, 'host reports no asynchronous flush error');
+  app.dispose();
+  closed = false;
+  try { app.send(1, 'after disposal'); } catch (error) { closed = String(error).includes('closed'); }
+  assert(closed, 'disposed mount rejects further completions');
+  results.textContent = `${checks.join('\n')}\n\nAll ${checks.length} checks passed.`;
+  document.title = 'PASS: Refract channel browser tests';
+} catch (error) {
+  results.textContent = `${checks.join('\n')}\nFAIL: ${error.stack ?? error}`;
+  document.title = 'FAIL: Refract channel browser tests';
+} finally {
+  app?.free();
+}
+</script>

@@ -86,6 +86,10 @@ pub fn run_with_renderer<V: View>(
     app.runtime_mut().set_waker(move || {
         let _ = proxy.send_event(());
     });
+    let message_proxy = event_loop.create_proxy();
+    app.runtime_mut().set_message_waker(move || {
+        let _ = message_proxy.send_event(());
+    });
     let image_proxy = event_loop.create_proxy();
     let host = Host::with_waker(move || {
         let _ = image_proxy.send_event(());
@@ -164,6 +168,7 @@ impl DesktopApp {
         if let Some(scheduler) = &self.scheduler {
             self.app.mutate(|rt| scheduler.drain(rt, Instant::now()));
         }
+        self.app.runtime_mut().drain_messages();
         if let Some(pending) = self.app.prepare()? {
             let stats = pending.update.stats;
             self.needs_frame |= self.host.apply(&pending.update)?;
