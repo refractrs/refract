@@ -1,11 +1,12 @@
-//! Bounded background image loading. Only encoded sources and decoded pixels cross
-//! threads; retained elements and graph state never leave the UI thread.
+//! Background image loading with a bounded worker queue and deferred admission.
+//! Only encoded sources and decoded pixels cross threads; retained elements and
+//! graph state never leave the UI thread.
 
 use crate::renderer::{ImageId, RasterImage};
 use refract_core::ImageSource;
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     io::{Cursor, Read},
     rc::{Rc, Weak},
     sync::{mpsc, Arc, Mutex},
@@ -41,6 +42,9 @@ pub(crate) struct ImageStore {
     cache: HashMap<ImageSource, Weak<RefCell<ImageResource>>>,
     pending: HashMap<ImageId, Weak<RefCell<ImageResource>>>,
     jobs: Option<mpsc::SyncSender<Job>>,
+    // Overflow stays on the UI thread until a worker completion frees capacity.
+    // The pending weak reference determines whether a request is still needed.
+    deferred: VecDeque<Job>,
     completed: mpsc::Receiver<Completion>,
     completion_sender: mpsc::Sender<Completion>,
     wake: Arc<dyn Fn() + Send + Sync>,
@@ -55,6 +59,7 @@ impl ImageStore {
             cache: HashMap::new(),
             pending: HashMap::new(),
             jobs: None,
+            deferred: VecDeque::new(),
             completed,
             completion_sender,
             wake: Arc::new(wake),
@@ -68,6 +73,11 @@ impl ImageStore {
             return;
         }
         let (jobs, receiver) = mpsc::sync_channel::<Job>(QUEUE_CAPACITY);
+        self.spawn_workers(receiver);
+        self.jobs = Some(jobs);
+    }
+
+    fn spawn_workers(&self, receiver: mpsc::Receiver<Job>) {
         let receiver = Arc::new(Mutex::new(receiver));
         for index in 0..2 {
             let receiver = receiver.clone();
@@ -97,7 +107,6 @@ impl ImageStore {
                 })
                 .expect("could not start image loader thread");
         }
-        self.jobs = Some(jobs);
     }
 
     pub fn acquire(&mut self, source: &ImageSource) -> ImageHandle {
@@ -117,18 +126,22 @@ impl ImageStore {
         }));
         self.cache.insert(source.clone(), Rc::downgrade(&handle));
         self.pending.insert(id, Rc::downgrade(&handle));
-        if self
-            .jobs
-            .as_ref()
-            .unwrap()
-            .try_send(Job {
-                id,
-                source: source.clone(),
-            })
-            .is_err()
-        {
-            self.pending.remove(&id);
-            handle.borrow_mut().state = ImageState::Failed("image request queue is full".into());
+        let job = Job {
+            id,
+            source: source.clone(),
+        };
+        // Preserve FIFO when older requests are already waiting for admission.
+        if !self.deferred.is_empty() {
+            self.deferred.push_back(job);
+            return handle;
+        }
+        match self.jobs.as_ref().unwrap().try_send(job) {
+            Ok(()) => {}
+            Err(mpsc::TrySendError::Full(job)) => self.deferred.push_back(job),
+            Err(mpsc::TrySendError::Disconnected(_)) => {
+                self.pending.remove(&id);
+                handle.borrow_mut().state = ImageState::Failed("image workers disconnected".into());
+            }
         }
         handle
     }
@@ -152,6 +165,27 @@ impl ImageStore {
                 }
             };
             changed.push(id);
+        }
+        while let Some(job) = self.deferred.pop_front() {
+            let Some(handle) = self.pending.get(&job.id).and_then(Weak::upgrade) else {
+                self.pending.remove(&job.id);
+                continue;
+            };
+            match self.jobs.as_ref().unwrap().try_send(job) {
+                Ok(()) => {}
+                Err(mpsc::TrySendError::Full(job)) => {
+                    self.deferred.push_front(job);
+                    // In-flight jobs will wake the event loop when they finish.
+                    // Do not block or keep waking it while the queue is full.
+                    break;
+                }
+                Err(mpsc::TrySendError::Disconnected(job)) => {
+                    self.pending.remove(&job.id);
+                    handle.borrow_mut().state =
+                        ImageState::Failed("image workers disconnected".into());
+                    changed.push(job.id);
+                }
+            }
         }
         self.cache.retain(|_, entry| entry.strong_count() != 0);
         changed
@@ -220,12 +254,115 @@ pub(crate) mod tests {
     use refract_core::ImageFormat;
 
     pub(crate) fn png_source() -> ImageSource {
-        let pixels = image::RgbaImage::from_pixel(4, 2, image::Rgba([80, 140, 210, 128]));
+        colored_png_source([80, 140, 210, 128])
+    }
+
+    fn colored_png_source(color: [u8; 4]) -> ImageSource {
+        let pixels = image::RgbaImage::from_pixel(4, 2, image::Rgba(color));
         let mut encoded = Cursor::new(Vec::new());
         pixels
             .write_to(&mut encoded, image::ImageFormat::Png)
             .unwrap();
         ImageSource::embedded(ImageFormat::Png, encoded.into_inner())
+    }
+
+    // Hold the receiver until every image is acquired, making saturation
+    // deterministic regardless of how fast the machine decodes small PNGs.
+    fn paused_store() -> (ImageStore, mpsc::Receiver<Job>, mpsc::Receiver<()>) {
+        let (wake, wakes) = mpsc::channel();
+        let mut store = ImageStore::new(move || {
+            let _ = wake.send(());
+        });
+        let (jobs, receiver) = mpsc::sync_channel(QUEUE_CAPACITY);
+        store.jobs = Some(jobs);
+        (store, receiver, wakes)
+    }
+
+    fn finish_images(store: &mut ImageStore, handles: &[ImageHandle], wakes: &mpsc::Receiver<()>) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while handles
+            .iter()
+            .any(|handle| matches!(handle.borrow().state, ImageState::Loading))
+        {
+            // Production waits for worker notifications too: no timer or unrelated
+            // user input should be required to admit the rest of the gallery.
+            wakes
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .expect("image loading stopped making progress");
+            store.poll();
+        }
+        for handle in handles {
+            assert!(
+                matches!(handle.borrow().state, ImageState::Ready(_)),
+                "every valid image must load"
+            );
+        }
+    }
+
+    #[test]
+    fn gallery_larger_than_worker_queue_eventually_loads_every_image() {
+        let (mut store, receiver, wakes) = paused_store();
+        let sources: Vec<_> = (0..QUEUE_CAPACITY * 3)
+            .map(|index| colored_png_source([index as u8, 140, 210, 255]))
+            .collect();
+        let handles: Vec<_> = sources.iter().map(|source| store.acquire(source)).collect();
+        let shared = store.acquire(sources.last().unwrap());
+        assert!(Rc::ptr_eq(&shared, handles.last().unwrap()));
+        assert!(
+            handles
+                .iter()
+                .all(|handle| matches!(handle.borrow().state, ImageState::Loading)),
+            "queue saturation must not fail a valid image"
+        );
+
+        store.spawn_workers(receiver);
+        finish_images(&mut store, &handles, &wakes);
+        assert_eq!(store.decoded, sources.len() as u64);
+        assert!(store.pending.is_empty());
+        assert!(store.deferred.is_empty());
+    }
+
+    #[test]
+    fn unmounted_deferred_images_are_skipped_and_reacquired_sources_still_load() {
+        let (mut store, receiver, wakes) = paused_store();
+        let mut handles: Vec<_> = (0..QUEUE_CAPACITY)
+            .map(|index| store.acquire(&colored_png_source([index as u8, 0, 0, 255])))
+            .collect();
+        let source = png_source();
+        let unmounted = store.acquire(&source);
+        let old_id = unmounted.borrow().id;
+        let weak = Rc::downgrade(&unmounted);
+        drop(unmounted);
+        let replacement = store.acquire(&source);
+        assert_ne!(replacement.borrow().id, old_id);
+        assert!(weak.upgrade().is_none());
+        handles.push(replacement);
+
+        // Workers are still paused and the queue remains full. Retired requests
+        // must be skipped before attempting to admit the replacement.
+        assert!(store.poll().is_empty());
+        assert!(!store.pending.contains_key(&old_id));
+        assert_eq!(store.deferred.len(), 1);
+        store.spawn_workers(receiver);
+        finish_images(&mut store, &handles, &wakes);
+        assert_eq!(store.decoded, handles.len() as u64);
+        assert!(store.pending.is_empty());
+        assert!(store.deferred.is_empty());
+    }
+
+    #[test]
+    fn disconnected_workers_fail_deferred_images_instead_of_leaving_them_loading() {
+        let (mut store, receiver, _) = paused_store();
+        let handles: Vec<_> = (0..QUEUE_CAPACITY + 1)
+            .map(|index| store.acquire(&colored_png_source([index as u8, 0, 0, 255])))
+            .collect();
+        let deferred_id = handles.last().unwrap().borrow().id;
+        drop(receiver);
+        assert_eq!(store.poll(), [deferred_id]);
+        assert!(matches!(&handles.last().unwrap().borrow().state,
+            ImageState::Failed(error) if error == "image workers disconnected"));
+        assert!(store.deferred.is_empty());
+        assert!(!store.pending.contains_key(&deferred_id));
     }
 
     fn wait(store: &mut ImageStore, handle: &ImageHandle) {
