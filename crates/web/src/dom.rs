@@ -303,6 +303,19 @@ pub fn mount(
             }
         });
 
+    let weak = Rc::downgrade(&inner);
+    inner
+        .app
+        .borrow_mut()
+        .as_mut()
+        .unwrap()
+        .runtime_mut()
+        .set_message_waker(move || {
+            if let Some(inner) = weak.upgrade() {
+                schedule(&inner);
+            }
+        });
+
     // Delegate input from the root. Scroll uses capture because native scroll
     // events do not bubble, and its geometry reads are batched separately.
     for name in [
@@ -426,6 +439,7 @@ fn flush(inner: &Rc<Inner>) -> Result<(), JsValue> {
         schedule(inner);
     }
 
+    app.runtime_mut().drain_messages();
     let pending = app
         .prepare()
         .map_err(|e| JsValue::from_str(&e.to_string()))?;

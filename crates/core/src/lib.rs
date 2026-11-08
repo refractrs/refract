@@ -31,7 +31,8 @@ pub use primitives::{
     Stack, Direction, Text,
 };
 pub use refract_graph::{
-    AttributeId, Binding, Dependencies, Derived, GraphStats, Observer, Runtime, State,
+    AttributeId, Binding, Dependencies, Derived, GraphStats, MessageSender, MessageSubscription,
+    Observer, Runtime, SendError, State,
 };
 pub use runtime::*;
 pub use scroll::*;
@@ -64,7 +65,7 @@ pub mod prelude {
         field, fragment, h_stack, scroll_view, spacer, stack, text, v_stack, view_fn, z_stack,
         ActionContext, Alignment, AnyView, Axis, Binding, Border, BorderSide, BoxShadow, Color,
         Container, CornerRadii, Derived, Empty, EnvironmentKey, Field, GradientStop, Image,
-        ImageFit, ImageFormat, ImageSource,
+        ImageFit, ImageFormat, ImageSource, MessageSender, MessageSubscription, SendError,
         Insets, LinearGradient, Overlay, Runtime, ScrollEvent, ScrollFollow, ScrollMetrics,
         ScrollOffset, ScrollPosition, ScrollSize, ScrollView, Spacer, Stack, Direction, State,
         Text, View, ViewContext, ViewError, ViewExt,

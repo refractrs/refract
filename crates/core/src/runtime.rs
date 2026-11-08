@@ -936,6 +936,7 @@ impl App {
     pub fn dispose(&mut self) {
         self.identity = Rc::new(());
         self.runtime.clear_waker();
+        self.runtime.close_channels();
         for mount in self.mounts.values() {
             mount.owner.set(false);
             for effect in mount.effects.values() {
