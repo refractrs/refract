@@ -1,4 +1,7 @@
+mod build;
+mod compile;
 mod dev;
+mod html;
 mod process;
 mod project;
 mod scaffold;
@@ -15,7 +18,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>
 #[command(
     name = "refract",
     version,
-    about = "Create and develop Refract applications"
+    about = "Create, develop, and build Refract applications"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -28,6 +31,8 @@ enum Commands {
     New(scaffold::NewOptions),
     /// Watch, rebuild, and run an application (reloads reset application state).
     Dev(DevOptions),
+    /// Build a distributable application without starting a server or window.
+    Build(build::BuildOptions),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -37,7 +42,7 @@ enum Platform {
 }
 
 #[derive(clap::Args)]
-struct DevOptions {
+struct ProjectOptions {
     #[arg(long, value_enum, default_value = "web")]
     platform: Platform,
     /// Select an application in a Cargo workspace.
@@ -53,18 +58,24 @@ struct DevOptions {
     features: Vec<String>,
     #[arg(long)]
     no_default_features: bool,
-    /// Serve on localhost at this port (web only).
-    #[arg(long, default_value_t = 4173)]
-    port: u16,
-    /// Open the browser when the development server starts.
-    #[arg(long)]
-    open: bool,
     /// Refuse network access, including tool installation.
     #[arg(long)]
     offline: bool,
     /// Require the existing Cargo.lock to remain unchanged.
     #[arg(long)]
     locked: bool,
+}
+
+#[derive(clap::Args)]
+struct DevOptions {
+    #[command(flatten)]
+    project: ProjectOptions,
+    /// Serve on localhost at this port (web only).
+    #[arg(long, default_value_t = 4173)]
+    port: u16,
+    /// Open the browser when the development server starts.
+    #[arg(long)]
+    open: bool,
 }
 
 fn main() {
@@ -82,5 +93,6 @@ fn run() -> Result<()> {
     match cli.command {
         Commands::New(options) => scaffold::create(options),
         Commands::Dev(options) => dev::run(options, stopped),
+        Commands::Build(options) => build::run(options, &stopped),
     }
 }

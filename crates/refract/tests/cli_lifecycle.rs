@@ -30,7 +30,7 @@ fn executable(path: &Path, body: &str) {
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-fn session(platform: &str) -> Session {
+fn fixture(platform: &str) -> tempfile::TempDir {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();
     for path in ["tools", "src", "public", "build output", "stdlib"] {
@@ -76,6 +76,7 @@ fn session(platform: &str) -> Session {
         r#"#!/bin/sh
 if [ "$1" = metadata ]; then cat "$FIXTURE/metadata.json"; exit; fi
 if [ "$1" = build ]; then
+  printf '%s\n' "$@" > "$FIXTURE/build output/cargo-args"
   if [ "$(cat "$FIXTURE/src/lib.rs")" = broken ]; then echo 'fixture compile failure' >&2; exit 1; fi
   cat "$FIXTURE/artifacts.json"
   exit
@@ -88,22 +89,35 @@ exit 1
         &root.join("tools/wasm-bindgen"),
         r#"#!/bin/sh
 if [ "$1" = --version ]; then echo 'wasm-bindgen 0.2.130'; exit; fi
+if [ -f "$FIXTURE/bindgen-fail" ]; then echo 'fixture bindgen failure' >&2; exit 1; fi
 cp "$FIXTURE/build output/fixture.wasm" "$4/fixture_bg.wasm"
 echo 'export default () => {};' > "$4/fixture.js"
 "#,
     );
-    let log = fs::File::create(root.join("build output/dev.log")).unwrap();
+    directory
+}
+
+fn fixture_command(directory: &tempfile::TempDir) -> Command {
+    let root = directory.path();
     let path = std::env::join_paths(
         std::iter::once(root.join("tools"))
             .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
     )
     .unwrap();
-    let child = Command::new(env!("CARGO_BIN_EXE_refract"))
-        .args(["dev", "--platform", platform, "--port", "0", "--offline"])
+    let mut command = Command::new(env!("CARGO_BIN_EXE_refract"));
+    command
         .current_dir(root)
         .env("FIXTURE", root)
         .env("PATH", path)
-        .env("REFRACT_WASM_BINDGEN", root.join("tools/wasm-bindgen"))
+        .env("REFRACT_WASM_BINDGEN", root.join("tools/wasm-bindgen"));
+    command
+}
+
+fn session(platform: &str) -> Session {
+    let directory = fixture(platform);
+    let log = fs::File::create(directory.path().join("build output/dev.log")).unwrap();
+    let child = fixture_command(&directory)
+        .args(["dev", "--platform", platform, "--port", "0", "--offline"])
         .stdout(Stdio::null())
         .stderr(log)
         .spawn()
@@ -193,4 +207,230 @@ fn desktop_retains_app_after_error_restarts_after_fix_and_cleans_up() {
     }
     until(|| session.child.try_wait().unwrap().is_some());
     assert!(!alive(second));
+}
+
+fn build(directory: &tempfile::TempDir, args: &[&str]) -> std::process::Output {
+    fixture_command(directory)
+        .args(["build", "--offline"])
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+fn succeeds(output: std::process::Output) {
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn web_distribution_is_complete_and_only_replaces_output_after_success() {
+    let directory = fixture("web");
+    let root = directory.path();
+    let html = "<!doctype html><head><link href='./style.css'></head><body><script type='module'>import init from './pkg/fixture.js'; await init();</script></body>";
+    fs::write(root.join("public/index.html"), html).unwrap();
+    fs::write(root.join("public/style.css"), "body { color: red; }").unwrap();
+    fs::create_dir_all(root.join("public/.well-known")).unwrap();
+    fs::write(root.join("public/.well-known/example"), "static file").unwrap();
+    fs::create_dir_all(root.join("public/pkg")).unwrap();
+    fs::write(root.join("public/pkg/stale.js"), "stale development output").unwrap();
+    let args = [
+        "--release",
+        "--locked",
+        "--features",
+        "example",
+        "--no-default-features",
+        "--base-path",
+        "/demo",
+        "--out-dir",
+        "distribution files",
+    ];
+    succeeds(build(&directory, &args));
+    let dist = root.join("distribution files");
+    let output_html = fs::read_to_string(dist.join("index.html")).unwrap();
+    assert!(output_html.contains("<base href=\"/demo/\">"));
+    assert!(!output_html.contains("__refract"));
+    assert_eq!(
+        fs::read(dist.join("pkg/fixture_bg.wasm")).unwrap(),
+        b"\0asm"
+    );
+    assert!(dist.join("pkg/fixture.js").is_file());
+    assert!(!dist.join("pkg/stale.js").exists());
+    assert!(dist.join(".well-known/example").is_file());
+    assert!(dist.join("style.css").is_file());
+    assert_eq!(
+        fs::read_to_string(root.join("public/index.html")).unwrap(),
+        html
+    );
+    let cargo_args = fs::read_to_string(root.join("build output/cargo-args")).unwrap();
+    for arg in [
+        "--release",
+        "--locked",
+        "--offline",
+        "--features",
+        "example",
+        "--no-default-features",
+        "--lib",
+        "wasm32-unknown-unknown",
+    ] {
+        assert!(
+            cargo_args.lines().any(|line| line == arg),
+            "missing {arg}: {cargo_args}"
+        );
+    }
+
+    fs::write(root.join("src/lib.rs"), "broken").unwrap();
+    assert!(!build(&directory, &args).status.success());
+    assert_eq!(
+        fs::read_to_string(dist.join("index.html")).unwrap(),
+        output_html
+    );
+    fs::write(root.join("src/lib.rs"), "fixed").unwrap();
+    fs::write(root.join("bindgen-fail"), "").unwrap();
+    assert!(!build(&directory, &args).status.success());
+    assert_eq!(
+        fs::read_to_string(dist.join("index.html")).unwrap(),
+        output_html
+    );
+    fs::remove_file(root.join("bindgen-fail")).unwrap();
+
+    fs::remove_file(root.join("public/style.css")).unwrap();
+    succeeds(build(&directory, &args));
+    assert!(
+        !dist.join("style.css").exists(),
+        "stale files must disappear on success"
+    );
+    assert!(!fs::read_dir(root).unwrap().any(|entry| entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".refract-build-")));
+
+    // Default output and unmodified relative URLs also support relocation.
+    succeeds(build(&directory, &[]));
+    assert_eq!(
+        fs::read_to_string(root.join("dist/web/index.html")).unwrap(),
+        html
+    );
+    let cargo_args = fs::read_to_string(root.join("build output/cargo-args")).unwrap();
+    assert!(!cargo_args.lines().any(|line| line == "--release"));
+}
+
+#[test]
+fn desktop_distribution_runs_from_its_own_directory_with_assets() {
+    let directory = fixture("desktop");
+    let root = directory.path();
+    fs::create_dir_all(root.join("assets/nested")).unwrap();
+    fs::write(root.join("assets/nested/message.txt"), "packaged asset").unwrap();
+    executable(
+        &root.join("build output/fixture"),
+        "#!/bin/sh\ncat assets/nested/message.txt\n",
+    );
+    succeeds(build(
+        &directory,
+        &["--platform", "desktop", "--release", "--bin", "fixture"],
+    ));
+    let dist = root.join("dist/desktop");
+    let output = Command::new(dist.join("fixture"))
+        .current_dir(&dist)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"packaged asset");
+    assert!(!dist.join("index.html").exists());
+    assert!(!dist.join("pkg").exists());
+    let args = fs::read_to_string(root.join("build output/cargo-args")).unwrap();
+    assert!(args.contains("--release\n"));
+    assert!(args.contains("--target\nfixture-native\n"));
+    assert!(args.contains("--bin\nfixture\n"));
+    assert!(!build(
+        &directory,
+        &["--platform", "desktop", "--base-path", "/app/"]
+    )
+    .status
+    .success());
+}
+
+#[test]
+fn build_rejects_unowned_outputs_source_overlap_and_unsafe_assets() {
+    let directory = fixture("web");
+    let root = directory.path();
+    fs::create_dir(root.join("unrelated")).unwrap();
+    fs::write(root.join("unrelated/keep.txt"), "keep me").unwrap();
+    for destination in [
+        ".",
+        "public",
+        "public/output",
+        "src",
+        "build output",
+        "unrelated",
+    ] {
+        assert!(
+            !build(&directory, &["--out-dir", destination])
+                .status
+                .success(),
+            "{destination}"
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(root.join("unrelated/keep.txt")).unwrap(),
+        "keep me"
+    );
+    assert!(!root.join("build output/cargo-args").exists());
+
+    succeeds(build(&directory, &["--release"]));
+    std::os::unix::fs::symlink(root.join("src/lib.rs"), root.join("public/link")).unwrap();
+    let failure = build(&directory, &["--release"]);
+    assert!(!failure.status.success());
+    assert!(String::from_utf8_lossy(&failure.stderr).contains("symlinks are not copied"));
+    assert!(root.join("dist/web/pkg/fixture.js").is_file());
+    std::os::unix::fs::symlink(root.join("dist/web"), root.join("linked-output")).unwrap();
+    assert!(!build(&directory, &["--out-dir", "linked-output"])
+        .status
+        .success());
+}
+
+#[test]
+fn base_path_validation_does_not_silently_change_existing_html_bases() {
+    let directory = fixture("web");
+    for base in [
+        "https://example.com/",
+        "//example.com/",
+        "/../app/",
+        "/a//b",
+        "/app?query",
+        "/app\"bad",
+    ] {
+        assert!(
+            !build(&directory, &["--base-path", base]).status.success(),
+            "{base}"
+        );
+    }
+    fs::write(
+        directory.path().join("public/index.html"),
+        "<head><base href='/existing/'></head>",
+    )
+    .unwrap();
+    assert!(!build(&directory, &["--base-path", "/new/"])
+        .status
+        .success());
+    assert!(!directory.path().join("build output/cargo-args").exists());
+}
+
+#[test]
+fn symlinked_sources_can_build_but_cannot_be_used_as_output() {
+    let directory = fixture("web");
+    let root = directory.path();
+    fs::rename(root.join("src"), root.join("shared-source")).unwrap();
+    std::os::unix::fs::symlink(root.join("shared-source"), root.join("src")).unwrap();
+    succeeds(build(&directory, &[]));
+    assert!(!build(&directory, &["--out-dir", "shared-source/output"])
+        .status
+        .success());
+    assert_eq!(
+        fs::read_to_string(root.join("shared-source/lib.rs")).unwrap(),
+        "valid"
+    );
 }

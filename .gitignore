@@ -3,3 +3,6 @@
 /examples/*/public/pkg/
 /node_modules/
 /test-results/
+
+/dist/
+/examples/*/dist/

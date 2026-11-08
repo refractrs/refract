@@ -25,6 +25,7 @@ fn visit(path: &Path, target_dir: &Path, result: &mut Snapshot) -> Result<()> {
         .unwrap_or_default();
     if [
         "target",
+        "dist",
         ".git",
         ".tools",
         "node_modules",
@@ -32,6 +33,7 @@ fn visit(path: &Path, target_dir: &Path, result: &mut Snapshot) -> Result<()> {
         ".refract",
     ]
     .contains(&name)
+        || name.starts_with(".refract-build-")
         || name.ends_with('~')
         || name.ends_with(".swp")
         || (name == "pkg" && path.parent().is_some_and(|p| p.ends_with("public")))
@@ -44,6 +46,9 @@ fn visit(path: &Path, target_dir: &Path, result: &mut Snapshot) -> Result<()> {
         Err(error) => return Err(error.into()),
     };
     if metadata.is_dir() {
+        if path.join(".refract-build.json").is_file() {
+            return Ok(());
+        }
         for entry in fs::read_dir(path)? {
             visit(&entry?.path(), target_dir, result)?;
         }
@@ -67,6 +72,13 @@ mod tests {
         let empty = snap();
         fs::write(root.join("target/build"), "build").unwrap();
         fs::write(root.join("public/pkg/app.js"), "output").unwrap();
+        for directory in ["dist/web", ".refract-build-staging", "custom-output"] {
+            fs::create_dir_all(root.join(directory)).unwrap();
+            if directory == "custom-output" {
+                fs::write(root.join(directory).join(".refract-build.json"), "{}").unwrap();
+            }
+            fs::write(root.join(directory).join("app.js"), "output").unwrap();
+        }
         assert_eq!(snap(), empty);
         fs::write(root.join("app.rs"), "first").unwrap();
         let added = snap();
