@@ -1,4 +1,4 @@
-//! Retained desktop elements. Patches update this tree, not the application's views.
+//! Retained native elements. Patches update this tree, not the application's views.
 
 mod input;
 mod events;
@@ -13,7 +13,7 @@ use crate::{
     layout,
     renderer::{Point, Rect},
     text::{TextBlock, TextSystem, Typography},
-    DesktopError, Result,
+    NativeError, Result,
 };
 use refract_core::{Element, ElementId, ElementKind, Patch, Update};
 use std::{
@@ -129,7 +129,7 @@ impl Host {
     /// Structural validation walks topology only when children/identities change.
     fn validate(&self, update: &Update) -> Result<()> {
         if update.base_revision != self.stats.revision || update.revision <= update.base_revision {
-            return Err(DesktopError::Host("stale host revision".into()));
+            return Err(NativeError::Host("stale host revision".into()));
         }
         let mut created = HashSet::new();
         let mut removed = HashSet::new();
@@ -138,7 +138,7 @@ impl Host {
             match patch {
                 Patch::Create(id, element) => {
                     if self.entries.contains_key(id) || !created.insert(*id) {
-                        return Err(DesktopError::Host("duplicate element identity".into()));
+                        return Err(NativeError::Host("duplicate element identity".into()));
                     }
                     validate_element(element)?;
                 }
@@ -146,17 +146,17 @@ impl Host {
                     let old = self
                         .entries
                         .get(id)
-                        .ok_or_else(|| DesktopError::Host("unknown update target".into()))?;
+                        .ok_or_else(|| NativeError::Host("unknown update target".into()))?;
                     if old.element.kind != element.kind
                         || old.element.interaction != element.interaction
                     {
-                        return Err(DesktopError::Host("element kind changed".into()));
+                        return Err(NativeError::Host("element kind changed".into()));
                     }
                     validate_element(element)?;
                 }
                 Patch::Remove(id) => {
                     if !self.entries.contains_key(id) || !removed.insert(*id) {
-                        return Err(DesktopError::Host("unknown or repeated removal".into()));
+                        return Err(NativeError::Host("unknown or repeated removal".into()));
                     }
                 }
                 Patch::Children(parent, list) => {
@@ -172,7 +172,7 @@ impl Host {
         };
         for (parent, list) in &children {
             if parent.as_ref().is_some_and(|id| !exists(id)) || list.iter().any(|id| !exists(id)) {
-                return Err(DesktopError::Host("unknown child or parent".into()));
+                return Err(NativeError::Host("unknown child or parent".into()));
             }
         }
         let roots = children.get(&None).copied().unwrap_or(&self.roots);
@@ -180,7 +180,7 @@ impl Host {
         let mut stack = roots.to_vec();
         while let Some(id) = stack.pop() {
             if !exists(&id) || !visited.insert(id) {
-                return Err(DesktopError::Host(
+                return Err(NativeError::Host(
                     "cycle, duplicate, or removed child".into(),
                 ));
             }
@@ -192,7 +192,7 @@ impl Host {
         }
         let total = self.entries.len() + created.len() - removed.len();
         if visited.len() != total {
-            return Err(DesktopError::Host("unreachable host elements".into()));
+            return Err(NativeError::Host("unreachable host elements".into()));
         }
         Ok(())
     }
@@ -415,7 +415,7 @@ impl Host {
 fn validate_element(element: &Element) -> Result<()> {
     element.validate()?;
     if element.style.truncate {
-        return Err(DesktopError::Unsupported("text ellipsis".into()));
+        return Err(NativeError::Unsupported("text ellipsis".into()));
     }
     Ok(())
 }

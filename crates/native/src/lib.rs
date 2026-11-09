@@ -12,13 +12,13 @@ pub mod renderer;
 mod scheduler;
 mod text;
 
-pub use error::{DesktopError, Result};
+pub use error::{NativeError, Result};
 
 #[cfg(feature = "vello")]
 pub use app::run;
-pub use app::{run_with_renderer, DesktopOptions};
+pub use app::{run_with_renderer, NativeOptions};
 pub use host::HostStats;
-pub use scheduler::{DesktopHandle, ScheduleError, TimerGuard};
+pub use scheduler::{NativeHandle, ScheduleError, TimerGuard};
 /// The window type passed to custom renderer factories.
 pub use winit::window::Window;
 

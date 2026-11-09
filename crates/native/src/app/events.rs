@@ -5,7 +5,7 @@ use refract_core::{
     PointerButtons, PointerEvent, PointerKind, PointerPhase,
 };
 
-impl DesktopApp {
+impl NativeApp {
     fn event_modifiers(&self) -> Modifiers {
         Modifiers {
             shift: self.modifiers.shift_key(),

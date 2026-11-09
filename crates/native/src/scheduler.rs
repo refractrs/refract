@@ -16,11 +16,11 @@ type Tick = Rc<dyn Fn(&mut Runtime)>;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ScheduleError {
-    #[error("desktop app is disposed")]
+    #[error("native app is disposed")]
     Disposed,
     #[error("view scope is disposed")]
     ScopeDisposed,
-    #[error("desktop mutation queue is full")]
+    #[error("native mutation queue is full")]
     Full,
     #[error("timer duration must be positive and fit a monotonic deadline")]
     InvalidDuration,
@@ -43,7 +43,7 @@ struct Shared {
 /// A weak, UI-thread handle. Admission succeeds before the mutation executes.
 /// It may be captured by mounted effects without keeping a disposed app alive.
 #[derive(Clone)]
-pub struct DesktopHandle(Weak<RefCell<Shared>>);
+pub struct NativeHandle(Weak<RefCell<Shared>>);
 
 /// Cancels its timer on drop. Return it from an effect's cleanup closure.
 pub struct TimerGuard {
@@ -64,7 +64,7 @@ impl Drop for TimerGuard {
     }
 }
 
-impl DesktopHandle {
+impl NativeHandle {
     /// Admit a mutation for the next event-loop flush. This handle is UI-thread only.
     pub fn update(&self, action: impl FnOnce(&mut Runtime) + 'static) -> Result<(), ScheduleError> {
         self.enqueue(None, Box::new(action))
@@ -147,8 +147,8 @@ impl Scheduler {
         })))
     }
 
-    pub fn handle(&self) -> DesktopHandle {
-        DesktopHandle(Rc::downgrade(&self.0))
+    pub fn handle(&self) -> NativeHandle {
+        NativeHandle(Rc::downgrade(&self.0))
     }
 
     pub fn drain(&self, rt: &mut Runtime, now: Instant) {

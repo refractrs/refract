@@ -8,7 +8,7 @@ use crate::{
     platform::TextInputSession,
     renderer::{Point, Presentation, Renderer},
     scheduler::Scheduler,
-    DesktopError, DesktopHandle, Result,
+    NativeError, NativeHandle, Result,
 };
 
 use refract_core::{App, Color, ElementId, View};
@@ -28,7 +28,7 @@ use winit::{
 /// Window configuration in logical pixels. The first adapter centers its root
 /// content; the root can opt into filling the viewport with fill_width/fill_height.
 #[derive(Clone, Debug)]
-pub struct DesktopOptions {
+pub struct NativeOptions {
     pub title: String,
     pub width: f64,
     pub height: f64,
@@ -37,7 +37,7 @@ pub struct DesktopOptions {
     pub diagnostics: bool,
 }
 
-impl Default for DesktopOptions {
+impl Default for NativeOptions {
     fn default() -> Self {
         Self {
             title: "Refract".into(),
@@ -51,7 +51,7 @@ impl Default for DesktopOptions {
 
 /// Run a native app on the main thread using Vello's GPU renderer.
 #[cfg(feature = "vello")]
-pub fn run<V: View>(options: DesktopOptions, view: impl FnOnce(DesktopHandle) -> V) -> Result<()> {
+pub fn run<V: View>(options: NativeOptions, view: impl FnOnce(NativeHandle) -> V) -> Result<()> {
     run_with_renderer(options, view, |window| {
         Ok(Box::new(VelloRenderer::new(window)?))
     })
@@ -61,8 +61,8 @@ pub fn run<V: View>(options: DesktopOptions, view: impl FnOnce(DesktopHandle) ->
 /// The factory runs after Winit creates a window. It can initialize its own wgpu
 /// device and surface; the resulting renderer remains on the UI thread.
 pub fn run_with_renderer<V: View>(
-    options: DesktopOptions,
-    view: impl FnOnce(DesktopHandle) -> V,
+    options: NativeOptions,
+    view: impl FnOnce(NativeHandle) -> V,
     factory: impl FnOnce(Arc<Window>) -> Result<Box<dyn Renderer>> + 'static,
 ) -> Result<()> {
     if !options.width.is_finite()
@@ -70,7 +70,7 @@ pub fn run_with_renderer<V: View>(
         || options.width <= 0.0
         || options.height <= 0.0
     {
-        return Err(DesktopError::Host(
+        return Err(NativeError::Host(
             "window dimensions must be finite and positive".into(),
         ));
     }
@@ -94,7 +94,7 @@ pub fn run_with_renderer<V: View>(
     let host = Host::with_waker(move || {
         let _ = image_proxy.send_event(());
     })?;
-    let mut runner = DesktopApp {
+    let mut runner = NativeApp {
         options,
         app,
         scheduler: Some(scheduler),
@@ -126,8 +126,8 @@ pub fn run_with_renderer<V: View>(
 
 type Factory = Box<dyn FnOnce(Arc<Window>) -> Result<Box<dyn Renderer>>>;
 
-struct DesktopApp {
-    options: DesktopOptions,
+struct NativeApp {
+    options: NativeOptions,
     app: App,
     scheduler: Option<Scheduler>,
     host: Host,
@@ -148,12 +148,12 @@ struct DesktopApp {
     needs_frame: bool,
     occluded: bool,
     retry_at: Option<Instant>,
-    error: Option<DesktopError>,
+    error: Option<NativeError>,
     presented: u64,
 }
 
-impl DesktopApp {
-    fn fail(&mut self, event_loop: &ActiveEventLoop, error: DesktopError) {
+impl NativeApp {
+    fn fail(&mut self, event_loop: &ActiveEventLoop, error: NativeError) {
         // A failed host apply is not an accepted diff baseline. Stop rather than
         // trying to continue from a potentially partially mutated retained tree.
         self.error = Some(error);
@@ -176,7 +176,7 @@ impl DesktopApp {
             // without a visible property change. Presentation is a later phase.
             self.app.commit(pending)?;
             if self.options.diagnostics {
-                eprintln!("refract desktop commit={} evaluated={} visited={} patches={} created={} removed={}",
+                eprintln!("refract native commit={} evaluated={} visited={} patches={} created={} removed={}",
                     self.app.revision(), stats.evaluated, stats.visited, stats.patches, stats.created, stats.removed);
             }
         }
@@ -239,7 +239,7 @@ impl DesktopApp {
                 if self.options.diagnostics {
                     let stats = self.host.stats();
                     eprintln!(
-                        "refract desktop frame={} elements={} shapes={} layouts={} images={}",
+                        "refract native frame={} elements={} shapes={} layouts={} images={}",
                         self.presented,
                         stats.elements,
                         stats.text_shapes,
@@ -263,7 +263,7 @@ impl DesktopApp {
     }
 }
 
-impl ApplicationHandler<()> for DesktopApp {
+impl ApplicationHandler<()> for NativeApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             self.occluded = false;
@@ -605,6 +605,6 @@ impl ApplicationHandler<()> for DesktopApp {
     }
 }
 
-fn host_error(error: impl std::fmt::Display) -> DesktopError {
-    DesktopError::Host(error.to_string())
+fn host_error(error: impl std::fmt::Display) -> NativeError {
+    NativeError::Host(error.to_string())
 }

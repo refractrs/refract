@@ -31,13 +31,13 @@ struct Ownership {
 }
 
 pub fn run(options: BuildOptions, stopped: &AtomicBool) -> Result<()> {
-    if options.project.platform == Platform::Desktop && options.base_path.is_some() {
+    if options.project.platform == Platform::Native && options.base_path.is_some() {
         return Err("--base-path applies only to web builds".into());
     }
     let project = Project::load(&options.project, stopped)?;
     let platform = match options.project.platform {
         Platform::Web => "web",
-        Platform::Desktop => "desktop",
+        Platform::Native => "desktop",
     };
     let ownership = Ownership {
         refract_build: 1,
@@ -93,7 +93,7 @@ pub fn run(options: BuildOptions, stopped: &AtomicBool) -> Result<()> {
                 stopped,
             )?;
         }
-        Platform::Desktop => {
+        Platform::Native => {
             let name = artifact
                 .path
                 .file_name()
@@ -119,7 +119,7 @@ pub fn run(options: BuildOptions, stopped: &AtomicBool) -> Result<()> {
     }
     publish(staging, &output, &ownership)?;
     eprintln!("Built {} → {}", project.package.name, output.display());
-    if options.project.platform == Platform::Desktop {
+    if options.project.platform == Platform::Native {
         eprintln!("Run the executable with this output directory as the working directory.");
     }
     Ok(())

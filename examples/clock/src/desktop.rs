@@ -1,6 +1,6 @@
 //! Native clock source. The root effect, context, and displays are shared with WASM.
 #[cfg(not(target_arch = "wasm32"))]
-fn main() -> refract_desktop::Result<()> {
+fn main() -> refract_native::Result<()> {
     use std::time::Duration;
 
     fn now() -> refract_clock::Reading {
@@ -11,16 +11,16 @@ fn main() -> refract_desktop::Result<()> {
         }
     }
 
-    refract_desktop::run(
-        refract_desktop::DesktopOptions {
-            title: "Clock — Refract Desktop".into(),
+    refract_native::run(
+        refract_native::NativeOptions {
+            title: "Clock — Refract Native".into(),
             height: 600.0,
             diagnostics: std::env::var_os("REFRACT_DIAGNOSTICS").is_some(),
             ..Default::default()
         },
-        |desktop| {
+        |native| {
             refract_clock::application(now(), move |reading, scope| {
-                let timer = desktop
+                let timer = native
                     .interval(Duration::from_secs(1), scope, move |rt| {
                         reading.set_if_changed(rt, now());
                     })

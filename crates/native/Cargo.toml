@@ -1,5 +1,5 @@
 [package]
-name = "refract-desktop"
+name = "refract-native"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
-description = "Native desktop adapter for Refract with retained layout and GPU rendering"
-documentation = "https://docs.rs/refract-desktop"
-keywords = ["gui", "ui", "reactive", "web", "desktop"]
+description = "Native adapter for Refract with retained layout and GPU rendering"
+documentation = "https://docs.rs/refract-native"
+keywords = ["gui", "ui", "reactive", "web", "native"]
 categories = ["gui"]
 include = ["/src/**", "/tests/**", "/Cargo.toml", "/README.md", "/LICENSE*"]
 

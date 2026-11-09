@@ -105,7 +105,7 @@ impl Project {
             .clone();
         let target = select_target(&package, options.platform, options.bin.as_deref())?;
         let mut features = options.features.clone();
-        if options.platform == Platform::Desktop {
+        if options.platform == Platform::Native {
             if package.features.contains_key("desktop") {
                 features.push("desktop".into());
             }

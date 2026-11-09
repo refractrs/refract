@@ -2167,7 +2167,7 @@ dependencies = [
  "futures-util",
  "js-sys",
  "refract",
- "refract-desktop",
+ "refract-native",
  "refract-test",
  "refract-web",
  "wasm-bindgen",
@@ -2182,7 +2182,7 @@ dependencies = [
  "chrono",
  "js-sys",
  "refract",
- "refract-desktop",
+ "refract-native",
  "refract-test",
  "refract-web",
  "wasm-bindgen",
@@ -2201,29 +2201,10 @@ name = "refract-counter"
 version = "0.1.1"
 dependencies = [
  "refract",
- "refract-desktop",
+ "refract-native",
  "refract-web",
  "wasm-bindgen",
  "web-sys",
-]
-
-[[package]]
-name = "refract-desktop"
-version = "0.1.1"
-dependencies = [
- "arboard",
- "image",
- "objc2-app-kit 0.3.2",
- "objc2-quartz-core 0.3.2",
- "parley",
- "pollster",
- "refract",
- "refract-core",
- "taffy",
- "thiserror 2.0.21",
- "ureq",
- "vello",
- "winit",
 ]
 
 [[package]]
@@ -2231,7 +2212,7 @@ name = "refract-gallery"
 version = "0.1.1"
 dependencies = [
  "refract",
- "refract-desktop",
+ "refract-native",
  "refract-test",
  "refract-web",
  "wasm-bindgen",
@@ -2249,6 +2230,25 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "refract-native"
+version = "0.1.1"
+dependencies = [
+ "arboard",
+ "image",
+ "objc2-app-kit 0.3.2",
+ "objc2-quartz-core 0.3.2",
+ "parley",
+ "pollster",
+ "refract",
+ "refract-core",
+ "taffy",
+ "thiserror 2.0.21",
+ "ureq",
+ "vello",
+ "winit",
 ]
 
 [[package]]

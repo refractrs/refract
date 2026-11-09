@@ -74,7 +74,7 @@ pub struct GlyphRun {
     pub glyphs: Vec<Glyph>,
 }
 
-/// Stable resource identity within one desktop host.
+/// Stable resource identity within one native host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ImageId(pub(crate) u64);
 

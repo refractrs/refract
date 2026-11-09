@@ -49,8 +49,8 @@ jobs:
         run: cargo test --workspace --all-features --locked
       - name: Check library without default features
         run: cargo check -p refract --no-default-features --locked
-      - name: Check desktop adapter without the GPU renderer
-        run: cargo check -p refract-desktop --no-default-features --locked
+      - name: Check native adapter without the GPU renderer
+        run: cargo check -p refract-native --no-default-features --locked
 
   wasm:
     name: WebAssembly build
