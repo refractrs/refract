@@ -2164,11 +2164,14 @@ dependencies = [
 name = "refract-chat"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
+ "js-sys",
  "refract",
  "refract-desktop",
  "refract-test",
  "refract-web",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 

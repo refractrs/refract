@@ -3,26 +3,45 @@ use refract::{App, ElementKind, Event, Patch};
 use refract_test::TestHost;
 use std::cell::{Cell, RefCell};
 
+struct Worker {
+    sender: MessageSender<service::StreamEvent>,
+    pending: RefCell<std::collections::VecDeque<service::StreamEvent>>,
+}
+
 #[derive(Default)]
-struct Timers {
-    callbacks: RefCell<Vec<Tick>>,
+struct Workers {
+    workers: RefCell<Vec<Worker>>,
     active: Rc<Cell<usize>>,
 }
 
-fn mounted() -> (App, TestHost, Rc<Timers>) {
-    let timers = Rc::new(Timers::default());
-    let mut app = App::new(application({
-        let timers = timers.clone();
-        move |_, tick| {
-            timers.callbacks.borrow_mut().push(tick);
-            timers.active.set(timers.active.get() + 1);
-            let active = timers.active.clone();
-            Box::new(move || active.set(active.get() - 1))
+fn mounted() -> (App, TestHost, Rc<Workers>) {
+    let workers = Rc::new(Workers::default());
+    let mut app = App::new(root(Rc::new(ReplySource::new({
+        let workers = workers.clone();
+        move |prompt, sender| {
+            let chunks = service::chunks(&service::reply(&prompt));
+            let total = chunks.len();
+            workers.workers.borrow_mut().push(Worker {
+                sender,
+                pending: RefCell::new(
+                    chunks
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, text)| service::StreamEvent::Chunk {
+                            text,
+                            complete: i + 1 == total,
+                        })
+                        .collect(),
+                ),
+            });
+            workers.active.set(workers.active.get() + 1);
+            let active = workers.active.clone();
+            Ok(Box::new(move || active.set(active.get() - 1)))
         }
-    }));
+    }))));
     let mut host = TestHost::default();
     host.flush(&mut app).unwrap();
-    (app, host, timers)
+    (app, host, workers)
 }
 
 fn input(app: &mut App, host: &mut TestHost, label: &str, value: &str) {
@@ -36,20 +55,28 @@ fn input(app: &mut App, host: &mut TestHost, label: &str, value: &str) {
     host.flush(app).unwrap();
 }
 
-fn tick(app: &mut App, host: &mut TestHost, timers: &Timers, index: usize) {
-    let callback = timers.callbacks.borrow()[index].clone();
-    app.mutate(|rt| callback(rt));
+fn tick(app: &mut App, host: &mut TestHost, workers: &Workers, index: usize) {
+    let list = workers.workers.borrow();
+    let worker = &list[index];
+    if let Some(event) = worker.pending.borrow_mut().pop_front() {
+        let sender = worker.sender.clone();
+        // Only owned payloads cross threads; graph state remains in the receiver.
+        let result = std::thread::spawn(move || sender.try_send(event))
+            .join()
+            .unwrap();
+        assert!(!matches!(result, Err(SendError::Full(_))));
+    }
     host.flush(app).unwrap();
 }
 
 #[test]
 fn chunks_update_one_text_element_without_rebuilding_the_shell() {
-    let (mut app, mut host, timers) = mounted();
+    let (mut app, mut host, workers) = mounted();
     input(&mut app, &mut host, "Message Refract", "Explain Rust state");
     host.press(&mut app, "Send message").unwrap();
-    assert_eq!(timers.active.get(), 1);
+    assert_eq!(workers.active.get(), 1);
     let ids: std::collections::HashSet<_> = host.elements.keys().copied().collect();
-    tick(&mut app, &mut host, &timers, 0);
+    tick(&mut app, &mut host, &workers, 0);
     let update = host.updates.last().unwrap();
     assert!(
         matches!(update.patches.as_slice(), [Patch::Update(_, e)] if e.kind == ElementKind::Text && e.text.starts_with("In this example"))
@@ -65,16 +92,20 @@ fn chunks_update_one_text_element_without_rebuilding_the_shell() {
             .collect::<std::collections::HashSet<_>>(),
         ids
     );
-    for _ in 0..40 {
-        tick(&mut app, &mut host, &timers, 0);
+    for _ in 0..100 {
+        tick(&mut app, &mut host, &workers, 0);
     }
-    assert_eq!(timers.active.get(), 0, "completion removes timer");
+    assert_eq!(
+        workers.active.get(),
+        0,
+        "completion cancels producer and closes receiver"
+    );
     assert!(host.text().contains("application logic stays in Rust."));
 }
 
 #[test]
 fn drafts_survive_switching_and_background_streams_remain_owned() {
-    let (mut app, mut host, timers) = mounted();
+    let (mut app, mut host, workers) = mounted();
     input(
         &mut app,
         &mut host,
@@ -83,7 +114,7 @@ fn drafts_survive_switching_and_background_streams_remain_owned() {
     );
     host.press(&mut app, "Open A weekend away").unwrap();
     host.press(&mut app, "Find a change of scene").unwrap();
-    assert_eq!(timers.active.get(), 1);
+    assert_eq!(workers.active.get(), 1);
     host.press(&mut app, "Open A calmer kind of workspace")
         .unwrap();
     let editor = host
@@ -93,7 +124,7 @@ fn drafts_survive_switching_and_background_streams_remain_owned() {
         .unwrap();
     assert_eq!(editor.value, "my unfinished draft");
     let revision = host.revision;
-    tick(&mut app, &mut host, &timers, 0);
+    tick(&mut app, &mut host, &workers, 0);
     assert_eq!(
         host.revision, revision,
         "hidden message body has no mounted reader"
@@ -101,33 +132,33 @@ fn drafts_survive_switching_and_background_streams_remain_owned() {
     host.press(&mut app, "Open Help me plan a slow weekend away")
         .unwrap();
     assert!(host.text().contains("Let’s leave a little"));
-    assert_eq!(timers.active.get(), 1);
+    assert_eq!(workers.active.get(), 1);
     host.press(&mut app, "Stop response").unwrap();
-    assert_eq!(timers.active.get(), 0);
+    assert_eq!(workers.active.get(), 0);
 }
 
 #[test]
 fn stop_and_delete_reject_late_chunks_and_unmount_cleans_up() {
-    let (mut app, mut host, timers) = mounted();
+    let (mut app, mut host, workers) = mounted();
     input(&mut app, &mut host, "Message Refract", "one");
     host.press(&mut app, "Send message").unwrap();
     host.press(&mut app, "Stop response").unwrap();
     let text = host.text();
-    tick(&mut app, &mut host, &timers, 0);
+    tick(&mut app, &mut host, &workers, 0);
     assert_eq!(host.text(), text);
     input(&mut app, &mut host, "Message Refract", "two");
     host.press(&mut app, "Send message").unwrap();
-    tick(&mut app, &mut host, &timers, 0);
+    tick(&mut app, &mut host, &workers, 0);
     assert!(!host.text().contains("You asked: “one”"));
     host.press(&mut app, "Delete chat").unwrap();
-    assert_eq!(timers.active.get(), 0);
+    assert_eq!(workers.active.get(), 0);
     let text = host.text();
-    tick(&mut app, &mut host, &timers, 1);
+    tick(&mut app, &mut host, &workers, 1);
     assert_eq!(host.text(), text);
     host.press(&mut app, "Build something").unwrap();
-    assert_eq!(timers.active.get(), 1);
+    assert_eq!(workers.active.get(), 1);
     app.dispose();
-    assert_eq!(timers.active.get(), 0);
+    assert_eq!(workers.active.get(), 0);
 }
 
 #[test]
@@ -155,4 +186,75 @@ fn blank_submission_filtering_and_deleting_last_chat_preserve_invariants() {
         .elements
         .values()
         .any(|e| e.label.as_deref() == Some("Open Designing with intention")));
+}
+
+#[test]
+fn queued_completion_cannot_undo_stop_or_enter_a_replacement_request() {
+    let (mut app, mut host, workers) = mounted();
+    input(&mut app, &mut host, "Message Refract", "first request");
+    host.press(&mut app, "Send message").unwrap();
+    let old = workers.workers.borrow()[0].sender.clone();
+    old.try_send(service::StreamEvent::Chunk {
+        text: "STALE COMPLETION".into(),
+        complete: true,
+    })
+    .unwrap();
+    // Dispatch Stop before the host drains the already-queued result.
+    host.press(&mut app, "Stop response").unwrap();
+    assert!(host.text().contains("RESPONSE STOPPED"));
+    assert!(!host.text().contains("STALE COMPLETION"));
+    assert!(matches!(
+        old.try_send(service::StreamEvent::Failed("late failure".into())),
+        Err(SendError::Closed(_))
+    ));
+    input(&mut app, &mut host, "Message Refract", "second request");
+    host.press(&mut app, "Send message").unwrap();
+    tick(&mut app, &mut host, &workers, 1);
+    assert!(!host.text().contains("STALE COMPLETION"));
+    assert_eq!(workers.active.get(), 1);
+}
+
+#[test]
+fn queued_chunks_are_ignored_on_delete_and_failures_release_the_composer() {
+    let (mut app, mut host, workers) = mounted();
+    input(&mut app, &mut host, "Message Refract", "delete me");
+    host.press(&mut app, "Send message").unwrap();
+    workers.workers.borrow()[0]
+        .sender
+        .try_send(service::StreamEvent::Chunk {
+            text: "DELETED RESULT".into(),
+            complete: true,
+        })
+        .unwrap();
+    host.press(&mut app, "Delete chat").unwrap();
+    assert!(!host.text().contains("DELETED RESULT"));
+    assert_eq!(workers.active.get(), 0);
+    input(&mut app, &mut host, "Message Refract", "try again");
+    host.press(&mut app, "Send message").unwrap();
+    workers.workers.borrow()[1]
+        .sender
+        .try_send(service::StreamEvent::Failed("test failure".into()))
+        .unwrap();
+    host.flush(&mut app).unwrap();
+    assert!(host.text().contains("RESPONSE FAILED"));
+    assert!(host.text().contains("test failure"));
+    assert_eq!(workers.active.get(), 0);
+    input(&mut app, &mut host, "Message Refract", "retry");
+    host.press(&mut app, "Send message").unwrap();
+    assert_eq!(workers.active.get(), 1);
+}
+
+#[test]
+fn failed_worker_start_is_rendered_without_leaving_a_live_request() {
+    let mut app = App::new(root(Rc::new(ReplySource::new(|_, _| {
+        Err("cannot start worker".into())
+    }))));
+    let mut host = TestHost::default();
+    host.flush(&mut app).unwrap();
+    input(&mut app, &mut host, "Message Refract", "hello");
+    host.press(&mut app, "Send message").unwrap();
+    host.flush(&mut app).unwrap();
+    assert!(host.text().contains("cannot start worker"));
+    assert!(host.text().contains("RESPONSE FAILED"));
+    host.button("Send message");
 }

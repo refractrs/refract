@@ -41,7 +41,7 @@ pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
                 .background(Color::WHITE)
                 .border(Border::all(1.0, LINE))
                 .radius(14.0)
-                .shadow(BoxShadow::new(0.0, 4.0, 20.0, Color(43, 48, 42, 22)))
+                .shadow(BoxShadow::new(0.0, 4.0, 20.0, Color(24, 40, 63, 18)))
                 .max_width(740.0)
                 .fill_width(),
         )
@@ -85,7 +85,7 @@ fn send_control(cx: &mut ViewContext<'_>) -> impl View {
             "Send message"
         })
         .disabled(!busy && !enabled)
-        .background(if busy || enabled { GREEN } else { SIDE })
+        .background(if busy || enabled { ACCENT } else { SIDE })
         .foreground(if busy || enabled { Color::WHITE } else { MUTED })
         .radius(8.0)
 }
