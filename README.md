@@ -37,7 +37,7 @@ The CLI watches for changes and rebuilds your app. To create a new project again
 this checkout, run `refract new ../my-app --framework-path .`, then `cd ../my-app`
 and `refract dev --open`.
 
-## Build for distribution
+### Build for distribution
 
 ```sh
 refract build --release

@@ -2145,7 +2145,7 @@ dependencies = [
 
 [[package]]
 name = "refract"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "ctrlc",
@@ -2162,7 +2162,7 @@ dependencies = [
 
 [[package]]
 name = "refract-chat"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures-util",
  "js-sys",
@@ -2177,7 +2177,7 @@ dependencies = [
 
 [[package]]
 name = "refract-clock"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "js-sys",
@@ -2191,14 +2191,14 @@ dependencies = [
 
 [[package]]
 name = "refract-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "refract-graph",
 ]
 
 [[package]]
 name = "refract-counter"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "refract",
  "refract-desktop",
@@ -2209,7 +2209,7 @@ dependencies = [
 
 [[package]]
 name = "refract-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arboard",
  "image",
@@ -2228,7 +2228,7 @@ dependencies = [
 
 [[package]]
 name = "refract-gallery"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "refract",
  "refract-desktop",
@@ -2240,11 +2240,11 @@ dependencies = [
 
 [[package]]
 name = "refract-graph"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "refract-macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2253,14 +2253,14 @@ dependencies = [
 
 [[package]]
 name = "refract-test"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "refract-core",
 ]
 
 [[package]]
 name = "refract-web"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "js-sys",
  "refract-core",
