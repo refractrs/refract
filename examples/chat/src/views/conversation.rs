@@ -100,7 +100,7 @@ fn welcome(cx: &mut ViewContext<'_>) -> impl View {
         .gap(24.0)
         .child(
             text("A fresh page.\nWhere shall we begin?")
-                .font_family(SERIF)
+                .font_family(SANS)
                 .font_size(38.0)
                 .line_height(48.0)
                 .foreground(INK),

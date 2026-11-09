@@ -9,14 +9,15 @@ use crate::model::ChatModel;
 use refract::prelude::*;
 use std::rc::Rc;
 
-pub const BACKGROUND: Color = Color::rgb(250, 249, 246);
-pub(super) const SIDE: Color = Color::rgb(239, 238, 232);
-pub(super) const INK: Color = Color::rgb(43, 48, 42);
-pub(super) const MUTED: Color = Color::rgb(119, 122, 111);
-pub(super) const LINE: Color = Color::rgb(222, 223, 214);
-pub(super) const GREEN: Color = Color::rgb(65, 86, 60);
-pub(super) const PALE: Color = Color::rgb(226, 231, 218);
-pub(super) const SERIF: &str = "Georgia, serif";
+// Light-theme tokens from www/src/app/globals.css.
+pub const BACKGROUND: Color = Color::rgb(251, 252, 254);
+pub(super) const SIDE: Color = Color::rgb(241, 245, 251);
+pub(super) const INK: Color = Color::rgb(24, 40, 63);
+pub(super) const MUTED: Color = Color::rgb(82, 98, 123);
+pub(super) const LINE: Color = Color::rgb(203, 213, 227);
+pub(super) const ACCENT: Color = Color::rgb(40, 87, 183);
+pub(super) const PALE: Color = Color::rgb(220, 232, 251);
+pub(super) const SANS: &str = "Inter, 'Helvetica Neue', Arial, sans-serif";
 pub(super) const MONO: &str = "'SFMono-Regular', Consolas, monospace";
 
 #[view]
@@ -58,13 +59,13 @@ fn header() -> impl View {
                 .gap(14.0)
                 .alignment(Alignment::Center)
                 .child(toggle_sidebar())
-                .child(text("Refract Chat").font_size(14.0).font_weight(600)),
+                .child(text("Chat").font_size(14.0).font_weight(600)),
         )
         .child(
             text("●  LOCAL DEMO")
                 .font_family(MONO)
                 .font_size(10.0)
-                .foreground(GREEN)
+                .foreground(ACCENT)
                 .padding(Insets::symmetric(11.0, 7.0))
                 .background(PALE)
                 .radius(20.0),

@@ -20,6 +20,7 @@ pub enum Delivery {
     Streaming,
     Complete,
     Stopped,
+    Failed,
 }
 
 pub struct Message {
@@ -139,6 +140,20 @@ impl Conversation {
             request.message.delivery.set(rt, Delivery::Complete);
             self.request.set(rt, None);
         }
+    }
+
+    pub fn fail(&self, rt: &mut Runtime, id: RequestId, error: String) {
+        let Some(request) = self.request.get(rt).clone().filter(|r| r.id == id) else {
+            return;
+        };
+        request.message.body.update(rt, |body| {
+            if !body.is_empty() {
+                body.push_str("\n\n");
+            }
+            body.push_str(&format!("Could not finish the reply: {error}"));
+        });
+        request.message.delivery.set(rt, Delivery::Failed);
+        self.request.set(rt, None);
     }
 
     pub fn stop(&self, rt: &mut Runtime) {

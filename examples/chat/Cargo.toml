@@ -14,6 +14,9 @@ refract.workspace = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 refract-web.workspace = true
 wasm-bindgen.workspace = true
+js-sys.workspace = true
+wasm-bindgen-futures = "=0.4.80"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 web-sys = { workspace = true, features = ["Element", "Window", "console"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -23,7 +26,6 @@ refract-desktop = { workspace = true, optional = true }
 refract-test.workspace = true
 
 [features]
-browser-tests = []
 desktop = ["dep:refract-desktop"]
 
 [[bin]]

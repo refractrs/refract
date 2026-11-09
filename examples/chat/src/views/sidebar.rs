@@ -11,29 +11,6 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>) -> impl View {
         .gap(24.0)
         .child(
             h_stack()
-                .gap(9.0)
-                .alignment(Alignment::Center)
-                .child(
-                    h_stack()
-                        .alignment(Alignment::Center)
-                        .child(
-                            text("r")
-                                .font_family(SERIF)
-                                .font_size(32.0)
-                                .line_height(32.0)
-                                .foreground(GREEN)
-                                // Lift the lowercase mark slightly within its centered box.
-                                .padding(Insets {
-                                    bottom: 6.0,
-                                    ..Default::default()
-                                }),
-                        )
-                        .height(48.0),
-                )
-                .child(text("refract").font_size(21.0).font_weight(600)),
-        )
-        .child(
-            h_stack()
                 .alignment(Alignment::Center)
                 .justify(Alignment::Center)
                 .child(
@@ -47,11 +24,11 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>) -> impl View {
                 .label("New conversation")
                 .fill_width()
                 .height(44.0)
-                .background(GREEN)
+                .background(ACCENT)
                 .background_gradient(LinearGradient::new(
                     160.0,
-                    Color::rgb(81, 111, 72),
-                    Color::rgb(55, 78, 51),
+                    Color::rgb(49, 84, 166),
+                    Color::rgb(37, 62, 105),
                 ))
                 .foreground(Color::WHITE)
                 .radius(9.0),
@@ -90,7 +67,7 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>) -> impl View {
                 .gap(16.0)
                 .child(
                     text("A little space to think.")
-                        .font_family(SERIF)
+                        .font_family(SANS)
                         .font_size(17.0)
                         .foreground(MUTED),
                 )
@@ -105,7 +82,7 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>) -> impl View {
                                 .child(text("Y").font_size(12.0).line_height(12.0))
                                 .width(40.0)
                                 .height(40.0)
-                                .foreground(GREEN)
+                                .foreground(ACCENT)
                                 .background(PALE)
                                 .radius(20.0),
                         )
@@ -174,7 +151,7 @@ fn conversation_row(cx: &mut ViewContext<'_>, chat: Rc<Conversation>) -> impl Vi
                 .child(
                     text(if active { "●" } else { "○" })
                         .font_size(13.0)
-                        .foreground(if active { GREEN } else { MUTED }),
+                        .foreground(if active { ACCENT } else { MUTED }),
                 )
                 .child(text(&title).font_size(12.0).line_height(19.0).grow(1.0))
                 .padding(10.0)
