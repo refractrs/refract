@@ -2,12 +2,12 @@ use super::*;
 use crate::model::Conversation;
 
 #[view]
-pub(super) fn sidebar(cx: &mut ViewContext<'_>) -> impl View {
+pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
     #[environment_object]
     let model: Rc<ChatModel>;
     #[action(model)]
     let create = |action| model.new_chat(action.runtime());
-    v_stack()
+    let content = v_stack()
         .gap(24.0)
         .child(
             h_stack()
@@ -100,9 +100,13 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>) -> impl View {
         )
         .fill_height()
         .padding(Insets::symmetric(18.0, 24.0))
-        .width(262.0)
         .fill_height()
-        .background(SIDE)
+        .background(SIDE);
+    if compact {
+        content.fill_width()
+    } else {
+        content.width(262.0)
+    }
 }
 
 #[view]

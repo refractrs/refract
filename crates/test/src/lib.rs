@@ -7,6 +7,8 @@ pub struct TestHost {
     pub children: HashMap<Option<ElementId>, Vec<ElementId>>,
     pub revision: u64,
     pub updates: Vec<Update>,
+    pub surface: Option<SurfaceDriver>,
+    pub history: MemoryHistory,
 }
 impl TestHost {
     pub fn apply(&mut self, update: &Update) -> Result<(), ViewError> {
@@ -50,17 +52,81 @@ impl TestHost {
         self.updates.push(update.clone());
         Ok(())
     }
-    /// Drain one bounded message batch and commit affected views. Returns whether
-    /// a view update was committed, not whether messages were delivered. Use
-    /// `app.runtime().has_pending_messages()` to drive additional drains explicitly.
+    /// Opt into deterministic host metadata before the first render.
+    pub fn install_surface(
+        &mut self,
+        app: &mut App,
+        title: &str,
+        location: Option<Url>,
+    ) -> std::rc::Rc<Surface> {
+        assert_eq!(self.revision, 0, "install the surface before rendering");
+        if let Some(previous) = self.surface.take() {
+            previous.close(app.runtime_mut());
+        }
+        let driver = SurfaceDriver::install(
+            app,
+            title.into(),
+            location.clone(),
+            SurfaceCapabilities {
+                title: true,
+                navigation: true,
+            },
+        );
+        let surface = driver.surface();
+        self.history = MemoryHistory::new(location);
+        self.surface = Some(driver);
+        surface
+    }
+
+    pub fn set_viewport(&self, app: &mut App, viewport: Viewport) -> Result<(), SurfaceError> {
+        self.surface
+            .as_ref()
+            .ok_or(SurfaceError::Unsupported)?
+            .publish_viewport(app.runtime_mut(), viewport)
+    }
+
+    pub fn go(&mut self, app: &mut App, delta: isize) {
+        if let (Some(driver), Some(url)) = (&self.surface, self.history.go(delta)) {
+            driver.publish_location(app.runtime_mut(), Some(url.clone()));
+        }
+    }
+
+    /// Drain one message batch, then settle committed surface effects and their observations.
+    /// Returns whether any view update committed; host-only requests may also have executed.
     pub fn flush(&mut self, app: &mut App) -> Result<bool, ViewError> {
         app.runtime_mut().drain_messages();
-        let Some(pending) = app.prepare()? else {
-            return Ok(false);
-        };
-        self.apply(&pending.update)?;
-        app.commit(pending)?;
-        Ok(true)
+        let mut changed = false;
+        for _ in 0..32 {
+            let pending = app.prepare()?;
+            let committed = pending.is_some();
+            if let Some(pending) = pending {
+                self.apply(&pending.update)?;
+                app.commit(pending)?;
+                changed = true;
+            }
+            let mut applied = false;
+            if let Some(driver) = &self.surface {
+                for request in driver.take_requests(app.runtime_mut()) {
+                    applied = true;
+                    let result = match &request.command {
+                        SurfaceCommand::SetTitle(title) => {
+                            driver.publish_title(app.runtime_mut(), title.clone());
+                            Ok(())
+                        }
+                        SurfaceCommand::Navigate { reference, mode } => {
+                            self.history.navigate(reference, *mode).map(|url| {
+                                driver.publish_location(app.runtime_mut(), Some(url.clone()));
+                            })
+                        }
+                    };
+                    request.complete(app.runtime_mut(), result);
+                }
+            }
+            if self.surface.is_none() || (!committed && !applied) {
+                return Ok(changed);
+            }
+        }
+        Err(ViewError::new("surface effects did not settle"))
     }
     pub fn text(&self) -> String {
         fn walk(host: &TestHost, parent: Option<ElementId>, out: &mut Vec<String>) {

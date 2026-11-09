@@ -16,6 +16,7 @@ include = ["/src/**", "/tests/**", "/Cargo.toml", "/README.md", "/LICENSE*"]
 
 [dependencies]
 refract-graph.workspace = true
+url = "2"
 
 [package.metadata.docs.rs]
 all-features = true

@@ -21,6 +21,32 @@ try {
   const press = async label => { find(label).click(); await settle(); };
   const input = async (label, value) => { const el = find(label); el.value = value; el.dispatchEvent(new InputEvent('input', {bubbles:true, composed:true})); await settle(); };
   const key = async (label, options) => { find(label).dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true, composed:true, cancelable:true, ...options})); await settle(); };
+  const until = async check => {
+    for (let i = 0; i < 100; i++) { if (check()) return; await delay(20); }
+    throw Error('Timed out waiting for host metadata');
+  };
+  await until(() => new URL(location.href).searchParams.get('conversation') === '1');
+  const historyLength = history.length;
+  await press('Open A weekend away');
+  await until(() => document.title === 'A weekend away — Refract Chat');
+  check(new URL(location.href).searchParams.get('conversation') === '3' && history.length === historyLength + 1,
+    'conversation selection pushes a URL and updates the title');
+  history.back();
+  await until(() => document.title === 'A calmer kind of workspace — Refract Chat');
+  history.forward();
+  await until(() => document.title === 'A weekend away — Refract Chat');
+  check(history.length === historyLength + 1, 'Back/Forward restores selection without echoing history');
+  const fixture = document.querySelector('#fixture');
+  fixture.style.width = '390px';
+  await until(() => !find('Search conversations'));
+  check(!!find('Toggle sidebar'), 'narrow viewport collapses the sidebar and retains its menu button');
+  await press('Toggle sidebar');
+  check(!!find('Search conversations'), 'compact menu opens on demand');
+  await press('Open Designing with intention');
+  check(!find('Search conversations'), 'selecting a conversation dismisses the compact menu');
+  fixture.style.width = '1100px';
+  await until(() => !!find('Search conversations'));
+  await press('Open A calmer kind of workspace');
   const create = find('New conversation');
   const composerSurface = [...root.querySelectorAll('[data-refract-id]')].find(el => getComputedStyle(el).boxShadow !== 'none');
   const composerPaint = composerSurface && getComputedStyle(composerSurface);

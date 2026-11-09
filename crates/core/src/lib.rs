@@ -9,8 +9,8 @@
 //! native input behavior, and rendering remain the adapter's responsibility.
 
 mod element;
-mod events;
 mod environment;
+mod events;
 mod field;
 mod image;
 mod modifiers;
@@ -18,25 +18,27 @@ mod primitives;
 mod runtime;
 mod scroll;
 mod style;
+mod surface;
 mod view;
 
 pub use element::{ActionContext, Element, ElementKind, Handler, Interaction};
-pub use events::*;
 pub use environment::{Environment, EnvironmentKey};
+pub use events::*;
 pub use field::{field, Field};
 pub use image::{ImageFit, ImageFormat, ImageSource};
 pub use modifiers::{KeyView, Memo, MemoView, Modified, Provided, ViewExt};
 pub use primitives::{
-    h_stack, image, spacer, stack, text, v_stack, view, z_stack, Container, Image, Overlay, Spacer,
-    Stack, Direction, Text,
+    h_stack, image, spacer, stack, text, v_stack, view, z_stack, Container, Direction, Image,
+    Overlay, Spacer, Stack, Text,
 };
 pub use refract_graph::{
     AttributeId, Binding, Dependencies, Derived, GraphStats, MessageSender, MessageSubscription,
-    Observer, Runtime, SendError, State,
+    Observer, Read, Runtime, SendError, State,
 };
 pub use runtime::*;
 pub use scroll::*;
 pub use style::*;
+pub use surface::*;
 pub use view::*;
 
 /// An authoring, validation, or reconciliation error.
@@ -59,15 +61,20 @@ impl std::error::Error for ViewError {}
 
 /// Common types and constructors for writing views.
 pub mod prelude {
+    pub use crate::events::{
+        EventPoint, Key, KeyEvent, KeyState, Modifiers, PointerButton, PointerButtons,
+        PointerEvent, PointerKind, PointerPhase,
+    };
     pub use crate::primitives::{image, view};
-    pub use crate::events::{EventPoint, Key, KeyEvent, KeyState, Modifiers, PointerButton, PointerButtons, PointerEvent, PointerKind, PointerPhase};
     pub use crate::{
         field, fragment, h_stack, scroll_view, spacer, stack, text, v_stack, view_fn, z_stack,
         ActionContext, Alignment, AnyView, Axis, Binding, Border, BorderSide, BoxShadow, Color,
-        Container, CornerRadii, Derived, Empty, EnvironmentKey, Field, GradientStop, Image,
-        ImageFit, ImageFormat, ImageSource, MessageSender, MessageSubscription, SendError,
-        Insets, LinearGradient, Overlay, Runtime, ScrollEvent, ScrollFollow, ScrollMetrics,
-        ScrollOffset, ScrollPosition, ScrollSize, ScrollView, Spacer, Stack, Direction, State,
-        Text, View, ViewContext, ViewError, ViewExt,
+        Container, CornerRadii, Derived, Direction, Empty, EnvironmentKey, Field, GradientStop,
+        HistoryMode, Image, ImageFit, ImageFormat, ImageSource, Insets, LinearGradient,
+        MemoryHistory, MessageSender, MessageSubscription, Overlay, Read, Request, RequestStatus,
+        Runtime, ScrollEvent, ScrollFollow, ScrollMetrics, ScrollOffset, ScrollPosition,
+        ScrollSize, ScrollView, SendError, Spacer, Stack, State, Surface, SurfaceCapabilities,
+        SurfaceCommand, SurfaceDriver, SurfaceError, SurfaceRequest, Text, Url, View, ViewContext,
+        ViewError, ViewExt, Viewport,
     };
 }

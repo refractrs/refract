@@ -4,6 +4,7 @@ fn main() -> refract_native::Result<()> {
     refract_native::run(
         refract_native::NativeOptions {
             title: "Gallery — Refract Native".into(),
+            initial_url: None,
             width: 1120.0,
             // Leave room for the full collection at native font metrics.
             height: 860.0,

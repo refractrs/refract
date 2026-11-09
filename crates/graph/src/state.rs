@@ -1,7 +1,7 @@
 //! Mutable state and read/write projections of that state.
 
 use crate::{handle::Handle, AttributeId, Runtime};
-use std::rc::Rc;
+use std::{ops::Deref, rc::Rc};
 
 /// An owning handle to mutable graph state.
 ///
@@ -56,6 +56,16 @@ impl<T: 'static> State<T> {
         }
     }
 
+    /// Share tracked reads without granting mutation access.
+    pub fn read_only(&self) -> Read<T>
+    where
+        T: Clone,
+    {
+        Read {
+            read: Rc::new(self.clone()),
+        }
+    }
+
     /// Create a shared read/write binding that keeps this state alive.
     pub fn binding(&self) -> Binding<T>
     where
@@ -83,7 +93,7 @@ impl<T: Clone + 'static> ReadBinding<T> for State<T> {
 }
 
 struct Projection<T, F> {
-    source: Binding<T>,
+    source: Read<T>,
     get: F,
 }
 
@@ -104,7 +114,7 @@ type WriteBinding<T> = dyn Fn(&mut Runtime, T);
 /// Creating or cloning a binding does not read the graph. Reading it within a
 /// capture subscribes to the underlying attributes.
 pub struct Binding<T> {
-    read: Rc<dyn ReadBinding<T>>,
+    read: Read<T>,
     write: Rc<WriteBinding<T>>,
 }
 
@@ -117,15 +127,28 @@ impl<T> Clone for Binding<T> {
     }
 }
 
+impl<T> Deref for Binding<T> {
+    type Target = Read<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.read
+    }
+}
+
 impl<T: 'static> Binding<T> {
     fn from_state(state: State<T>) -> Self
     where
         T: Clone,
     {
         Self {
-            read: Rc::new(state.clone()),
+            read: state.read_only(),
             write: Rc::new(move |rt, value| state.set(rt, value)),
         }
+    }
+
+    /// Share the reader without exposing writes or allocating another graph node.
+    pub fn read_only(&self) -> Read<T> {
+        self.read.clone()
     }
 
     /// Read through the binding, tracking any underlying attribute reads.
@@ -146,12 +169,7 @@ impl<T: 'static> Binding<T> {
     /// println!("{escaped}");
     /// ```
     pub fn with<R>(&self, rt: &Runtime, f: impl FnOnce(&T) -> R) -> R {
-        let mut f = Some(f);
-        let mut result = None;
-        self.read.with(rt, &mut |value| {
-            result = Some(f.take().expect("binding reader called twice")(value));
-        });
-        result.expect("binding reader did not call its callback")
+        self.read.with(rt, f)
     }
 
     /// Write through the binding to its underlying state.
@@ -188,11 +206,61 @@ impl<T: 'static> Binding<T> {
     ) -> Binding<U> {
         let w = self.clone();
         Binding {
-            read: Rc::new(Projection {
-                source: self.clone(),
-                get,
-            }),
+            read: Read {
+                read: Rc::new(Projection {
+                    source: self.read_only(),
+                    get,
+                }),
+            },
             write: Rc::new(move |rt, value| w.update(rt, |parent| set(parent, value))),
         }
+    }
+}
+
+/// Read-only access to an existing attribute; cloning allocates no graph nodes.
+///
+/// ```compile_fail
+/// use refract_graph::{Runtime, State};
+/// let mut rt = Runtime::new();
+/// let read = State::new(&mut rt, 10).read_only();
+/// read.set(&mut rt, 20);
+/// ```
+pub struct Read<T> {
+    read: Rc<dyn ReadBinding<T>>,
+}
+
+impl<T> Clone for Read<T> {
+    fn clone(&self) -> Self {
+        Self {
+            read: self.read.clone(),
+        }
+    }
+}
+
+impl<T: 'static> Read<T> {
+    /// Read an owned value, tracking any underlying attribute reads.
+    /// State-backed readers clone the stored value; projections compute it.
+    pub fn get(&self, rt: &Runtime) -> T {
+        self.read.get(rt)
+    }
+
+    /// Inspect a value while tracking its underlying attribute reads.
+    /// State-backed readers borrow storage without cloning; projections compute
+    /// a temporary value. Return an owned result so the reference cannot escape.
+    ///
+    /// ```compile_fail
+    /// use refract_graph::{Runtime, State};
+    /// let mut rt = Runtime::new();
+    /// let read = State::new(&mut rt, String::from("hello")).read_only();
+    /// let escaped = read.with(&rt, |value| value.as_str());
+    /// println!("{escaped}");
+    /// ```
+    pub fn with<R>(&self, rt: &Runtime, f: impl FnOnce(&T) -> R) -> R {
+        let mut f = Some(f);
+        let mut result = None;
+        self.read.with(rt, &mut |value| {
+            result = Some(f.take().expect("reader called twice")(value));
+        });
+        result.expect("reader did not call its callback")
     }
 }

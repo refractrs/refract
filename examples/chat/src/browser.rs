@@ -36,6 +36,7 @@ pub fn start(host: web_sys::Element) -> Result<ChatApp, JsValue> {
         root(source.clone()),
         MountOptions {
             sizing: RootSizing::Fill,
+            manage_document: true,
             ..Default::default()
         },
     )?;

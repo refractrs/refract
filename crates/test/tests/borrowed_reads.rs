@@ -1,5 +1,32 @@
 use refract_core::{prelude::*, App};
 use refract_test::TestHost;
+use std::rc::Rc;
+
+#[test]
+fn context_reads_accept_read_only_and_wrapped_binding_handles() {
+    let mut app = App::new(text(""));
+    let state = State::new(app.runtime_mut(), String::from("one"));
+    app.set_view(view_fn({
+        let binding = state.binding();
+        let wrapped = Rc::new(binding.clone());
+        let read = binding.read_only();
+        move |cx| {
+            let value = cx.read(&binding);
+            assert_eq!(cx.read(&wrapped), value);
+            assert_eq!(cx.read(&read), value);
+            assert_eq!(cx.with(&binding, String::len), value.len());
+            assert_eq!(cx.with(&wrapped, String::len), value.len());
+            assert_eq!(cx.with(&read, String::len), value.len());
+            Ok(text(value))
+        }
+    }));
+    let mut host = TestHost::default();
+    host.flush(&mut app).unwrap();
+    assert_eq!(host.text(), "one");
+    state.set(app.runtime_mut(), String::from("second"));
+    host.flush(&mut app).unwrap();
+    assert_eq!(host.text(), "second");
+}
 
 #[test]
 fn borrowed_context_reads_subscribe_and_accept_non_clone_values() {

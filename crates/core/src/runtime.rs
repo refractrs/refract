@@ -104,15 +104,15 @@ pub struct ViewContext<'a> {
 }
 
 impl ViewContext<'_> {
-    /// Read a binding and subscribe this body to its underlying graph attributes.
-    pub fn read<T: 'static>(&self, binding: &Binding<T>) -> T {
+    /// Read a binding or read-only handle and subscribe to its graph attributes.
+    pub fn read<T: 'static>(&self, binding: &Read<T>) -> T {
         binding.get(self.runtime)
     }
 
-    /// Inspect a binding without cloning its stored value, tracking its reads.
+    /// Inspect a readable handle without cloning its stored value, tracking its reads.
     /// Mapped bindings compute their projection from a borrowed source.
     /// Return an owned result; the inspected reference cannot escape the callback.
-    pub fn with<T: 'static, R>(&self, binding: &Binding<T>, f: impl FnOnce(&T) -> R) -> R {
+    pub fn with<T: 'static, R>(&self, binding: &Read<T>, f: impl FnOnce(&T) -> R) -> R {
         binding.with(self.runtime, f)
     }
 
@@ -386,6 +386,13 @@ impl App {
 
     pub fn set_environment<K: EnvironmentKey>(&mut self, value: K::Value) {
         self.environment.set::<K>(&mut self.runtime, value);
+    }
+
+    /// Install an object in the root environment before evaluating views.
+    pub fn set_environment_object<T: 'static>(&mut self, value: Rc<T>) {
+        self.set_environment::<crate::environment::ObjectKey<T>>(crate::environment::ObjectValue(
+            Some(value),
+        ));
     }
 
     /// Batch model writes before the next preparation.
