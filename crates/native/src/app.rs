@@ -13,6 +13,7 @@ use crate::{
 
 use refract_core::{App, Color, ElementId, View};
 use std::{
+    rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -30,6 +31,8 @@ use winit::{
 #[derive(Clone, Debug)]
 pub struct NativeOptions {
     pub title: String,
+    /// Optional base for application navigation (for example app://chat/).
+    pub initial_url: Option<refract_core::Url>,
     pub width: f64,
     pub height: f64,
     pub background: Color,
@@ -41,6 +44,7 @@ impl Default for NativeOptions {
     fn default() -> Self {
         Self {
             title: "Refract".into(),
+            initial_url: None,
             width: 620.0,
             height: 760.0,
             background: Color::rgb(243, 244, 235),
@@ -82,6 +86,12 @@ pub fn run_with_renderer<V: View>(
         let _ = proxy.send_event(());
     });
     let mut app = App::new(view(scheduler.handle()));
+    let surface = Rc::new(crate::surface::NativeSurface::new(
+        &mut app,
+        options.title.clone(),
+        options.initial_url.clone(),
+    ));
+    scheduler.set_surface(surface.clone());
     let proxy = event_loop.create_proxy();
     app.runtime_mut().set_waker(move || {
         let _ = proxy.send_event(());
@@ -97,6 +107,7 @@ pub fn run_with_renderer<V: View>(
     let mut runner = NativeApp {
         options,
         app,
+        surface,
         scheduler: Some(scheduler),
         host,
         window: None,
@@ -119,6 +130,7 @@ pub fn run_with_renderer<V: View>(
         presented: 0,
     };
     event_loop.run_app(&mut runner).map_err(host_error)?;
+    runner.surface.driver.close(runner.app.runtime_mut());
     runner.app.dispose();
     runner.scheduler = None;
     runner.error.map_or(Ok(()), Err)
@@ -129,6 +141,7 @@ type Factory = Box<dyn FnOnce(Arc<Window>) -> Result<Box<dyn Renderer>>>;
 struct NativeApp {
     options: NativeOptions,
     app: App,
+    surface: Rc<crate::surface::NativeSurface>,
     scheduler: Option<Scheduler>,
     host: Host,
     // Renderer drops before the final window owner.
@@ -157,13 +170,19 @@ impl NativeApp {
         // A failed host apply is not an accepted diff baseline. Stop rather than
         // trying to continue from a potentially partially mutated retained tree.
         self.error = Some(error);
+        self.surface.driver.close(self.app.runtime_mut());
         self.app.dispose();
         self.scheduler = None;
         event_loop.exit();
     }
 
     fn flush(&mut self) -> Result<()> {
-        for (id, event) in self.host.take_input_events() { self.app.dispatch(id, event); }
+        if let Some(window) = &self.window {
+            self.surface.sample(self.app.runtime_mut(), window);
+        }
+        for (id, event) in self.host.take_input_events() {
+            self.app.dispatch(id, event);
+        }
         self.needs_frame |= self.host.poll_images()?;
         if let Some(scheduler) = &self.scheduler {
             self.app.mutate(|rt| scheduler.drain(rt, Instant::now()));
@@ -179,6 +198,9 @@ impl NativeApp {
                 eprintln!("refract native commit={} evaluated={} visited={} patches={} created={} removed={}",
                     self.app.revision(), stats.evaluated, stats.visited, stats.patches, stats.created, stats.removed);
             }
+        }
+        if let Some(window) = &self.window {
+            self.surface.apply(self.app.runtime_mut(), window);
         }
         Ok(())
     }
@@ -217,8 +239,10 @@ impl NativeApp {
             }),
             self.host.ime_area(),
         );
-        self.host.refresh_mouse_boundary(self.cursor,
-            self.cursor_inside && self.window_focused && !self.host.menu_is_open());
+        self.host.refresh_mouse_boundary(
+            self.cursor,
+            self.cursor_inside && self.window_focused && !self.host.menu_is_open(),
+        );
         // Layout/scrolling may move a button beneath a stationary pointer.
         let hover = (self.cursor_inside
             && !self.host.menu_is_open()
@@ -312,9 +336,12 @@ impl ApplicationHandler<()> for NativeApp {
         if window.id() != id {
             return;
         }
-        if self.input_event(&event, window.scale_factor()) { return; }
+        if self.input_event(&event, window.scale_factor()) {
+            return;
+        }
         match event {
             WindowEvent::CloseRequested => {
+                self.surface.driver.close(self.app.runtime_mut());
                 self.app.dispose();
                 self.scheduler = None;
                 event_loop.exit();
@@ -427,7 +454,10 @@ impl ApplicationHandler<()> for NativeApp {
                     self.needs_frame = true;
                     return;
                 }
-                let target = self.cursor_inside.then(|| self.host.hit_test(self.cursor)).flatten();
+                let target = self
+                    .cursor_inside
+                    .then(|| self.host.hit_test(self.cursor))
+                    .flatten();
                 if state == ElementState::Pressed {
                     self.pressed = target;
                     self.host.set_pressed(target);

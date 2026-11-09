@@ -5,6 +5,7 @@ mod browser;
 mod model;
 mod producer;
 mod service;
+mod surface;
 #[cfg(test)]
 mod tests;
 mod views;
@@ -21,8 +22,15 @@ pub fn application() -> impl View {
 #[view]
 fn root(cx: &mut ViewContext<'_>, source: Rc<ReplySource>) -> impl View {
     // This owner does not read message state. Streaming only invalidates leaves.
-    let model = cx.remember("chat-model", model::ChatModel::new);
-    fragment([views::shell().into_any(), service::streams().into_any()])
-        .environment_object(model)
-        .environment_object(source)
+    let surface = cx.object::<Surface>()?;
+    let model = cx.remember("chat-model", move |rt| {
+        model::ChatModel::hosted(rt, surface)
+    });
+    fragment([
+        views::shell().into_any(),
+        service::streams().into_any(),
+        surface::synchronize().into_any(),
+    ])
+    .environment_object(model)
+    .environment_object(source)
 }

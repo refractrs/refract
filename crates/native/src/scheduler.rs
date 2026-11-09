@@ -38,6 +38,7 @@ struct Shared {
     timers: HashMap<u64, Timer>,
     next_id: u64,
     wake: Rc<dyn Fn()>,
+    surface: Option<Rc<crate::surface::NativeSurface>>,
 }
 
 /// A weak, UI-thread handle. Admission succeeds before the mutation executes.
@@ -65,6 +66,48 @@ impl Drop for TimerGuard {
 }
 
 impl NativeHandle {
+    /// Current surface, available after application construction and before view evaluation.
+    pub fn surface(&self) -> Option<Rc<refract_core::Surface>> {
+        Some(
+            self.0
+                .upgrade()?
+                .borrow()
+                .surface
+                .as_ref()?
+                .driver
+                .surface(),
+        )
+    }
+
+    /// Feed an incoming application URL, such as a deep link, without echoing navigation.
+    pub fn feed_location(
+        &self,
+        url: refract_core::Url,
+        mode: refract_core::HistoryMode,
+    ) -> Result<(), ScheduleError> {
+        let shared = self.0.upgrade().ok_or(ScheduleError::Disposed)?;
+        let surface = shared
+            .borrow()
+            .surface
+            .clone()
+            .ok_or(ScheduleError::Disposed)?;
+        self.update(move |rt| {
+            // An already parsed absolute URL always resolves in memory history.
+            let _ = surface.feed_location(rt, url, mode);
+        })
+    }
+
+    /// Traverse native in-memory history. Out-of-range movement is a no-op.
+    pub fn go(&self, delta: isize) -> Result<(), ScheduleError> {
+        let shared = self.0.upgrade().ok_or(ScheduleError::Disposed)?;
+        let surface = shared
+            .borrow()
+            .surface
+            .clone()
+            .ok_or(ScheduleError::Disposed)?;
+        self.update(move |rt| surface.traverse(rt, delta))
+    }
+
     /// Admit a mutation for the next event-loop flush. This handle is UI-thread only.
     pub fn update(&self, action: impl FnOnce(&mut Runtime) + 'static) -> Result<(), ScheduleError> {
         self.enqueue(None, Box::new(action))
@@ -144,7 +187,12 @@ impl Scheduler {
             timers: HashMap::new(),
             next_id: 1,
             wake: Rc::new(wake),
+            surface: None,
         })))
+    }
+
+    pub fn set_surface(&self, surface: Rc<crate::surface::NativeSurface>) {
+        self.0.borrow_mut().surface = Some(surface);
     }
 
     pub fn handle(&self) -> NativeHandle {

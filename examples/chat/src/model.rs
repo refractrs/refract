@@ -164,16 +164,64 @@ impl Conversation {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SidebarPreference {
+    compact: bool,
+    open: bool,
+}
+
 pub struct ChatModel {
     pub conversations: State<Vec<Rc<Conversation>>>,
     pub selected: State<ConversationId>,
     pub query: State<String>,
-    pub sidebar_open: State<bool>,
+    sidebar_preference: State<Option<SidebarPreference>>,
+    pub sidebar_visible: Derived<bool>,
+    pub compact: Derived<bool>,
+    pub navigation_error: State<Option<String>>,
+    pub navigation_request: State<Option<refract::Request>>,
+    surface: Option<Rc<Surface>>,
     next_conversation: Cell<u64>,
 }
 
 impl ChatModel {
+    #[cfg(test)]
     pub fn new(rt: &mut Runtime) -> Self {
+        Self::create(rt, None)
+    }
+
+    pub fn hosted(rt: &mut Runtime, surface: Rc<Surface>) -> Self {
+        Self::create(rt, Some(surface))
+    }
+
+    fn create(rt: &mut Runtime, surface: Option<Rc<Surface>>) -> Self {
+        let compact = Derived::distinct(rt, {
+            let surface = surface.clone();
+            move |rt| {
+                surface
+                    .as_ref()
+                    .and_then(|surface| surface.viewport.get(rt))
+                    .is_some_and(|viewport| viewport.width < 760.0)
+            }
+        });
+        let sidebar_preference = State::new(rt, None::<SidebarPreference>);
+        let sidebar_visible = Derived::distinct(rt, {
+            let compact = compact.clone();
+            let preference = sidebar_preference.clone();
+            move |rt| {
+                let compact = *compact.get(rt);
+                preference
+                    .get(rt)
+                    .filter(|preference| preference.compact == compact)
+                    .map_or(!compact, |preference| preference.open)
+            }
+        });
+        let selected = surface
+            .as_ref()
+            .and_then(|surface| surface.location.get(rt))
+            .as_ref()
+            .and_then(conversation_id)
+            .filter(|id| (1..=3).contains(&id.0))
+            .unwrap_or(ConversationId(1));
         let first = Conversation::new(rt, ConversationId(1), "A calmer kind of workspace");
         let user = first.message(
             rt,
@@ -188,25 +236,103 @@ impl ChatModel {
         let third = Conversation::new(rt, ConversationId(3), "A weekend away");
         Self {
             conversations: State::new(rt, vec![first, second, third]),
-            selected: State::new(rt, ConversationId(1)),
+            selected: State::new(rt, selected),
             query: State::new(rt, String::new()),
-            sidebar_open: State::new(rt, true),
+            sidebar_preference,
+            sidebar_visible,
+            compact,
+            surface,
+            navigation_error: State::new(rt, None),
+            navigation_request: State::new(rt, None),
             next_conversation: Cell::new(4),
         }
     }
 
+    pub fn toggle_sidebar(&self, rt: &mut Runtime) {
+        let preference = SidebarPreference {
+            compact: *self.compact.get(rt),
+            open: !*self.sidebar_visible.get(rt),
+        };
+        self.sidebar_preference.set(rt, Some(preference));
+    }
+
+    fn close_compact_sidebar(&self, rt: &mut Runtime) {
+        if *self.compact.get(rt) {
+            self.sidebar_preference.set_if_changed(
+                rt,
+                Some(SidebarPreference {
+                    compact: true,
+                    open: false,
+                }),
+            );
+        }
+    }
+
+    fn navigate(&self, rt: &mut Runtime, id: ConversationId, mode: HistoryMode) {
+        let Some(surface) = &self.surface else {
+            return;
+        };
+        let Some(mut url) = surface.location.get(rt) else {
+            return;
+        };
+        // Query routing preserves deployment prefixes and works on static hosts.
+        let pairs: Vec<_> = url
+            .query_pairs()
+            .filter(|(key, _)| key != "conversation")
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect();
+        url.set_query(None);
+        url.query_pairs_mut()
+            .extend_pairs(pairs)
+            .append_pair("conversation", &id.0.to_string());
+        match surface.navigate(rt, url.as_str(), mode) {
+            Ok(request) => {
+                self.navigation_error.set_if_changed(rt, None);
+                self.navigation_request.set(rt, Some(request));
+            }
+            Err(error) => self.navigation_error.set(rt, Some(error.to_string())),
+        }
+    }
+
+    /// Host navigation changes selection without pushing another history entry.
+    pub fn apply_location(&self, rt: &mut Runtime, location: Option<Url>) {
+        let Some(url) = location else {
+            return;
+        };
+        if let Some(id) = conversation_id(&url)
+            .filter(|id| self.conversations.get(rt).iter().any(|chat| chat.id == *id))
+        {
+            self.selected.set_if_changed(rt, id);
+            self.close_compact_sidebar(rt);
+        } else {
+            // Deleted or session-only conversations cannot be restored after a reload.
+            self.navigate(rt, *self.selected.get(rt), HistoryMode::Replace);
+        }
+    }
+
     pub fn new_chat(&self, rt: &mut Runtime) {
+        self.create_chat(rt, HistoryMode::Push);
+    }
+
+    fn create_chat(&self, rt: &mut Runtime, mode: HistoryMode) {
         let id = self.next_conversation.get();
         self.next_conversation.set(id + 1);
         let chat = Conversation::new(rt, ConversationId(id), "New conversation");
         self.conversations.update(rt, |items| items.insert(0, chat));
         self.query.set_if_changed(rt, String::new());
         self.selected.set(rt, ConversationId(id));
+        self.close_compact_sidebar(rt);
+        self.navigate(rt, ConversationId(id), mode);
     }
 
     pub fn select(&self, rt: &mut Runtime, id: ConversationId) {
         if self.conversations.get(rt).iter().any(|c| c.id == id) {
+            let changed = *self.selected.get(rt) != id;
             self.selected.set_if_changed(rt, id);
+            self.close_compact_sidebar(rt);
+            if changed {
+                self.navigate(rt, id, HistoryMode::Push);
+            }
         }
     }
 
@@ -224,10 +350,20 @@ impl ChatModel {
         self.conversations
             .update(rt, |items| items.retain(|c| c.id != id));
         if self.conversations.get(rt).is_empty() {
-            self.new_chat(rt);
+            self.create_chat(rt, HistoryMode::Replace);
         } else if *self.selected.get(rt) == id {
             let first = self.conversations.get(rt)[0].id;
             self.selected.set(rt, first);
+            self.navigate(rt, first, HistoryMode::Replace);
         }
     }
+}
+
+fn conversation_id(url: &Url) -> Option<ConversationId> {
+    url.query_pairs()
+        .find(|(key, _)| key == "conversation")?
+        .1
+        .parse()
+        .ok()
+        .map(ConversationId)
 }

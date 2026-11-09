@@ -321,7 +321,7 @@ impl TextEditor {
                 frame.commands.push(DrawCommand::Fill {
                     rect: rect(selection),
                     radius: 0.0.into(),
-                    color: Color::rgb(198, 215, 201),
+                    color: Color::rgb(220, 232, 251),
                 });
             }
         }
@@ -728,7 +728,7 @@ mod tests {
         let selection = editor.buffer.selection_geometry()[0].0;
         assert!(frame.commands.iter().any(|command| matches!(command,
             DrawCommand::Fill { rect, color, .. }
-            if *color == Color::rgb(198, 215, 201)
+            if *color == Color::rgb(220, 232, 251)
                 && (rect.y - (value.1 + selection.y0 as f32)).abs() < 0.001)));
 
         // Height changes recompute centering without reshaping the placeholder.

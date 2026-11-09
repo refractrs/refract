@@ -5,10 +5,12 @@
 //! Core state is committed only after the corresponding DOM update succeeds.
 
 // Scroll sampling shares private mount state but lives in a separate source file.
-#[path = "scroll.rs"]
-mod scroll;
 #[path = "events.rs"]
 mod events;
+#[path = "scroll.rs"]
+mod scroll;
+#[path = "surface.rs"]
+mod surface;
 
 use js_sys::Function;
 use refract_core::{
@@ -42,6 +44,8 @@ pub struct MountOptions {
     /// Attach an open shadow root to isolate the application's styles.
     pub shadow: bool,
     pub sizing: RootSizing,
+    /// Claim document title/history control. Only one mount per document may own it.
+    pub manage_document: bool,
     /// CSP nonce applied to the mount's injected base stylesheet.
     pub style_nonce: Option<String>,
 }
@@ -51,6 +55,7 @@ impl Default for MountOptions {
         Self {
             shadow: true,
             sizing: RootSizing::Content,
+            manage_document: false,
             style_nonce: None,
         }
     }
@@ -113,6 +118,9 @@ struct Inner {
     captures: RefCell<HashMap<u64, ElementId>>,
     suppressed_clicks: RefCell<HashMap<u64, Rc<()>>>,
     scroll: RefCell<Option<scroll::ScrollObserver>>,
+    surface_driver: refract_core::SurfaceDriver,
+    surface: RefCell<Option<surface::SurfaceObserver>>,
+    surface_dirty: Cell<bool>,
     scheduled: Cell<bool>,
     // A failed DOM update stops work without marking resource cleanup complete.
     active: Cell<bool>,
@@ -158,6 +166,16 @@ impl UpdateHandle {
 }
 
 impl Mount {
+    /// Read metadata or submit requests through the normal update handle.
+    pub fn surface(&self) -> Rc<refract_core::Surface> {
+        self.0.surface_driver.surface()
+    }
+
+    /// Resample after an embedding router calls pushState/replaceState itself.
+    pub fn refresh_location(&self) {
+        surface::request(&self.0);
+    }
+
     /// Submit work for as long as this mount remains active.
     pub fn handle(&self) -> UpdateHandle {
         UpdateHandle {
@@ -211,6 +229,10 @@ fn dispose(inner: &Inner) {
     inner.queue.borrow_mut().clear();
     inner.listeners.borrow_mut().clear();
     inner.scroll.borrow_mut().take();
+    inner.surface.borrow_mut().take();
+    if let Some(app) = inner.app.borrow_mut().as_mut() {
+        inner.surface_driver.close(app.runtime_mut());
+    }
     inner.app.borrow_mut().take();
 
     let mut dom = inner.dom.borrow_mut();
@@ -228,6 +250,8 @@ pub fn mount(
     let document = host
         .owner_document()
         .ok_or_else(|| JsValue::from_str("host has no document"))?;
+
+    let lease = surface::DocumentLease::claim(&document, options.manage_document)?;
 
     if matches!(options.sizing, RootSizing::Fill)
         && (host.client_width() == 0 || host.client_height() == 0)
@@ -267,8 +291,21 @@ pub fn mount(
     parent.append_child(&stylesheet)?;
     parent.append_child(&root)?;
 
+    let mut app = App::new(view);
+    let surface_driver = refract_core::SurfaceDriver::install(
+        &mut app,
+        document.title(),
+        None,
+        refract_core::SurfaceCapabilities {
+            title: options.manage_document,
+            navigation: options.manage_document,
+        },
+    );
     let inner = Rc::new(Inner {
-        app: RefCell::new(Some(App::new(view))),
+        app: RefCell::new(Some(app)),
+        surface_driver,
+        surface: RefCell::new(None),
+        surface_dirty: Cell::new(true),
         queue: RefCell::new(VecDeque::new()),
         dom: RefCell::new(Dom {
             document,
@@ -322,9 +359,17 @@ pub fn mount(
         "click",
         "input",
         "compositionstart",
-        "keydown", "keyup", "focusin", "focusout",
-        "pointerdown", "pointermove", "pointerup", "pointercancel",
-        "pointerenter", "pointerleave", "lostpointercapture",
+        "keydown",
+        "keyup",
+        "focusin",
+        "focusout",
+        "pointerdown",
+        "pointermove",
+        "pointerup",
+        "pointercancel",
+        "pointerenter",
+        "pointerleave",
+        "lostpointercapture",
         "compositionend",
         "scroll",
     ] {
@@ -358,6 +403,19 @@ pub fn mount(
 
     match scroll::ScrollObserver::new(&inner) {
         Ok(scroll) => *inner.scroll.borrow_mut() = Some(scroll),
+        Err(error) => {
+            dispose(&inner);
+            return Err(error);
+        }
+    }
+
+    match surface::SurfaceObserver::new(
+        &inner,
+        host,
+        matches!(options.sizing, RootSizing::Fill),
+        lease,
+    ) {
+        Ok(observer) => *inner.surface.borrow_mut() = Some(observer),
         Err(error) => {
             dispose(&inner);
             return Err(error);
@@ -418,6 +476,12 @@ fn flush(inner: &Rc<Inner>) -> Result<(), JsValue> {
         return Ok(());
     };
 
+    if inner.surface_dirty.replace(false) {
+        if let Some(surface) = inner.surface.borrow().as_ref() {
+            surface.sample(inner, app.runtime_mut())?;
+        }
+    }
+
     // Bound each drain so a sustained queue can still make progress through commit.
     for _ in 0..128 {
         let command = inner.queue.borrow_mut().pop_front();
@@ -477,6 +541,8 @@ fn flush(inner: &Rc<Inner>) -> Result<(), JsValue> {
                 // Once DOM mutation begins the previous tree is not a safe diff baseline.
                 inner.active.set(false);
                 inner.listeners.borrow_mut().clear();
+                inner.surface.borrow_mut().take();
+                inner.surface_driver.close(app.runtime_mut());
                 app.dispose();
 
                 let dom = inner.dom.borrow();
@@ -488,6 +554,9 @@ fn flush(inner: &Rc<Inner>) -> Result<(), JsValue> {
         }
     }
 
+    if let Some(surface) = inner.surface.borrow().as_ref() {
+        surface.apply(inner, app.runtime_mut());
+    }
     Ok(())
 }
 
@@ -500,7 +569,9 @@ fn dispatch(inner: &Rc<Inner>, event: &web_sys::Event) {
     if !inner.scheduled.get() {
         inner.microtasks.set(0);
     }
-    if events::dispatch(inner, event) { return; }
+    if events::dispatch(inner, event) {
+        return;
+    }
     let event_type = event.type_();
 
     // Walk the composed path so delegation works inside the shadow root and
@@ -867,12 +938,17 @@ fn apply_properties(entry: &mut Entry, new: &Element, initial: bool) -> Result<u
     }
 
     if initial || new.focusable != old.focusable || new.disabled != old.disabled {
-        if new.focusable.is_some() || new.interaction == Some(Interaction::Activate) || new.kind == ElementKind::TextInput {
+        if new.focusable.is_some()
+            || new.interaction == Some(Interaction::Activate)
+            || new.kind == ElementKind::TextInput
+        {
             node.set_tab_index(if new.is_focusable() { 0 } else { -1 });
         } else if old.focusable.is_some() {
             node.remove_attribute("tabindex")?;
         }
-        if new.disabled { let _ = node.blur(); }
+        if new.disabled {
+            let _ = node.blur();
+        }
         calls += 1;
     }
 
@@ -1020,7 +1096,7 @@ const BASE_STYLE: &str = r#"
 }
 
 .refract-root :focus-visible {
-  outline: 3px solid #547b59;
+  outline: 3px solid #2857b7;
   outline-offset: 4px;
 }
 

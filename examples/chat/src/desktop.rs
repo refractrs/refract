@@ -4,6 +4,7 @@ fn main() -> refract_native::Result<()> {
     refract_native::run(
         refract_native::NativeOptions {
             title: "Chat".into(),
+            initial_url: Some("app://chat/".parse().expect("valid application URL")),
             width: 1180.0,
             height: 880.0,
             background: refract_chat::BACKGROUND,

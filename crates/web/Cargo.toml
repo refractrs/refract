@@ -21,7 +21,7 @@ js-sys.workspace = true
 
 [dependencies.web-sys]
 workspace = true
-features = ["PointerEvent", "DomRect", "ResizeObserver", "Blob", "BlobPropertyBag", "Url", "Window", "Document", "Node", "Element", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement", "HtmlButtonElement", "CssStyleDeclaration", "Event", "EventTarget", "MouseEvent", "KeyboardEvent", "InputEvent", "CompositionEvent", "ShadowRoot", "ShadowRootInit", "ShadowRootMode", "console", "Performance", "NodeList"]
+features = ["History", "Location", "MutationObserver", "MutationObserverInit", "ResizeObserverEntry", "MediaQueryList", "HtmlHeadElement", "PointerEvent", "DomRect", "ResizeObserver", "Blob", "BlobPropertyBag", "Url", "Window", "Document", "Node", "Element", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement", "HtmlButtonElement", "CssStyleDeclaration", "Event", "EventTarget", "MouseEvent", "KeyboardEvent", "InputEvent", "CompositionEvent", "ShadowRoot", "ShadowRootInit", "ShadowRootMode", "console", "Performance", "NodeList"]
 
 [package.metadata.docs.rs]
 default-target = "wasm32-unknown-unknown"
@@ -30,4 +30,9 @@ all-features = true
 [[example]]
 name = "channel_fixture"
 path = "tests/browser/channel_fixture.rs"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "surface_fixture"
+path = "tests/browser/surface_fixture.rs"
 crate-type = ["cdylib"]

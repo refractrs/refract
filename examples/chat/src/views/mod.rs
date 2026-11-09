@@ -24,22 +24,27 @@ pub(super) const MONO: &str = "'SFMono-Regular', Consolas, monospace";
 pub(super) fn shell(cx: &mut ViewContext<'_>) -> impl View {
     #[environment_object]
     let model: Rc<ChatModel>;
-    let open = cx.read_state(&model.sidebar_open);
+    let open = cx.read_derived(&model.sidebar_visible);
+    let compact = cx.read_derived(&model.compact);
     h_stack()
-        .child(if open {
-            sidebar::sidebar().into_any()
+        .child(if open && !compact {
+            sidebar::sidebar(false).into_any()
         } else {
             Empty.into_any()
         })
         .child(
             v_stack()
                 .child(header())
-                .child(
+                .child(crate::surface::navigation_status())
+                .child(if compact && open {
+                    sidebar::sidebar(true).grow(1.0).min_height(0.0).into_any()
+                } else {
                     conversation::selected()
                         .grow(1.0)
                         .min_height(0.0)
-                        .fill_width(),
-                )
+                        .fill_width()
+                        .into_any()
+                })
                 .grow(1.0)
                 .min_width(0.0)
                 .fill_height(),
@@ -79,11 +84,7 @@ fn toggle_sidebar(cx: &mut ViewContext<'_>) -> impl View {
     #[environment_object]
     let model: Rc<ChatModel>;
     #[action(model)]
-    let toggle = |action| {
-        model
-            .sidebar_open
-            .update(action.runtime(), |open| *open = !*open)
-    };
+    let toggle = |action| model.toggle_sidebar(action.runtime());
     h_stack()
         .alignment(Alignment::Center)
         .justify(Alignment::Center)

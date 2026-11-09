@@ -113,6 +113,78 @@ impl Clone for CloneCounted {
 }
 
 #[test]
+fn read_only_handles_borrow_track_and_keep_state_alive() {
+    let mut rt = Runtime::new();
+    let clones = Rc::new(std::cell::Cell::new(0));
+    let state = State::new(
+        &mut rt,
+        CloneCounted {
+            clones: clones.clone(),
+            values: vec![1, 2],
+        },
+    );
+    let binding = state.binding();
+    let read = binding.read_only();
+    let observer = rt.observer();
+    let label = String::from("length");
+    let ((label, len), deps) = rt.capture(|rt| read.with(rt, |v| (label, v.values.len())));
+    assert_eq!((label.as_str(), len), ("length", 2));
+    assert_eq!(clones.get(), 0);
+    rt.accept(&observer, deps);
+
+    binding.set(
+        &mut rt,
+        CloneCounted {
+            clones: clones.clone(),
+            values: vec![3],
+        },
+    );
+    assert!(observer.is_dirty(&rt));
+    let retained = read.clone();
+    drop((state, binding, read, observer));
+    rt.collect();
+    assert_eq!(rt.stats().attributes, 1);
+    assert_eq!(retained.get(&rt).values, vec![3]);
+    assert_eq!(clones.get(), 1);
+    drop(retained);
+    rt.collect();
+    assert_eq!(rt.stats().attributes, 0);
+}
+
+#[test]
+fn read_only_projections_support_non_clone_values_and_release_writers() {
+    struct Selected(i32);
+
+    let mut rt = Runtime::new();
+    let state = State::new(&mut rt, (1, 2));
+    let writer_resource = Rc::new(());
+    let writer_lifetime = Rc::downgrade(&writer_resource);
+    let selected = state.binding().map(
+        |v| Selected(v.0),
+        move |v, selected| {
+            let _keep_alive = &writer_resource;
+            v.0 = selected.0;
+        },
+    );
+    let field = selected.map(|v| v.0, |v, n| v.0 = n);
+    let read_selected = selected.read_only();
+    let read_field = field.read_only();
+    drop((selected, field));
+    assert!(writer_lifetime.upgrade().is_none());
+    assert_eq!(rt.stats().attributes, 1);
+
+    let observer = rt.observer();
+    let (value, deps) = rt.capture(|rt| read_field.get(rt));
+    rt.accept(&observer, deps);
+    assert_eq!(value, 1);
+    state.set(&mut rt, (3, 2));
+    assert!(observer.is_dirty(&rt));
+    assert_eq!(read_selected.get(&rt).0, 3);
+    assert_eq!(read_selected.with(&rt, |v| v.0), 3);
+    assert_eq!(read_field.get(&rt), 3);
+}
+
+#[test]
 fn borrowed_binding_reads_track_without_cloning_and_keep_owned_reads() {
     let mut rt = Runtime::new();
     let clones = Rc::new(std::cell::Cell::new(0));

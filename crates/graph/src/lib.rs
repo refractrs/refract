@@ -29,7 +29,7 @@ pub use derived::Derived;
 pub use handle::AttributeId;
 pub use observer::{Dependencies, Observer};
 pub use runtime::{GraphStats, Runtime};
-pub use state::{Binding, State};
+pub use state::{Binding, Read, State};
 
 #[cfg(test)]
 mod tests;

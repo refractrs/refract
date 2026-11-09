@@ -1,0 +1,88 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Surface fixture</title>
+<style>#host,#observer{width:800px;height:600px}pre{white-space:pre-wrap}</style>
+<pre id="results">Running…</pre>
+<div id="host"></div><div id="observer"></div>
+<script type="module">
+import init, {start_surface_fixture} from './surface_fixture.js';
+const results = document.querySelector('#results');
+const originalUrl = location.href;
+const checks = [];
+const tick = () => new Promise(resolve => setTimeout(resolve, 20));
+function assert(condition, label) {
+  if (!condition) throw new Error(label);
+  checks.push(`PASS: ${label}`);
+}
+async function until(check) {
+  for (let i = 0; i < 100; i++) { if (check()) return; await tick(); }
+  throw new Error('Timed out waiting for browser update');
+}
+const host = document.querySelector('#host');
+const observer = document.querySelector('#observer');
+const value = (label, element = host) => element.shadowRoot.querySelector(`[aria-label="${label}"]`).textContent;
+const press = label => host.shadowRoot.querySelector(`[aria-label="action-${label}"]`).click();
+let app, passive;
+try {
+  await init();
+  app = start_surface_fixture(host, true);
+  passive = start_surface_fixture(observer, false);
+  assert(value('title') === 'Surface fixture', 'initial title is available on first render');
+  assert(value('location') === originalUrl, 'initial location is available on first render');
+  assert(Number(value('width')) === 800, 'initial viewport is the mount width');
+  const duplicate = document.createElement('div');
+  duplicate.style.cssText = 'width:100px;height:100px';
+  document.body.append(duplicate);
+  let rejected = false;
+  try { start_surface_fixture(duplicate, true); } catch { rejected = true; }
+  assert(rejected && !duplicate.shadowRoot, 'a second owner is rejected before DOM mutation');
+  duplicate.remove();
+
+  host.style.width = '390px';
+  await until(() => Number(value('width')) === 390);
+  assert(Number(value('width', observer)) === 800, 'viewport observations belong to each mount');
+  press('title');
+  await until(() => document.title === 'Changed title' && value('title', observer) === 'Changed title');
+  assert(value('title') === 'Changed title', 'title requests publish to observing mounts');
+  document.title = 'External title';
+  await until(() => value('title') === 'External title');
+  assert(true, 'external title edits feed the graph');
+
+  const length = history.length;
+  press('push');
+  await until(() => value('location', observer).endsWith('?step=two'));
+  assert(history.length === length + 1, 'push creates exactly one entry');
+  press('replace');
+  await until(() => value('location').endsWith('?step=three'));
+  assert(history.length === length + 1, 'replace preserves history length');
+  press('reject');
+  await until(() => value('status') === 'failed');
+  assert(location.search === '?step=three', 'rejected navigation preserves the accepted URL');
+  history.back();
+  await until(() => value('location') === originalUrl);
+  history.forward();
+  await until(() => value('location').endsWith('?step=three'));
+  assert(history.length === length + 1, 'Back/Forward does not echo new entries');
+  history.replaceState(null, '', '?external=1');
+  app.refresh_location();
+  await until(() => value('location').endsWith('?external=1'));
+  assert(true, 'embedding routers can explicitly feed a location change');
+  assert(app.last_error() === undefined, 'no asynchronous host error');
+  app.dispose();
+  passive.dispose();
+  const replacement = document.createElement('div');
+  replacement.style.cssText = 'width:100px;height:100px';
+  document.body.append(replacement);
+  const next = start_surface_fixture(replacement, true);
+  next.dispose(); next.free(); replacement.remove();
+  assert(true, 'disposal releases document ownership');
+  results.textContent = checks.join('\n') + `\n\nAll ${checks.length} checks passed.`;
+  document.title = 'PASS: Refract surface browser tests';
+} catch (error) {
+  results.textContent = checks.join('\n') + '\nFAIL: ' + (error.stack ?? error);
+  document.title = 'FAIL: Refract surface browser tests';
+} finally {
+  app?.dispose(); app?.free(); passive?.dispose(); passive?.free();
+  history.replaceState(null, '', originalUrl);
+}
+</script>

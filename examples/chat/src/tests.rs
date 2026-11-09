@@ -15,6 +15,10 @@ struct Workers {
 }
 
 fn mounted() -> (App, TestHost, Rc<Workers>) {
+    mounted_at("app://chat/")
+}
+
+fn mounted_at(url: &str) -> (App, TestHost, Rc<Workers>) {
     let workers = Rc::new(Workers::default());
     let mut app = App::new(root(Rc::new(ReplySource::new({
         let workers = workers.clone();
@@ -40,6 +44,16 @@ fn mounted() -> (App, TestHost, Rc<Workers>) {
         }
     }))));
     let mut host = TestHost::default();
+    host.install_surface(&mut app, "Chat", Some(url.parse().unwrap()));
+    host.set_viewport(
+        &mut app,
+        Viewport {
+            width: 1180.0,
+            height: Some(880.0),
+            scale_factor: 1.0,
+        },
+    )
+    .unwrap();
     host.flush(&mut app).unwrap();
     (app, host, workers)
 }
@@ -250,6 +264,7 @@ fn failed_worker_start_is_rendered_without_leaving_a_live_request() {
         Err("cannot start worker".into())
     }))));
     let mut host = TestHost::default();
+    host.install_surface(&mut app, "Chat", Some("app://chat/".parse().unwrap()));
     host.flush(&mut app).unwrap();
     input(&mut app, &mut host, "Message Refract", "hello");
     host.press(&mut app, "Send message").unwrap();
@@ -257,4 +272,122 @@ fn failed_worker_start_is_rendered_without_leaving_a_live_request() {
     assert!(host.text().contains("cannot start worker"));
     assert!(host.text().contains("RESPONSE FAILED"));
     host.button("Send message");
+}
+
+#[test]
+fn selection_updates_history_and_title_without_echoing_back_navigation() {
+    let (mut app, mut host, _) = mounted();
+    let surface = host.surface.as_ref().unwrap().surface();
+    assert_eq!(
+        surface.location.get(app.runtime()).unwrap().query(),
+        Some("conversation=1")
+    );
+    host.press(&mut app, "Open A weekend away").unwrap();
+    assert_eq!(
+        surface.location.get(app.runtime()).unwrap().query(),
+        Some("conversation=3")
+    );
+    assert_eq!(
+        surface.title.get(app.runtime()),
+        "A weekend away — Refract Chat"
+    );
+    host.go(&mut app, -1);
+    host.flush(&mut app).unwrap();
+    assert_eq!(
+        surface.title.get(app.runtime()),
+        "A calmer kind of workspace — Refract Chat"
+    );
+    host.go(&mut app, 1);
+    host.flush(&mut app).unwrap();
+    assert_eq!(
+        surface.location.get(app.runtime()).unwrap().query(),
+        Some("conversation=3")
+    );
+    assert_eq!(
+        surface.title.get(app.runtime()),
+        "A weekend away — Refract Chat"
+    );
+}
+
+#[test]
+fn narrow_viewport_collapses_sidebar_but_keeps_menu_accessible() {
+    let (mut app, mut host, _) = mounted();
+    host.set_viewport(
+        &mut app,
+        Viewport {
+            width: 390.0,
+            height: Some(800.0),
+            scale_factor: 2.0,
+        },
+    )
+    .unwrap();
+    host.flush(&mut app).unwrap();
+    assert!(!host
+        .elements
+        .values()
+        .any(|element| element.label.as_deref() == Some("Search conversations")));
+    host.press(&mut app, "Toggle sidebar").unwrap();
+    assert!(host
+        .elements
+        .values()
+        .any(|element| element.label.as_deref() == Some("Search conversations")));
+    host.press(&mut app, "Open A weekend away").unwrap();
+    assert!(!host
+        .elements
+        .values()
+        .any(|element| element.label.as_deref() == Some("Search conversations")));
+    assert!(host.text().contains("A weekend away"));
+    host.set_viewport(
+        &mut app,
+        Viewport {
+            width: 1180.0,
+            height: Some(880.0),
+            scale_factor: 1.0,
+        },
+    )
+    .unwrap();
+    host.flush(&mut app).unwrap();
+    assert!(host
+        .elements
+        .values()
+        .any(|element| element.label.as_deref() == Some("Search conversations")));
+}
+
+#[test]
+fn deep_links_preserve_prefixes_and_unknown_conversations_replace_the_current_entry() {
+    let (mut app, mut host, _) =
+        mounted_at("https://example.com/apps/chat/?theme=dark&conversation=3#message");
+    let surface = host.surface.as_ref().unwrap().surface();
+    assert_eq!(
+        surface.title.get(app.runtime()),
+        "A weekend away — Refract Chat"
+    );
+    host.press(&mut app, "Open Designing with intention")
+        .unwrap();
+    let url = surface.location.get(app.runtime()).unwrap();
+    assert_eq!(url.path(), "/apps/chat/");
+    assert_eq!(url.fragment(), Some("message"));
+    assert_eq!(url.query(), Some("theme=dark&conversation=2"));
+    host.press(&mut app, "Delete chat").unwrap();
+    host.go(&mut app, -1);
+    host.flush(&mut app).unwrap();
+    assert_eq!(
+        surface.title.get(app.runtime()),
+        "A weekend away — Refract Chat"
+    );
+
+    let (app, mut host, _) = mounted_at("https://example.com/apps/chat/?conversation=999");
+    let url = host
+        .surface
+        .as_ref()
+        .unwrap()
+        .surface()
+        .location
+        .get(app.runtime())
+        .unwrap();
+    assert_eq!(url.query(), Some("conversation=1"));
+    assert!(
+        host.history.go(-1).is_none(),
+        "normalization must replace, not push"
+    );
 }

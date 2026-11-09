@@ -10,6 +10,7 @@ mod layout;
 mod platform;
 pub mod renderer;
 mod scheduler;
+mod surface;
 mod text;
 
 pub use error::{NativeError, Result};

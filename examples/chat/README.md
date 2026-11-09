@@ -54,3 +54,23 @@ Tests cover cross-thread delivery, a full inbox, precise text-only updates,
 concurrent conversation ownership, cancellation with queued results, deletion,
 failure/retry, and disposal. With the web server running, open `/smoke.html` for
 browser interaction checks.
+
+## Viewport, title, and history
+
+Select a conversation and watch the URL's `conversation` query parameter and the
+browser/window title update. Browser Back and Forward restore the selected chat
+without creating another entry. Query routing preserves the current path, other
+query parameters, and deployment prefixes. Initial links to the three seeded
+conversations work on reload; chats created during this session are not persisted,
+so missing or deleted IDs are replaced with the current valid selection.
+
+Resize below 760 logical pixels to collapse the sidebar. The menu button opens a
+full-width conversation menu; selecting a conversation closes it again. The
+breakpoint is a `Derived::distinct` value, so resizing within a size class does not
+reevaluate the shell on every pixel. Sidebar preferences are scoped to the size
+class. Streaming and drafts continue while the compact menu is visible.
+
+`surface.rs` owns committed effects for incoming location changes and outgoing
+titles. User selection pushes history; deletion and URL normalization replace
+it. Host observations never call the selection command that pushes history.
+The native launcher supplies `app://chat/` as its initial application URL.

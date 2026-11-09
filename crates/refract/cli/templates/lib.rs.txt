@@ -44,7 +44,14 @@ mod browser {
             web_sys::console::error_1(&JsValue::from_str(&info.to_string()));
         }));
         Ok(Application {
-            mount: refract_web::mount(host, super::application(), refract_web::MountOptions::default())?,
+            mount: refract_web::mount(
+                host,
+                super::application(),
+                refract_web::MountOptions {
+                    manage_document: true,
+                    ..Default::default()
+                },
+            )?,
         })
     }
 }
