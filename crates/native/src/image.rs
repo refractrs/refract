@@ -213,7 +213,7 @@ fn load(agent: &ureq::Agent, source: &ImageSource) -> Result<Vec<u8>, String> {
                 let mut response = agent.get(url).call().map_err(|e| e.to_string())?;
                 read_limited(response.body_mut().as_reader())
             } else if url.contains("://") || url.starts_with("//") {
-                Err("desktop images require HTTP(S), embedded bytes, or a filesystem path".into())
+                Err("native images require HTTP(S), embedded bytes, or a filesystem path".into())
             } else {
                 read_limited(std::fs::File::open(url).map_err(|e| e.to_string())?)
             }

@@ -1,8 +1,8 @@
 //! The shared application selects a native background producer.
 #[cfg(not(target_arch = "wasm32"))]
-fn main() -> refract_desktop::Result<()> {
-    refract_desktop::run(
-        refract_desktop::DesktopOptions {
+fn main() -> refract_native::Result<()> {
+    refract_native::run(
+        refract_native::NativeOptions {
             title: "Chat".into(),
             width: 1180.0,
             height: 880.0,

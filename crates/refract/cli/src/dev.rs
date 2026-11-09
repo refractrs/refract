@@ -13,7 +13,7 @@ use std::sync::{
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub fn run(options: DevOptions, stopped: Arc<AtomicBool>) -> Result<()> {
-    if options.project.platform == Platform::Desktop && options.open {
+    if options.project.platform == Platform::Native && options.open {
         return Err("--open applies only to web development".into());
     }
     let mut project = Project::load(&options.project, &stopped)?;

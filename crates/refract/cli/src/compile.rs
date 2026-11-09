@@ -44,7 +44,7 @@ pub fn build(
             ensure_wasm_target(&project.root, options, stopped)?;
             command.args(["--lib", "--target", "wasm32-unknown-unknown"]);
         }
-        Platform::Desktop => {
+        Platform::Native => {
             // Native means the host even if Cargo config defaults to a WASM target.
             let host = process::capture(
                 Command::new("rustc").current_dir(&project.root).arg("-vV"),
@@ -101,7 +101,7 @@ fn artifact(messages: &[Value], project: &Project, platform: Platform) -> Result
         if id != project.package.id || message["target"]["name"] != project.target.name {
             continue;
         }
-        if platform == Platform::Desktop {
+        if platform == Platform::Native {
             if let Some(executable) = message["executable"].as_str() {
                 path = Some(PathBuf::from(executable));
             }

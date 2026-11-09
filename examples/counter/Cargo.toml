@@ -15,11 +15,11 @@ wasm-bindgen.workspace = true
 web-sys = { workspace = true, features = ["Window", "Document", "Element"] }
 
 [features]
-desktop = ["dep:refract-desktop"]
+desktop = ["dep:refract-native"]
 browser-tests = []
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-refract-desktop = { workspace = true, optional = true }
+refract-native = { workspace = true, optional = true }
 
 [[bin]]
 name = "refract-counter-desktop"

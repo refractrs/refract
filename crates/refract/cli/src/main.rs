@@ -38,7 +38,8 @@ enum Commands {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum Platform {
     Web,
-    Desktop,
+    #[value(name = "desktop")]
+    Native,
 }
 
 #[derive(clap::Args)]

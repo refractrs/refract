@@ -2,6 +2,9 @@
 
 [Website](https://refract.rs) · [Documentation](https://refract.rs/docs)
 
+Refract provides browser rendering through `refract-web` and native rendering
+through `refract-native`. The native adapter currently targets desktop platforms.
+
 ## Get started
 
 ### From crates.io

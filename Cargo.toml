@@ -17,7 +17,7 @@ readme = "README.md"
 refract-graph = { version = "0.1.1", path = "crates/graph" }
 refract-core = { version = "0.1.1", path = "crates/core" }
 refract-web = { version = "0.1.1", path = "crates/web" }
-refract-desktop = { version = "0.1.1", path = "crates/desktop" }
+refract-native = { version = "0.1.1", path = "crates/native" }
 refract-macros = { version = "0.1.1", path = "crates/macros" }
 refract-test = { version = "0.1.1", path = "crates/test" }
 refract = { version = "0.1.1", path = "crates/refract" }

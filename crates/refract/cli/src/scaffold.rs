@@ -9,7 +9,7 @@ pub struct NewOptions {
     /// Package name (defaults to the new directory name).
     #[arg(long)]
     pub name: Option<String>,
-    /// Refract repository containing crates/refract, crates/web, and crates/desktop.
+    /// Refract repository containing crates/refract, crates/web, and crates/native.
     /// Use local path dependencies instead of the published CLI's release version.
     #[arg(long)]
     pub framework_path: Option<PathBuf>,
@@ -34,7 +34,7 @@ pub fn create(options: NewOptions) -> Result<()> {
         .map(|path| path.canonicalize())
         .transpose()?;
     let (rust_version, dependencies) = if let Some(framework) = &framework {
-        for subdir in ["refract", "web", "desktop"] {
+        for subdir in ["refract", "web", "native"] {
             if !framework
                 .join("crates")
                 .join(subdir)
@@ -112,10 +112,10 @@ wasm-bindgen = {bindgen}
 web-sys = {{ version = {web_sys}, features = ["Element", "console"] }}
 
 [features]
-desktop = ["dep:refract-desktop"]
+desktop = ["dep:refract-native"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-refract-desktop = {{ {desktop}, optional = true }}
+refract-native = {{ {native}, optional = true }}
 
 [[bin]]
 name = "{binary}-desktop"
@@ -130,7 +130,7 @@ incremental = false
         rust_version = quote(&rust_version),
         refract = dependency("refract"),
         web = dependency("web"),
-        desktop = dependency("desktop"),
+        native = dependency("native"),
         bindgen = version("wasm-bindgen")?,
         web_sys = version("web-sys")?,
         binary = name
@@ -235,11 +235,11 @@ mod tests {
         assert_eq!(manifest["package"]["name"].as_str(), Some("hello-app"));
         assert_eq!(manifest["package"]["publish"].as_bool(), Some(false));
         let browser = &manifest["target"]["cfg(target_arch = \"wasm32\")"]["dependencies"];
-        let desktop = &manifest["target"]["cfg(not(target_arch = \"wasm32\"))"]["dependencies"];
+        let native = &manifest["target"]["cfg(not(target_arch = \"wasm32\"))"]["dependencies"];
         for dependency in [
             &manifest["dependencies"]["refract"],
             &browser["refract-web"],
-            &desktop["refract-desktop"],
+            &native["refract-native"],
         ] {
             assert_eq!(
                 dependency["version"].as_str(),
@@ -270,7 +270,7 @@ mod tests {
     fn explicit_checkout_uses_its_paths_and_browser_versions() {
         let temp = tempfile::tempdir().unwrap();
         let framework = temp.path().join("framework with spaces");
-        for name in ["refract", "web", "desktop"] {
+        for name in ["refract", "web", "native"] {
             let path = framework.join("crates").join(name);
             fs::create_dir_all(&path).unwrap();
             fs::write(path.join("Cargo.toml"), "").unwrap();

@@ -2,7 +2,7 @@
 
 use super::vello_geometry::{RoundedBox, rounded};
 use super::{DrawCommand, Frame, ImageId, Presentation, RasterImage, Renderer};
-use crate::{DesktopError, Result};
+use crate::{NativeError, Result};
 use std::{
     collections::HashMap,
     sync::{Arc, Weak},
@@ -263,7 +263,7 @@ impl Renderer for VelloRenderer {
                 return Ok(Presentation::Retry);
             }
             wgpu::CurrentSurfaceTexture::Validation => {
-                return Err(DesktopError::Render("surface validation failed".into()));
+                return Err(NativeError::Render("surface validation failed".into()));
             }
         };
         let device = &self.context.devices[self.surface.dev_id];
@@ -308,8 +308,8 @@ impl Renderer for VelloRenderer {
 fn color(c: refract_core::Color) -> Color {
     Color::from_rgba8(c.0, c.1, c.2, c.3)
 }
-fn render_error(error: impl std::fmt::Display) -> DesktopError {
-    DesktopError::Render(error.to_string())
+fn render_error(error: impl std::fmt::Display) -> NativeError {
+    NativeError::Render(error.to_string())
 }
 
 /// Anchor old pixels only during AppKit live resizing to avoid apparent panel
