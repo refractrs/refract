@@ -163,7 +163,9 @@ leaf_builder!(
 impl Text {
     crate::modifiers::text_modifiers!(pub Self, crate::modifiers::configure);
 
-    /// Truncate overflowing text with an ellipsis.
+    /// Display a single line, truncating overflow with an ellipsis on both hosts.
+    /// Constrain the text's width to enable truncation. Whitespace is collapsed;
+    /// the underlying text and accessible label are retained in full.
     pub fn truncate(mut self) -> Self {
         self.element.style.truncate = true;
         self

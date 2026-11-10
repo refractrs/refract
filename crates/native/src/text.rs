@@ -1,4 +1,5 @@
-//! Parley shaping with per-element caches. Width changes reflow without reshaping.
+//! Parley shaping with per-element caches. Wrapping reflows without reshaping;
+//! truncated labels cache ellipsized glyphs for their current width and alignment.
 
 use crate::renderer::{Glyph, GlyphRun};
 use parley::{AlignmentOptions, FontContext, LayoutContext, PositionedLayoutItem, StyleProperty};
@@ -82,6 +83,8 @@ pub(crate) struct TextSystem {
 
 pub(crate) struct TextBlock {
     text: String,
+    pub truncate: bool,
+    single_line: Option<String>,
     typography: Typography,
     layout: parley::Layout<()>,
     content_widths: parley::ContentWidths,
@@ -92,9 +95,30 @@ pub(crate) struct TextBlock {
 
 impl TextSystem {
     pub fn shape(&mut self, text: &str, typography: &Typography) -> TextBlock {
+        self.shape_label(text, typography, false)
+    }
+
+    pub fn shape_label(
+        &mut self,
+        text: &str,
+        typography: &Typography,
+        truncate: bool,
+    ) -> TextBlock {
+        // Match the web's white-space: nowrap. RangedBuilder expects whitespace
+        // to be collapsed before shaping; nonbreaking spaces remain significant.
+        let single_line = truncate.then(|| {
+            text.split([' ', '\t', '\n', '\r', '\u{000c}'])
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
+        });
+        let shaped_text = single_line.as_deref().unwrap_or(text);
         let mut builder = self
             .context
-            .ranged_builder(&mut self.fonts, text, 1.0, false);
+            .ranged_builder(&mut self.fonts, shaped_text, 1.0, false);
+        if truncate {
+            builder.push_default(StyleProperty::TextWrapMode(parley::TextWrapMode::NoWrap));
+        }
         builder.push_default(StyleProperty::FontSize(typography.size));
         builder.push_default(StyleProperty::FontWeight(parley::FontWeight::new(
             typography.weight as f32,
@@ -108,13 +132,15 @@ impl TextSystem {
                 height,
             )));
         }
-        let layout = builder.build(text);
+        let layout = builder.build(shaped_text);
         // Intrinsic widths depend on the shaped text, not its current wrapping.
         // Cache them once so resize measurement stays independent of paint order.
         let content_widths = layout.calculate_content_widths();
         self.shapes += 1;
         TextBlock {
             text: text.into(),
+            truncate,
+            single_line,
             typography: typography.clone(),
             layout,
             content_widths,
@@ -131,7 +157,14 @@ impl TextBlock {
     }
 
     pub fn content_widths(&self) -> (f32, f32) {
-        (self.content_widths.min, self.content_widths.max)
+        (
+            if self.truncate {
+                0.0
+            } else {
+                self.content_widths.min
+            },
+            self.content_widths.max,
+        )
     }
 
     pub fn measure(&mut self, width: Option<f32>, align: Alignment) -> (f32, f32) {
@@ -155,6 +188,55 @@ impl TextBlock {
 
     pub fn glyph_runs(&mut self) -> &[Rc<GlyphRun>] {
         self.runs.get_or_insert_with(|| glyph_runs(&self.layout))
+    }
+
+    /// Keep intrinsic measurement based on the full text. Only the painted
+    /// string is shortened, and its glyphs are cached until width/alignment changes.
+    pub fn prepare_ellipsis(&mut self, system: &mut TextSystem) {
+        if !self.truncate || self.runs.is_some() {
+            return;
+        }
+        let Some(width) = self.width else { return };
+        if self.layout.width() <= width {
+            return;
+        }
+        let mut shortened = self.ellipsized(system, width);
+        shortened.measure(Some(width), self.typography.align);
+        self.runs = Some(shortened.glyph_runs().to_vec());
+    }
+
+    fn ellipsized(&self, system: &mut TextSystem, width: f32) -> TextBlock {
+        let text = self.single_line.as_deref().unwrap_or(&self.text);
+        // Parley's cluster ranges are grapheme boundaries, including combining
+        // marks and joined emoji. Sort logical offsets because runs may be bidi.
+        let mut ends: Vec<_> = self
+            .layout
+            .lines()
+            .flat_map(|line| line.runs())
+            .flat_map(|run| run.clusters().map(|cluster| cluster.text_range().end))
+            .collect();
+        ends.sort_unstable();
+        ends.dedup();
+        let mut best = system.shape_label("…", &self.typography, true);
+        best.measure(None, Alignment::Start);
+        if best.layout.width() > width {
+            // As on the web, the marker itself is clipped when it cannot fit.
+            return best;
+        }
+        let (mut low, mut high) = (0, ends.len());
+        while low < high {
+            let middle = low + (high - low) / 2;
+            let candidate = format!("{}…", &text[..ends[middle]]);
+            let mut block = system.shape_label(&candidate, &self.typography, true);
+            block.measure(None, Alignment::Start);
+            if block.layout.width() <= width {
+                best = block;
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        best
     }
 }
 
@@ -193,6 +275,90 @@ pub(crate) fn glyph_runs(layout: &parley::Layout<()>) -> Vec<Rc<GlyphRun>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncation_collapses_whitespace_and_keeps_one_line() {
+        let mut system = TextSystem::default();
+        let mut block = system.shape_label("  one\t two\r\nthree  ", &Typography::default(), true);
+        let (_, height) = block.measure(Some(20.0), Alignment::Start);
+        assert_eq!(block.single_line.as_deref(), Some("one two three"));
+        assert_eq!(block.layout.len(), 1);
+        assert!(height > 0.0);
+        assert_eq!(block.content_widths().0, 0.0);
+        let intrinsic = block.content_widths();
+        block.prepare_ellipsis(&mut system);
+        assert_eq!(block.content_widths(), intrinsic);
+
+        let mut normal = system.shape("one\ntwo", &Typography::default());
+        normal.measure(Some(200.0), Alignment::Start);
+        assert_eq!(normal.layout.len(), 2);
+        let nbsp = system.shape_label("one\u{a0}two", &Typography::default(), true);
+        assert_eq!(nbsp.single_line.as_deref(), Some("one\u{a0}two"));
+    }
+
+    #[test]
+    fn ellipsis_preserves_graphemes_and_fits_the_available_width() {
+        let mut system = TextSystem::default();
+        for parts in [
+            vec!["A", "e\u{301}", "👨‍👩‍👧‍👦", "中", "B"],
+            vec!["ש", "ל", "ו", "ם", " ", "ע", "ו", "ל", "ם"],
+        ] {
+            let value = parts.concat();
+            let mut block = system.shape_label(&value, &Typography::default(), true);
+            block.measure(None, Alignment::Start);
+            let mut marker = system.shape("…", &Typography::default());
+            let marker_width = marker.measure(None, Alignment::Start).0;
+            for width in [0.0, marker_width / 2.0, marker_width, 30.0, 50.0, 70.0] {
+                let clipped = block.ellipsized(&mut system, width);
+                let prefix = clipped.text.strip_suffix('…').unwrap();
+                assert!(
+                    (0..=parts.len()).any(|n| parts[..n].concat() == prefix),
+                    "split grapheme: {prefix:?}"
+                );
+                if width >= marker_width {
+                    assert!(
+                        clipped.layout.width() <= width,
+                        "{} > {width}",
+                        clipped.layout.width()
+                    );
+                }
+                assert_eq!(clipped.layout.len(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn truncation_cache_tracks_width_and_alignment_without_losing_full_text() {
+        let mut system = TextSystem::default();
+        let mut block = system.shape_label(
+            "A long label that must be shortened",
+            &Typography::default(),
+            true,
+        );
+        block.measure(Some(80.0), Alignment::Start);
+        block.prepare_ellipsis(&mut system);
+        let first = block.glyph_runs()[0].clone();
+        let shapes = system.shapes;
+        block.measure(Some(80.0), Alignment::Start);
+        block.prepare_ellipsis(&mut system);
+        assert_eq!(system.shapes, shapes);
+        assert!(Rc::ptr_eq(&first, &block.glyph_runs()[0]));
+
+        block.measure(Some(80.0), Alignment::End);
+        block.prepare_ellipsis(&mut system);
+        assert!(!Rc::ptr_eq(&first, &block.glyph_runs()[0]));
+        let intrinsic = block.content_widths().1;
+        block.measure(Some(intrinsic + 100.0), Alignment::Start);
+        block.prepare_ellipsis(&mut system);
+        let full: usize = block.glyph_runs().iter().map(|r| r.glyphs.len()).sum();
+        assert!(full > first.glyphs.len());
+        block.measure(Some(0.0), Alignment::Start);
+        block.prepare_ellipsis(&mut system);
+        assert!(block.glyph_runs().iter().all(|run| run
+            .glyphs
+            .iter()
+            .all(|g| g.x.is_finite() && g.y.is_finite())));
+    }
 
     #[test]
     fn typography_inherits_and_explicit_values_override_it() {

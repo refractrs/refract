@@ -91,7 +91,7 @@ pub(crate) fn style(element: &Element) -> Style {
         start: line(1),
         end: line(2),
     };
-    if source.clipped || matches!(source.layout, Layout::Scroll(_)) {
+    if source.clipped || source.truncate || matches!(source.layout, Layout::Scroll(_)) {
         result.overflow = taffy::Point {
             x: taffy::Overflow::Hidden,
             y: taffy::Overflow::Hidden,

@@ -27,6 +27,52 @@ fn frame(host: &mut Host) -> renderer::Frame {
 }
 
 #[test]
+fn truncated_labels_resize_and_toggle_without_changing_identity() {
+    let content = |truncate| {
+        text("A long label with several words that should fit on a single line")
+            .fill_width()
+            .line_height(20.0)
+            .background(Color::BLUE)
+            .modify(false, move |element| element.style.truncate = truncate)
+    };
+    let mut app = App::new(content(true));
+    let mut host = Host::new().unwrap();
+    flush(&mut app, &mut host);
+    let original = app.elements()[0].0;
+    let render = |host: &mut Host, width| host.frame(width, 200.0, 1.0, Color::WHITE).unwrap();
+    let glyph_count = |frame: &renderer::Frame| {
+        frame
+            .commands
+            .iter()
+            .map(|c| match c {
+                DrawCommand::Glyphs { run, .. } => run.glyphs.len(),
+                _ => 0,
+            })
+            .sum::<usize>()
+    };
+    let narrow = render(&mut host, 80.0);
+    assert!(narrow.commands.iter().any(|c| matches!(c,
+        DrawCommand::PushLayer { clip, .. } if clip.width == 80.0 && clip.height == 20.0)));
+    let wide = render(&mut host, 1000.0);
+    assert!(glyph_count(&wide) > glyph_count(&narrow));
+    let narrow_again = render(&mut host, 80.0);
+    assert_eq!(glyph_count(&narrow), glyph_count(&narrow_again));
+    let shapes = host.stats().text_shapes;
+    render(&mut host, 80.0);
+    assert_eq!(host.stats().text_shapes, shapes);
+
+    app.set_view(content(false));
+    flush(&mut app, &mut host);
+    let wrapped = render(&mut host, 80.0);
+    assert_eq!(app.elements()[0].0, original);
+    assert!(wrapped.commands.iter().any(|c| matches!(c,
+        DrawCommand::Fill { rect, color, .. } if *color == Color::BLUE && rect.height > 20.0)));
+    app.set_view(content(true));
+    flush(&mut app, &mut host);
+    assert_eq!(glyph_count(&render(&mut host, 80.0)), glyph_count(&narrow));
+}
+
+#[test]
 fn input_mode_changes_reset_focused_composition_and_reconfigure_the_editor() {
     use refract_core::{ElementKind, Event};
     use winit::event::Ime;

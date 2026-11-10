@@ -288,6 +288,20 @@ impl Host {
             let top = layout.border.top + layout.padding.top;
             let width = (rect.width - left - layout.border.right - layout.padding.right).max(0.0);
             block.measure(Some(width), entry.typography.align);
+            block.prepare_ellipsis(&mut self.text);
+            if block.truncate {
+                frame.commands.push(DrawCommand::PushLayer {
+                    clip: Rect {
+                        x: rect.x + left,
+                        y: rect.y + top,
+                        width,
+                        height: (rect.height - top - layout.border.bottom - layout.padding.bottom)
+                            .max(0.0),
+                    },
+                    radius: 0.0.into(),
+                    opacity: 1.0,
+                });
+            }
             for run in block.glyph_runs() {
                 frame.commands.push(DrawCommand::Glyphs {
                     origin: Point {
@@ -301,6 +315,9 @@ impl Host {
                     },
                     run: run.clone(),
                 });
+            }
+            if block.truncate {
+                frame.commands.push(DrawCommand::PopLayer);
             }
         }
         drop(text);

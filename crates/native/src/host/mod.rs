@@ -393,12 +393,12 @@ impl Host {
         };
         if let Some(value) = value {
             let mut context = entry.text.borrow_mut();
-            let reshaped = context
-                .block
-                .as_ref()
-                .is_none_or(|block| !block.matches(&value, &typography));
+            let truncate = entry.element.style.truncate;
+            let reshaped = context.block.as_ref().is_none_or(|block| {
+                block.truncate != truncate || !block.matches(&value, &typography)
+            });
             if reshaped {
-                context.block = Some(self.text.shape(&value, &typography));
+                context.block = Some(self.text.shape_label(&value, &typography, truncate));
                 self.tree.mark_dirty(entry.node)?;
                 self.needs_layout = true;
             }
@@ -414,8 +414,5 @@ impl Host {
 
 fn validate_element(element: &Element) -> Result<()> {
     element.validate()?;
-    if element.style.truncate {
-        return Err(NativeError::Unsupported("text ellipsis".into()));
-    }
     Ok(())
 }
