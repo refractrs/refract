@@ -21,6 +21,9 @@ pub struct BuildOptions {
     /// Web URL prefix, e.g. /my-app/. Sets the entry HTML's base URL.
     #[arg(long, value_parser = base_path)]
     base_path: Option<String>,
+    /// Render initial HTML from the app's WASM export (web builds only).
+    #[arg(long)]
+    prerender: bool,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
@@ -31,6 +34,9 @@ struct Ownership {
 }
 
 pub fn run(options: BuildOptions, stopped: &AtomicBool) -> Result<()> {
+    if options.prerender && options.project.platform != Platform::Web {
+        return Err("--prerender currently supports web builds only".into());
+    }
     if options.project.platform == Platform::Native && options.base_path.is_some() {
         return Err("--base-path applies only to web builds".into());
     }
@@ -66,6 +72,12 @@ pub fn run(options: BuildOptions, stopped: &AtomicBool) -> Result<()> {
     };
 
     let artifact = compile::build(&project, &options.project, options.release, stopped)?;
+    let rendered = if options.prerender {
+        eprintln!("Prerendering {}…", project.package.name);
+        Some(crate::prerender::render(&fs::read(&artifact.path)?)?)
+    } else {
+        None
+    };
     let parent = output
         .parent()
         .ok_or("output must have a parent directory")?;
@@ -78,7 +90,20 @@ pub fn run(options: BuildOptions, stopped: &AtomicBool) -> Result<()> {
     match options.project.platform {
         Platform::Web => {
             copy_tree(&public, &candidate, true)?;
-            fs::write(candidate.join("index.html"), html.unwrap())?;
+            let mut html = html.unwrap();
+            if let Some(fragment) = rendered {
+                html = super::html::with_prerender(&html, &fragment)?;
+                fs::write(
+                    candidate.join("app.prerender.mjs"),
+                    crate::prerender::module(&fragment)?,
+                )?;
+                fs::write(
+                    candidate.join("app.prerender.d.mts"),
+                    crate::prerender::MODULE_TYPES,
+                )?;
+                fs::write(candidate.join("app.html"), fragment)?;
+            }
+            fs::write(candidate.join("index.html"), html)?;
             let version = artifact
                 .bindgen_version
                 .ok_or("the WASM build did not compile wasm-bindgen")?;

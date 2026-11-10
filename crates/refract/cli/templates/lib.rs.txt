@@ -26,6 +26,8 @@ pub fn application(cx: &mut ViewContext<'_>) -> impl View {
 mod browser {
     use wasm_bindgen::prelude::*;
 
+    refract_web::export_prerender!(super::application());
+
     #[wasm_bindgen]
     pub struct Application {
         mount: refract_web::Mount,
@@ -44,7 +46,7 @@ mod browser {
             web_sys::console::error_1(&JsValue::from_str(&info.to_string()));
         }));
         Ok(Application {
-            mount: refract_web::mount(
+            mount: refract_web::hydrate(
                 host,
                 super::application(),
                 refract_web::MountOptions {
