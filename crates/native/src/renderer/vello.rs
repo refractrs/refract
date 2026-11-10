@@ -210,6 +210,11 @@ impl VelloRenderer {
                         .draw_glyphs(&run.font)
                         .font_size(run.font_size)
                         .normalized_coords(&run.normalized_coords)
+                        .glyph_transform(
+                            run.skew.map(|angle| {
+                                Affine::skew(f64::from(angle).to_radians().tan(), 0.0)
+                            }),
+                        )
                         .transform(scale * Affine::translate((origin.x as f64, origin.y as f64)))
                         .brush(color(*brush))
                         .draw(

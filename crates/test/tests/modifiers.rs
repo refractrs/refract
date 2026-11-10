@@ -3,6 +3,47 @@ use refract_test::TestHost;
 use std::{cell::RefCell, rc::Rc};
 
 #[test]
+fn typography_preserves_text_and_field_builders_and_rejects_invalid_updates() {
+    let make_view = |spacing| {
+        view_fn(move |cx| {
+            let value = cx.state("value", || "One two".to_owned());
+            let title: Text = text("One two")
+                .italic()
+                .letter_spacing(spacing)
+                .word_spacing(2.0)
+                .heading(2);
+            let input: Field = field(value)
+                .italic()
+                .letter_spacing(spacing)
+                .word_spacing(2.0)
+                .placeholder("Type here");
+            Ok(v_stack().child(title).child(input))
+        })
+    };
+    let mut app = App::new(make_view(-0.5));
+    let mut host = TestHost::default();
+    host.flush(&mut app).unwrap();
+    let root = host.children[&None][0];
+    let children = host.children[&Some(root)].clone();
+    assert_eq!(host.elements.len(), 3, "typography adds no wrapper");
+    for id in &children {
+        let style = &host.elements[id].style;
+        assert_eq!(style.italic, Some(true));
+        assert_eq!(style.letter_spacing, Some(-0.5));
+        assert_eq!(style.word_spacing, Some(2.0));
+    }
+    assert!(app.dispatch(children[1], Event::Input("Edited".into())));
+    host.flush(&mut app).unwrap();
+    app.set_view(make_view(1.0));
+    host.flush(&mut app).unwrap();
+    assert_eq!(host.children[&Some(root)], children);
+    assert_eq!(host.elements[&children[1]].value, "Edited");
+    app.set_view(make_view(f32::NAN));
+    assert!(app.prepare().is_err());
+    assert_eq!(host.elements[&children[0]].style.letter_spacing, Some(1.0));
+}
+
+#[test]
 fn gradient_modifiers_accept_both_kinds_on_builders_and_composed_views() {
     let radial = RadialGradient::new(80.0, Color::BLUE, Color::WHITE);
     let linear = LinearGradient::new(90.0, Color::BLUE, Color::WHITE);

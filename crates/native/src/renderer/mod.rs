@@ -70,6 +70,8 @@ pub struct Glyph {
 pub struct GlyphRun {
     pub font: FontData,
     pub font_size: f32,
+    /// Suggested synthetic italic slant in degrees, applied in glyph-local coordinates.
+    pub skew: Option<f32>,
     pub normalized_coords: Vec<i16>,
     pub glyphs: Vec<Glyph>,
 }
