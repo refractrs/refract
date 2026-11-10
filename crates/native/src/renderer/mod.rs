@@ -139,6 +139,12 @@ pub enum DrawCommand {
         radius: CornerRadii,
         gradient: refract_core::LinearGradient,
     },
+    /// A premultiplied-sRGB circular gradient clipped to the rounded border box.
+    RadialGradient {
+        rect: Rect,
+        radius: CornerRadii,
+        gradient: refract_core::RadialGradient,
+    },
     Border {
         rect: Rect,
         radius: CornerRadii,

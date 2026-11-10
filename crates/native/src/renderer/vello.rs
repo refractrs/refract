@@ -143,6 +143,32 @@ impl VelloRenderer {
                     self.scene
                         .fill(Fill::NonZero, scale, &brush, None, &rounded(*rect, *radius));
                 }
+                DrawCommand::RadialGradient {
+                    rect,
+                    radius,
+                    gradient,
+                } => {
+                    let stops: Vec<_> = gradient
+                        .stops
+                        .iter()
+                        .map(|stop| vello::peniko::ColorStop {
+                            offset: stop.offset,
+                            color: color(stop.color).into(),
+                        })
+                        .collect();
+                    let brush = vello::peniko::Gradient::new_radial(
+                        (
+                            f64::from(rect.x)
+                                + f64::from(rect.width) * f64::from(gradient.center.0),
+                            f64::from(rect.y)
+                                + f64::from(rect.height) * f64::from(gradient.center.1),
+                        ),
+                        gradient.radius,
+                    )
+                    .with_stops(stops.as_slice());
+                    self.scene
+                        .fill(Fill::NonZero, scale, &brush, None, &rounded(*rect, *radius));
+                }
                 DrawCommand::Stroke {
                     rect,
                     radius,

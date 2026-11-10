@@ -192,4 +192,22 @@ mod tests {
         assert!(html.contains(">\n\n&lt;&amp;</textarea>"));
         assert!(html.contains("data:image/png;base64,AAEC"));
     }
+
+    #[test]
+    fn radial_backgrounds_share_the_live_dom_css() {
+        let html = prerender(
+            view()
+                .width(200.0)
+                .height(100.0)
+                .radius(12.0)
+                .background_gradient(
+                    RadialGradient::new(80.0, Color::BLUE, Color::WHITE).center(0.25, 0.75),
+                ),
+            PrerenderOptions::default(),
+        )
+        .unwrap();
+        assert!(html.contains("background-image:radial-gradient(circle 80px at 25% 75% in srgb, rgba(45,87,232,1) 0%, rgba(255,255,255,1) 100%);"));
+        assert!(html.contains("background-origin:border-box;"));
+        assert!(html.contains("border-radius:12px 12px 12px 12px;"));
+    }
 }

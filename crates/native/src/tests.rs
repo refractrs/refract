@@ -219,7 +219,7 @@ fn shadows_respect_opacity_and_ancestor_clips_without_affecting_layout() {
 
 #[test]
 fn gradient_updates_and_removal_are_paint_only() {
-    fn content(gradient: Option<LinearGradient>) -> impl View {
+    fn content(gradient: Option<Gradient>) -> impl View {
         text("gradient").modify(false, move |element| {
             element.style = refract::Style {
                 width: Some(200.0),
@@ -232,7 +232,7 @@ fn gradient_updates_and_removal_are_paint_only() {
         })
     }
     let first = LinearGradient::new(160.0, Color::BLUE, Color::WHITE);
-    let mut app = App::new(content(Some(first.clone())));
+    let mut app = App::new(content(Some(first.clone().into())));
     let mut host = Host::new().unwrap();
     flush(&mut app, &mut host);
     let rendered = frame(&mut host);
@@ -248,7 +248,7 @@ fn gradient_updates_and_removal_are_paint_only() {
             GradientStop::new(1.0, Color::WHITE),
         ],
     };
-    app.set_view(content(Some(second.clone())));
+    app.set_view(content(Some(second.clone().into())));
     let pending = app.prepare().unwrap().unwrap();
     assert!(matches!(pending.patches(), [Patch::Update(_, _)]));
     host.apply(&pending.update).unwrap();
@@ -258,12 +258,46 @@ fn gradient_updates_and_removal_are_paint_only() {
         .iter()
         .any(|command| matches!(command,
         DrawCommand::LinearGradient { gradient, .. } if gradient == &second)));
+    for radial in [
+        RadialGradient::new(40.0, Color::BLUE, Color(0, 0, 0, 0)).center(0.25, 0.75),
+        RadialGradient {
+            center: (-0.25, 1.5),
+            radius: 100.0,
+            stops: vec![
+                GradientStop::new(0.0, Color(0, 0, 0, 0)),
+                GradientStop::new(0.5, Color::BLUE),
+                GradientStop::new(0.5, Color::WHITE),
+            ],
+        },
+    ] {
+        app.set_view(content(Some(radial.clone().into())));
+        let pending = app.prepare().unwrap().unwrap();
+        assert!(matches!(pending.patches(), [Patch::Update(_, _)]));
+        host.apply(&pending.update).unwrap();
+        app.commit(pending).unwrap();
+        let rendered = frame(&mut host);
+        let index = rendered.commands.iter().position(|command| matches!(command,
+            DrawCommand::RadialGradient { rect, radius, gradient }
+            if rect.width == 200.0 && rect.height == 60.0 && *radius == 9.0.into() && gradient == &radial
+        )).unwrap();
+        assert!(matches!(
+            rendered.commands[index - 1],
+            DrawCommand::Fill {
+                color: Color::BLACK,
+                ..
+            }
+        ));
+        assert!(!rendered
+            .commands
+            .iter()
+            .any(|command| matches!(command, DrawCommand::LinearGradient { .. })));
+    }
     app.set_view(content(None));
     flush(&mut app, &mut host);
-    assert!(!frame(&mut host)
-        .commands
-        .iter()
-        .any(|command| matches!(command, DrawCommand::LinearGradient { .. })));
+    assert!(!frame(&mut host).commands.iter().any(|command| matches!(
+        command,
+        DrawCommand::LinearGradient { .. } | DrawCommand::RadialGradient { .. }
+    )));
     assert_eq!(host.stats().layout_passes, before.layout_passes);
     assert_eq!(host.stats().text_shapes, before.text_shapes);
 }
@@ -365,7 +399,9 @@ fn visual_primitives_share_activation_hit_testing_focus_and_disabled_state() {
             let primitive = match kind {
                 ElementKind::Box => activate!(view()),
                 ElementKind::Text => activate!(text("Press")),
-                ElementKind::Image => activate!(image(crate::image::tests::png_source()).label("Press")),
+                ElementKind::Image => {
+                    activate!(image(crate::image::tests::png_source()).label("Press"))
+                }
                 _ => unreachable!(),
             };
             let mut app = App::new(primitive);

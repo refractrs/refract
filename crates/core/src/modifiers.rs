@@ -49,8 +49,9 @@ macro_rules! element_modifiers {
             $apply(self, move |e| e.style.background = Some(color))
         }
 
-        /// Layer a linear gradient over the optional solid background color.
-        $visibility fn background_gradient(self, gradient: $crate::LinearGradient) -> $output {
+        /// Layer a linear or radial gradient over the optional solid background color.
+        $visibility fn background_gradient(self, gradient: impl Into<$crate::Gradient>) -> $output {
+            let gradient = gradient.into();
             $apply(self, move |e| {
                 e.style.background_gradient = Some(gradient.clone())
             })

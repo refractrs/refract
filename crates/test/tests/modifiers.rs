@@ -3,6 +3,28 @@ use refract_test::TestHost;
 use std::{cell::RefCell, rc::Rc};
 
 #[test]
+fn gradient_modifiers_accept_both_kinds_on_builders_and_composed_views() {
+    let radial = RadialGradient::new(80.0, Color::BLUE, Color::WHITE);
+    let linear = LinearGradient::new(90.0, Color::BLUE, Color::WHITE);
+    let container: Container = view().background_gradient(radial.clone());
+    let mut app = App::new(
+        container.child(view_fn(|_| Ok(text("Content"))).background_gradient(linear.clone())),
+    );
+    let mut host = TestHost::default();
+    host.flush(&mut app).unwrap();
+    let root = host.children[&None][0];
+    let child = host.children[&Some(root)][0];
+    assert_eq!(
+        host.elements[&root].style.background_gradient,
+        Some(radial.into())
+    );
+    assert_eq!(
+        host.elements[&child].style.background_gradient,
+        Some(linear.into())
+    );
+}
+
+#[test]
 fn field_modifiers_preserve_the_builder_and_style_the_editable_element() {
     for disabled in [false, true] {
         let submissions = Rc::new(RefCell::new(Vec::new()));

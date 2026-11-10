@@ -84,6 +84,7 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
                                 .height(40.0)
                                 .foreground(ACCENT)
                                 .background(PALE)
+                                .background_gradient(avatar_gradient(40.0))
                                 .radius(20.0),
                         )
                         .child(
