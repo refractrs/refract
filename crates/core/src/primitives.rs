@@ -232,6 +232,26 @@ impl Stack {
     }
 }
 
+impl Overlay {
+    /// Align each child horizontally and vertically within the shared cell.
+    /// Both axes default to stretch; explicit child sizes are preserved.
+    /// `SpaceBetween` behaves like `Start` because children overlap rather than
+    /// being distributed. Alignment does not change declaration or paint order.
+    ///
+    /// ```
+    /// use refract_core::prelude::*;
+    /// let card = z_stack()
+    ///     .alignment(Alignment::End, Alignment::Start)
+    ///     .child(view().width(240.0).height(160.0).background(Color::BLUE))
+    ///     .child(text("New").padding(8.0).background(Color::WHITE));
+    /// ```
+    pub fn alignment(mut self, horizontal: Alignment, vertical: Alignment) -> Self {
+        self.element.style.justify = horizontal;
+        self.element.style.align = vertical;
+        self
+    }
+}
+
 /// Create a text view with configurable typography and heading or status semantics.
 /// The view owns its text; strings are displayed as plain text, not parsed as markup.
 pub fn text(value: impl Into<String>) -> Text {
@@ -259,10 +279,13 @@ pub fn v_stack() -> Stack {
 }
 
 /// Create an overlay stack; later children appear in front of earlier children.
+/// Children share one cell and stretch by default. Use [`Overlay::alignment`]
+/// to position smaller children independently along the horizontal and vertical axes.
 pub fn z_stack() -> Overlay {
     let mut element = Element::new(ElementKind::Box);
     element.style.layout = Layout::Overlay;
     element.style.align = Alignment::Stretch;
+    element.style.justify = Alignment::Stretch;
     Overlay::new(element)
 }
 

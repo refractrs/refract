@@ -194,6 +194,19 @@ mod tests {
     }
 
     #[test]
+    fn overlay_alignment_is_included_in_the_initial_html() {
+        let html = prerender(
+            refract_core::z_stack()
+                .alignment(Alignment::End, Alignment::Center)
+                .child(text("Badge")),
+            PrerenderOptions::default(),
+        )
+        .unwrap();
+        assert!(html.contains("justify-items:end;"));
+        assert!(html.contains("align-items:center;"));
+    }
+
+    #[test]
     fn radial_backgrounds_share_the_live_dom_css() {
         let html = prerender(
             view()

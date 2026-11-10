@@ -45,6 +45,14 @@ pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
     if s.layout == Layout::Overlay {
         out.insert("grid-template-columns", "minmax(0, 1fr)".into());
         out.insert("grid-template-rows", "minmax(0, 1fr)".into());
+        let item_alignment = |value| match value {
+            Alignment::Start | Alignment::SpaceBetween => "start",
+            Alignment::Center => "center",
+            Alignment::End => "end",
+            Alignment::Stretch => "stretch",
+        };
+        out.insert("justify-items", item_alignment(s.justify).into());
+        out.insert("align-items", item_alignment(s.align).into());
     }
     out.insert(
         "flex",
