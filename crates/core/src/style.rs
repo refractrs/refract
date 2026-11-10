@@ -422,7 +422,9 @@ pub struct Style {
     pub grow: f32,
     pub fill_width: bool,
     pub fill_height: bool,
+    /// Cross-axis stack alignment, or vertical child alignment in an overlay.
     pub align: Alignment,
+    /// Main-axis stack distribution, or horizontal child alignment in an overlay.
     pub justify: Alignment,
 
     pub background: Option<Color>,

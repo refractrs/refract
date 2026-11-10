@@ -80,6 +80,7 @@ pub(crate) fn style(element: &Element) -> Style {
     if source.layout == Layout::Overlay {
         result.grid_template_columns = vec![fr(1.0)];
         result.grid_template_rows = vec![fr(1.0)];
+        result.justify_items = align(source.justify);
     }
     // All children of an overlay use its single grid cell. These placement values
     // are ignored by flex/block parents, so no parent-dependent restyling is needed.

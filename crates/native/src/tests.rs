@@ -715,6 +715,123 @@ fn resizing_reflows_text_without_reshaping() {
 }
 
 #[test]
+fn overlay_alignment_moves_children_without_reordering_or_remounting() {
+    let content = |horizontal, vertical| {
+        z_stack()
+            .alignment(horizontal, vertical)
+            .width(200.0)
+            .height(100.0)
+            .child(
+                view()
+                    .width(40.0)
+                    .height(20.0)
+                    .background(Color::BLUE)
+                    .label("back")
+                    .on_press(|_| {}),
+            )
+            .child(
+                view()
+                    .width(40.0)
+                    .height(20.0)
+                    .background(Color::WHITE)
+                    .label("front")
+                    .on_press(|_| {}),
+            )
+            .modify(false, |element| {
+                element.style.padding = Insets::all(10.0);
+                element.style.border = Some(Border::all(2.0, Color::BLACK));
+            })
+    };
+    let mut app = App::new(content(Alignment::Start, Alignment::Start));
+    let mut host = Host::new().unwrap();
+    flush(&mut app, &mut host);
+    let ids: Vec<_> = app.elements().iter().map(|(id, _)| *id).collect();
+    let back = app
+        .elements()
+        .iter()
+        .find(|(_, e)| e.label.as_deref() == Some("back"))
+        .unwrap()
+        .0;
+    let front = app
+        .elements()
+        .iter()
+        .find(|(_, e)| e.label.as_deref() == Some("front"))
+        .unwrap()
+        .0;
+    for (horizontal, x) in [
+        (Alignment::Start, 12.0),
+        (Alignment::Center, 80.0),
+        (Alignment::End, 148.0),
+        (Alignment::SpaceBetween, 12.0),
+    ] {
+        for (vertical, y) in [
+            (Alignment::Start, 12.0),
+            (Alignment::Center, 40.0),
+            (Alignment::End, 68.0),
+        ] {
+            app.set_view(content(horizontal, vertical));
+            flush(&mut app, &mut host);
+            let rendered = host.frame(200.0, 100.0, 1.0, Color::BLACK).unwrap();
+            let rectangles: Vec<_> = rendered
+                .commands
+                .iter()
+                .filter_map(|c| match c {
+                    DrawCommand::Fill { rect, color, .. }
+                        if *color == Color::BLUE || *color == Color::WHITE =>
+                    {
+                        Some((*rect, *color))
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(rectangles.len(), 2);
+            for (rect, _) in &rectangles {
+                assert_eq!(
+                    (rect.x, rect.y, rect.width, rect.height),
+                    (x, y, 40.0, 20.0)
+                );
+            }
+            assert_eq!(rectangles[0].1, Color::BLUE);
+            assert_eq!(rectangles[1].1, Color::WHITE);
+            assert_eq!(
+                host.hit_test(Point {
+                    x: x + 1.0,
+                    y: y + 1.0
+                }),
+                Some(front)
+            );
+            host.set_focus(None);
+            host.focus_next(false);
+            assert_eq!(host.focus, Some(back));
+            host.focus_next(false);
+            assert_eq!(host.focus, Some(front));
+            assert_eq!(
+                app.elements().iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+                ids
+            );
+        }
+    }
+}
+
+#[test]
+fn overlay_defaults_stretch_unsized_children_and_preserve_explicit_sizes() {
+    let mut app = App::new(
+        z_stack()
+            .width(200.0)
+            .height(100.0)
+            .child(view().background(Color::BLUE))
+            .child(view().width(40.0).height(20.0).background(Color::WHITE)),
+    );
+    let mut host = Host::new().unwrap();
+    flush(&mut app, &mut host);
+    let rendered = host.frame(200.0, 100.0, 1.0, Color::BLACK).unwrap();
+    for (color, size) in [(Color::BLUE, (200.0, 100.0)), (Color::WHITE, (40.0, 20.0))] {
+        assert!(rendered.commands.iter().any(|c| matches!(c,
+            DrawCommand::Fill { rect, color: actual, .. } if *actual == color && (rect.width, rect.height) == size)));
+    }
+}
+
+#[test]
 fn overlays_hit_the_frontmost_enabled_control() {
     let mut app = App::new(
         z_stack()

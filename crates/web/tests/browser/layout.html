@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Overlay alignment fixture</title>
+<style>body{font:16px system-ui;padding:32px}#host{width:320px}pre{white-space:pre-wrap}</style>
+<div id="host"></div><pre id="results">Running…</pre>
+<script type="module">
+import init, {start_layout_fixture} from './layout_fixture.js';
+const results = document.querySelector('#results');
+const checks = [];
+function assert(condition, label) {
+  if (!condition) throw new Error(label);
+  checks.push(`PASS: ${label}`);
+}
+async function until(check) {
+  for (let i = 0; i < 100; i++) {
+    if (check()) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error('Timed out waiting for alignment update');
+}
+try {
+  await init();
+  const host = document.querySelector('#host');
+  const app = start_layout_fixture(host);
+  const find = label => host.shadowRoot.querySelector(`[aria-label="${label}"]`);
+  const rect = element => element.getBoundingClientRect();
+  const near = (actual, expected) => Math.abs(actual - expected) < 0.1;
+  assert(app.hydrated(), 'aligned prerendered nodes are adopted');
+  const front = find('front'), back = find('back'), parent = find('aligned');
+  const alignments = ['start', 'center', 'end'];
+  for (let i = 0; i < 9; i++) {
+    await until(() => getComputedStyle(parent).justifyItems === alignments[Math.floor(i / 3)] && getComputedStyle(parent).alignItems === alignments[i % 3]);
+    const bounds = rect(parent), child = rect(front);
+    assert(near(child.x - bounds.x, [12, 80, 148][Math.floor(i / 3)]) && near(child.y - bounds.y, [12, 40, 68][i % 3]), `alignment ${i} respects padding and border`);
+    assert(near(child.width, 40) && near(child.height, 20), `alignment ${i} preserves child size`);
+    assert(front === find('front') && back === find('back'), `alignment ${i} retains identity`);
+    assert(host.shadowRoot.elementFromPoint(child.x + 1, child.y + 1) === front, `alignment ${i} keeps the last child in front`);
+    assert(parent.children[0] === back && parent.children[1] === front && back.tabIndex === 0 && front.tabIndex === 0, `alignment ${i} preserves keyboard order`);
+    find('next').click();
+  }
+  await until(() => getComputedStyle(parent).justifyItems === 'start');
+  assert(near(rect(find('stretched')).width, 200) && near(rect(find('stretched')).height, 100), 'default alignment stretches unsized children');
+  assert(near(rect(find('sized')).width, 40) && near(rect(find('sized')).height, 20), 'default alignment preserves explicit sizes');
+  assert(!app.last_error(), 'updates complete without host errors');
+  results.textContent = checks.join('\n');
+  document.documentElement.dataset.result = 'pass';
+  window.layoutFixture = app;
+} catch (error) {
+  results.textContent = `${checks.join('\n')}\nFAIL: ${error.stack}`;
+  document.documentElement.dataset.result = 'fail';
+}
+</script>
