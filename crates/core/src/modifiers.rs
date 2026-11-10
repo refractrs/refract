@@ -304,6 +304,8 @@ pub trait ViewExt: View + Sized {
     /// Opaque views receive an outer activation box. Nested interactive controls
     /// are rejected during preparation; this is not an editable-control event hook.
     /// Existing roles are preserved; otherwise the target gets button semantics.
+    /// Browser activation targets suppress user text selection, including their
+    /// labels, so repeated clicks do not select the control's text.
     ///
     /// Callbacks on the same target run in registration order, in one mutation
     /// batch; other event handlers (for example scroll observers) are preserved.

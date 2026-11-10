@@ -19,6 +19,7 @@ macro_rules! element_builder {
             crate::modifiers::event_modifiers!(pub Self, crate::modifiers::configure_handler);
 
             /// Add pointer/keyboard activation, preserving this builder.
+            /// Browser activation targets suppress user text selection.
             pub fn on_press(mut self, action: impl Fn(&mut ActionContext<'_>) + 'static) -> Self {
                 crate::element::add_press_handler(&mut self.element, &mut self.handler, action);
                 self
