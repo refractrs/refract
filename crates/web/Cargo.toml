@@ -37,3 +37,8 @@ crate-type = ["cdylib"]
 name = "surface_fixture"
 path = "tests/browser/surface_fixture.rs"
 crate-type = ["cdylib"]
+
+[[example]]
+name = "effects_fixture"
+path = "tests/browser/effects_fixture.rs"
+crate-type = ["cdylib"]

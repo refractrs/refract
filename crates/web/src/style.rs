@@ -146,6 +146,14 @@ pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
     if let Some(opacity) = s.opacity {
         out.insert("opacity", opacity.to_string());
     }
+    if let Some(amount) = s.blur.filter(|amount| *amount > 0.0) {
+        out.insert("filter", format!("blur({amount}px)"));
+    }
+    if let Some(amount) = s.backdrop_blur.filter(|amount| *amount > 0.0) {
+        let filter = format!("blur({amount}px)");
+        out.insert("-webkit-backdrop-filter", filter.clone());
+        out.insert("backdrop-filter", filter);
+    }
 
     if let Some(weight) = s.font_weight {
         out.insert("font-weight", weight.to_string());
@@ -234,6 +242,32 @@ pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blur_filters_replace_and_remove_independently() {
+        let Some(Description::Element(mut element, _, _)) =
+            view().blur(2.5).backdrop_blur(12.0).describe()
+        else {
+            panic!("element")
+        };
+        let styled = css(&element);
+        assert_eq!(styled["filter"], "blur(2.5px)");
+        assert_eq!(styled["backdrop-filter"], "blur(12px)");
+        assert_eq!(styled["-webkit-backdrop-filter"], styled["backdrop-filter"]);
+        element.style.blur = Some(0.0);
+        element.style.backdrop_blur = Some(4.0);
+        let changed = css(&element);
+        assert!(!changed.contains_key("filter"));
+        assert_eq!(changed["backdrop-filter"], "blur(4px)");
+        for value in [Some(0.0), None] {
+            element.style.blur = value;
+            element.style.backdrop_blur = value;
+            let removed = css(&element);
+            for key in ["filter", "backdrop-filter", "-webkit-backdrop-filter"] {
+                assert!(!removed.contains_key(key));
+            }
+        }
+    }
 
     #[test]
     fn typography_can_be_set_reset_and_removed_on_text_and_fields() {

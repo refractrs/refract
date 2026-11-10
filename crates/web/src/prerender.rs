@@ -212,6 +212,23 @@ mod tests {
     }
 
     #[test]
+    fn blur_filters_are_prerendered_and_invalid_amounts_are_rejected() {
+        let html = prerender(
+            text("glass").blur(3.0).backdrop_blur(16.0),
+            PrerenderOptions::default(),
+        )
+        .unwrap();
+        assert!(html.contains("filter:blur(3px);"));
+        assert!(html.contains("backdrop-filter:blur(16px);"));
+        assert!(prerender(text("invalid").blur(-1.0), PrerenderOptions::default()).is_err());
+        assert!(prerender(
+            text("invalid").backdrop_blur(f32::NAN),
+            PrerenderOptions::default()
+        )
+        .is_err());
+    }
+
+    #[test]
     fn typography_is_prerendered_for_text_and_editable_fields() {
         let html = prerender(
             view_fn(|cx| {

@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Blur and backdrop blur fixture</title>
+<style>body{font:16px system-ui;padding:32px}#host{width:320px}pre{white-space:pre-wrap}</style>
+<div id="host"></div><pre id="results">Running…</pre>
+<script type="module">
+import init, {start_effects_fixture} from './effects_fixture.js';
+const results = document.querySelector('#results');
+const checks = [];
+function assert(condition, label) {
+  if (!condition) throw new Error(label);
+  checks.push(`PASS: ${label}`);
+}
+async function until(check) {
+  for (let i = 0; i < 100; i++) {
+    if (check()) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error('Timed out waiting for filter update');
+}
+try {
+  await init();
+  const host = document.querySelector('#host');
+  const app = start_effects_fixture(host);
+  const find = label => host.shadowRoot.querySelector(`[aria-label="${label}"]`);
+  const blurred = find('blurred'), glass = find('glass');
+  const size = blurred.getBoundingClientRect();
+  const css = element => getComputedStyle(element);
+  assert(css(blurred).filter === 'blur(3px)', 'content blur is applied');
+  assert(css(glass).backdropFilter === 'blur(12px)', 'backdrop blur is applied');
+  assert(css(glass).filter === 'none', 'backdrop blur does not filter the foreground');
+  assert(css(glass).borderTopLeftRadius === '18px', 'backdrop retains rounded corners');
+  find('next').click();
+  await until(() => css(blurred).filter === 'blur(6px)');
+  assert(css(glass).backdropFilter === 'blur(4px)', 'effects update independently');
+  assert(blurred === find('blurred') && glass === find('glass'), 'updates retain DOM identity');
+  assert(blurred.getBoundingClientRect().width === size.width && blurred.getBoundingClientRect().height === size.height, 'effects preserve layout');
+  find('next').click();
+  await until(() => css(blurred).filter === 'none');
+  assert(css(glass).backdropFilter === 'none', 'zero disables both effects');
+  find('next').click();
+  await new Promise(resolve => setTimeout(resolve, 40));
+  assert(!blurred.style.filter && !glass.style.backdropFilter && !glass.style.getPropertyValue('-webkit-backdrop-filter'), 'removal clears filter properties');
+  find('next').click();
+  await until(() => app.last_error());
+  assert(css(blurred).filter === 'none' && blurred === find('blurred'), 'invalid amounts preserve the last valid DOM');
+  app.dispose();
+  results.textContent = checks.join('\n');
+  document.documentElement.dataset.result = 'pass';
+} catch (error) {
+  results.textContent = `${checks.join('\n')}\nFAIL: ${error.stack}`;
+  document.documentElement.dataset.result = 'fail';
+}
+</script>

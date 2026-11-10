@@ -144,7 +144,17 @@ impl Host {
         self.paint_order.push(id);
         // Opacity includes the shadow, but the element's own content clip does
         // not cut it off. Ancestor clips continue to constrain the whole group.
-        if let Some(opacity) = s.opacity {
+        let has_effects =
+            s.blur.is_some_and(|v| v > 0.0) || s.backdrop_blur.is_some_and(|v| v > 0.0);
+        if has_effects {
+            frame.commands.push(DrawCommand::PushEffects {
+                rect,
+                radius: s.radius,
+                blur: s.blur.unwrap_or(0.0),
+                backdrop_blur: s.backdrop_blur.unwrap_or(0.0),
+                opacity: s.opacity.unwrap_or(1.0),
+            });
+        } else if let Some(opacity) = s.opacity {
             frame.commands.push(DrawCommand::PushLayer {
                 clip: inherited_clip,
                 radius: 0.0.into(),
@@ -306,7 +316,7 @@ impl Host {
         // Paint it after descendants so image/text content gets feedback too.
         let feedback = (self.hover == Some(id) && !entry.element.disabled)
             .then_some((s.radius, if self.pressed == Some(id) { 26 } else { 13 }));
-        let has_opacity = s.opacity.is_some();
+        let has_opacity = s.opacity.is_some() || has_effects;
         for child in children {
             self.paint(child, origin, clip, frame)?;
         }

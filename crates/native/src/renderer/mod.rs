@@ -7,9 +7,13 @@
 #[cfg(feature = "vello")]
 mod vello;
 #[cfg(feature = "vello")]
-mod vello_shadow;
+mod vello_effects;
 #[cfg(feature = "vello")]
 mod vello_geometry;
+#[cfg(feature = "vello")]
+mod vello_scene;
+#[cfg(feature = "vello")]
+mod vello_shadow;
 
 #[cfg(feature = "vello")]
 pub use self::vello::VelloRenderer;
@@ -118,6 +122,16 @@ impl RasterImage {
 /// Commands are in painter's order. Every pushed layer has one matching pop.
 #[derive(Clone, Debug)]
 pub enum DrawCommand {
+    /// Isolated subtree: capture the backdrop before painting, optionally blur
+    /// the completed subtree, then apply group opacity. Amounts are Gaussian
+    /// standard deviations in logical pixels. Pair with `PopLayer`.
+    PushEffects {
+        rect: Rect,
+        radius: CornerRadii,
+        blur: f32,
+        backdrop_blur: f32,
+        opacity: f32,
+    },
     /// Outer shadow behind the background; exclude the original rounded box's
     /// interior even when its background is transparent. Blur is CSS radius.
     BoxShadow {
