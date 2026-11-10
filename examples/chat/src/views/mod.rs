@@ -20,6 +20,11 @@ pub(super) const PALE: Color = Color::rgb(220, 232, 251);
 pub(super) const SANS: &str = "Inter, 'Helvetica Neue', Arial, sans-serif";
 pub(super) const MONO: &str = "'SFMono-Regular', Consolas, monospace";
 
+fn avatar_gradient(radius: f32) -> RadialGradient {
+    RadialGradient::new(radius, Color(255, 255, 255, 220), Color(117, 159, 224, 36))
+        .center(0.25, 0.2)
+}
+
 #[view]
 pub(super) fn shell(cx: &mut ViewContext<'_>) -> impl View {
     #[environment_object]

@@ -32,6 +32,7 @@ fn avatar(user: bool) -> impl View {
         .width(28.0)
         .height(28.0)
         .background(if user { SIDE } else { PALE })
+        .background_gradient(avatar_gradient(28.0))
         .foreground(ACCENT)
         .radius(8.0)
 }

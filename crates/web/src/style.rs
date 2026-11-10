@@ -91,15 +91,23 @@ pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
     }
     if let Some(gradient) = &s.background_gradient {
         let stops = gradient
-            .stops
+            .stops()
             .iter()
             .map(|stop| format!("{} {}%", stop.color.css(), stop.offset * 100.0))
             .collect::<Vec<_>>()
             .join(", ");
-        out.insert(
-            "background-image",
-            format!("linear-gradient({}deg in srgb, {stops})", gradient.angle),
-        );
+        let image = match gradient {
+            Gradient::Linear(gradient) => {
+                format!("linear-gradient({}deg in srgb, {stops})", gradient.angle)
+            }
+            Gradient::Radial(gradient) => format!(
+                "radial-gradient(circle {}px at {}% {}% in srgb, {stops})",
+                gradient.radius,
+                f64::from(gradient.center.0) * 100.0,
+                f64::from(gradient.center.1) * 100.0,
+            ),
+        };
+        out.insert("background-image", image);
         // Match the desktop gradient geometry even on bordered controls.
         out.insert("background-origin", "border-box".into());
     }
@@ -218,6 +226,43 @@ pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gradient_kinds_replace_and_remove_without_leaving_background_properties() {
+        let Some(Description::Element(mut element, _, _)) = view().describe() else {
+            panic!("element")
+        };
+        element.style.background = Some(Color::BLACK);
+        element.style.background_gradient =
+            Some(LinearGradient::new(90.0, Color::BLUE, Color::WHITE).into());
+        assert_eq!(
+            css(&element)["background-image"],
+            "linear-gradient(90deg in srgb, rgba(45,87,232,1) 0%, rgba(255,255,255,1) 100%)"
+        );
+
+        element.style.background_gradient = Some(
+            RadialGradient {
+                center: (-0.25, 0.75),
+                radius: 80.0,
+                stops: vec![
+                    GradientStop::new(0.0, Color(0, 0, 0, 0)),
+                    GradientStop::new(0.5, Color::BLUE),
+                    GradientStop::new(0.5, Color::WHITE),
+                ],
+            }
+            .into(),
+        );
+        let radial = css(&element);
+        assert_eq!(radial["background-image"], "radial-gradient(circle 80px at -25% 75% in srgb, rgba(0,0,0,0) 0%, rgba(45,87,232,1) 50%, rgba(255,255,255,1) 50%)");
+        assert_eq!(radial["background-origin"], "border-box");
+        assert_eq!(radial["background-color"], Color::BLACK.css());
+
+        element.style.background_gradient = None;
+        let removed = css(&element);
+        assert!(!removed.contains_key("background-image"));
+        assert!(!removed.contains_key("background-origin"));
+        assert_eq!(removed["background-color"], Color::BLACK.css());
+    }
 
     #[test]
     fn independent_edges_and_corners_replace_and_remove_cleanly() {

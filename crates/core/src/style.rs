@@ -28,10 +28,10 @@ impl Color {
     }
 }
 
-/// A color and its position along a gradient line.
+/// A color and its position along a gradient line or radius.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GradientStop {
-    /// Position along the gradient line, from zero to one (inclusive).
+    /// Position along the gradient line or radius, from zero to one (inclusive).
     pub offset: f32,
     pub color: Color,
 }
@@ -62,22 +62,10 @@ impl LinearGradient {
     }
 
     pub fn validate(&self) -> Result<(), ViewError> {
-        if !self.angle.is_finite() || self.stops.len() < 2 {
-            return Err(ViewError::new(
-                "gradients need a finite angle and at least two stops",
-            ));
+        if !self.angle.is_finite() {
+            return Err(ViewError::new("linear gradients need a finite angle"));
         }
-        if self
-            .stops
-            .iter()
-            .any(|s| !s.offset.is_finite() || !(0.0..=1.0).contains(&s.offset))
-            || self.stops.windows(2).any(|s| s[0].offset > s[1].offset)
-        {
-            return Err(ViewError::new(
-                "gradient stops must be ordered and within zero to one",
-            ));
-        }
-        Ok(())
+        validate_gradient_stops(&self.stops)
     }
 
     /// Border-box-relative endpoints, using CSS's projected gradient-line
@@ -91,6 +79,109 @@ impl LinearGradient {
             (width / 2.0 + x * half, height / 2.0 + y * half),
         )
     }
+}
+
+/// A non-repeating circular gradient painted inside an element's border box.
+/// Hosts interpolate in premultiplied sRGB and clamp beyond the first/last stop.
+/// Stops must be ordered, finite, and in 0..=1; equal offsets form hard edges.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RadialGradient {
+    /// Center relative to the border box: (0, 0) is top-left, (1, 1) bottom-right.
+    /// Finite values outside the box are allowed.
+    pub center: (f32, f32),
+    /// Distance from the center to stop 1, in logical pixels. Must be positive.
+    pub radius: f32,
+    pub stops: Vec<GradientStop>,
+}
+
+impl RadialGradient {
+    /// Construct a centered circular gradient with stops at zero and one.
+    ///
+    /// ```
+    /// use refract_core::prelude::*;
+    /// let glow = view().width(240.0).height(120.0).background_gradient(
+    ///     RadialGradient::new(120.0, Color::BLUE, Color(45, 87, 232, 0))
+    ///         .center(0.25, 0.5),
+    /// );
+    /// ```
+    pub fn new(radius: f32, start: Color, end: Color) -> Self {
+        Self {
+            center: (0.5, 0.5),
+            radius,
+            stops: vec![GradientStop::new(0.0, start), GradientStop::new(1.0, end)],
+        }
+    }
+
+    /// Position the center relative to the element's border box.
+    pub fn center(mut self, x: f32, y: f32) -> Self {
+        self.center = (x, y);
+        self
+    }
+
+    pub fn validate(&self) -> Result<(), ViewError> {
+        if !self.center.0.is_finite()
+            || !self.center.1.is_finite()
+            || !self.radius.is_finite()
+            || self.radius <= 0.0
+        {
+            return Err(ViewError::new(
+                "radial gradients need a finite center and a finite positive radius",
+            ));
+        }
+        validate_gradient_stops(&self.stops)
+    }
+}
+
+/// A background gradient. Both variants share stop and interpolation semantics.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Gradient {
+    Linear(LinearGradient),
+    Radial(RadialGradient),
+}
+
+impl Gradient {
+    pub fn validate(&self) -> Result<(), ViewError> {
+        match self {
+            Self::Linear(gradient) => gradient.validate(),
+            Self::Radial(gradient) => gradient.validate(),
+        }
+    }
+
+    /// Ordered color stops shared by both gradient kinds.
+    pub fn stops(&self) -> &[GradientStop] {
+        match self {
+            Self::Linear(gradient) => &gradient.stops,
+            Self::Radial(gradient) => &gradient.stops,
+        }
+    }
+}
+
+impl From<LinearGradient> for Gradient {
+    fn from(gradient: LinearGradient) -> Self {
+        Self::Linear(gradient)
+    }
+}
+
+impl From<RadialGradient> for Gradient {
+    fn from(gradient: RadialGradient) -> Self {
+        Self::Radial(gradient)
+    }
+}
+
+fn validate_gradient_stops(stops: &[GradientStop]) -> Result<(), ViewError> {
+    if stops.len() < 2 {
+        return Err(ViewError::new("gradients need at least two stops"));
+    }
+    if stops
+        .iter()
+        .any(|s| !s.offset.is_finite() || !(0.0..=1.0).contains(&s.offset))
+        || stops.windows(2).any(|s| s[0].offset > s[1].offset)
+    {
+        return Err(ViewError::new(
+            "gradient stops must be ordered and within zero to one",
+        ));
+    }
+    Ok(())
 }
 
 /// A single outer shadow following the element's rounded border box.
@@ -336,7 +427,8 @@ pub struct Style {
 
     pub background: Option<Color>,
     /// Painted over the background color, inside the same rounded border box.
-    pub background_gradient: Option<LinearGradient>,
+    /// Convert a `LinearGradient` or `RadialGradient` with `.into()` when setting directly.
+    pub background_gradient: Option<Gradient>,
     pub shadow: Option<BoxShadow>,
     pub foreground: Option<Color>,
     pub border: Option<Border>,
@@ -508,9 +600,68 @@ mod tests {
         ] {
             let (a, b) =
                 LinearGradient::new(angle, Color::BLACK, Color::WHITE).endpoints(200.0, 100.0);
-            assert!((a.0 - expected.0.0).abs() < 1e-6 && (a.1 - expected.0.1).abs() < 1e-6);
-            assert!((b.0 - expected.1.0).abs() < 1e-6 && (b.1 - expected.1.1).abs() < 1e-6);
+            assert!((a.0 - expected.0 .0).abs() < 1e-6 && (a.1 - expected.0 .1).abs() < 1e-6);
+            assert!((b.0 - expected.1 .0).abs() < 1e-6 && (b.1 - expected.1 .1).abs() < 1e-6);
         }
+    }
+
+    #[test]
+    fn radial_gradients_validate_geometry_and_shared_stops() {
+        let gradient = RadialGradient::new(80.0, Color::BLUE, Color::WHITE);
+        assert_eq!(gradient.center, (0.5, 0.5));
+        assert!(gradient.clone().center(-0.25, 1.5).validate().is_ok());
+        for radius in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert!(RadialGradient {
+                radius,
+                ..gradient.clone()
+            }
+            .validate()
+            .is_err());
+        }
+        for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(gradient.clone().center(invalid, 0.5).validate().is_err());
+            assert!(gradient.clone().center(0.5, invalid).validate().is_err());
+        }
+        for stops in [
+            vec![],
+            vec![GradientStop::new(0.0, Color::BLUE)],
+            vec![
+                GradientStop::new(0.8, Color::BLUE),
+                GradientStop::new(0.2, Color::WHITE),
+            ],
+            vec![
+                GradientStop::new(-0.1, Color::BLUE),
+                GradientStop::new(1.0, Color::WHITE),
+            ],
+            vec![
+                GradientStop::new(0.0, Color::BLUE),
+                GradientStop::new(1.1, Color::WHITE),
+            ],
+            vec![
+                GradientStop::new(0.0, Color::BLUE),
+                GradientStop::new(f32::NAN, Color::WHITE),
+            ],
+        ] {
+            let style = Style {
+                background_gradient: Some(
+                    RadialGradient {
+                        stops,
+                        ..gradient.clone()
+                    }
+                    .into(),
+                ),
+                ..Default::default()
+            };
+            assert!(style.validate().is_err());
+        }
+        let hard_edge = RadialGradient {
+            stops: vec![
+                GradientStop::new(0.5, Color(0, 0, 0, 0)),
+                GradientStop::new(0.5, Color::WHITE),
+            ],
+            ..gradient
+        };
+        assert!(hard_edge.validate().is_ok());
     }
 
     #[test]

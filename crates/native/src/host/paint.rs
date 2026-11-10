@@ -173,10 +173,17 @@ impl Host {
             });
         }
         if let Some(gradient) = &s.background_gradient {
-            frame.commands.push(DrawCommand::LinearGradient {
-                rect,
-                radius: s.radius,
-                gradient: gradient.clone(),
+            frame.commands.push(match gradient {
+                refract_core::Gradient::Linear(gradient) => DrawCommand::LinearGradient {
+                    rect,
+                    radius: s.radius,
+                    gradient: gradient.clone(),
+                },
+                refract_core::Gradient::Radial(gradient) => DrawCommand::RadialGradient {
+                    rect,
+                    radius: s.radius,
+                    gradient: gradient.clone(),
+                },
             });
         }
         if let Some(border) = s.border {
