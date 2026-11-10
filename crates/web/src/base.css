@@ -43,6 +43,9 @@
   text-align: inherit;
   background: transparent;
   touch-action: manipulation;
+  /* Repeated activation should not start a browser text selection. */
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .refract-root [data-refract-activate]:hover:not([aria-disabled="true"]) {

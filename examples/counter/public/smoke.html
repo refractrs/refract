@@ -30,6 +30,7 @@ try {
   const decrement = root.querySelector('[role=button][aria-label="Decrease count"]');
   const reset = root.querySelector('[role=button][aria-label="Reset to zero"]');
   test('Initial mount uses an open ShadowRoot and displays zero', !!root && count.textContent === '0');
+  test('Ordinary display text retains browser selection', getComputedStyle(count).userSelect !== 'none');
   const records = [];
   const observer = new MutationObserver(changes => records.push(...changes));
   observer.observe(root, {subtree:true,childList:true,attributes:true,characterData:true});
@@ -132,6 +133,7 @@ try {
     const target = interactionRoot.querySelector(`[aria-label="${label}"]`);
     test(`${label} activation preserves the primitive tag and exposes button semantics`,
       target.tagName === tag && target.getAttribute('role') === 'button' && target.tabIndex === 0);
+    test(`${label} activation suppresses user text selection`, getComputedStyle(target).userSelect === 'none');
     target.focus();
     test(`${label} activation target accepts keyboard focus`, interactionRoot.activeElement === target);
     target.click(); await tick(); expected += 1;
@@ -147,6 +149,7 @@ try {
     test(`${label} handler updates retain the target`, target === interactionRoot.querySelector(`[aria-label="${label}"]`));
   }
   const disabledTarget = interactionRoot.querySelector('[aria-label=disabled]');
+  test('Disabled activation targets remain non-selectable', getComputedStyle(disabledTarget).userSelect === 'none');
   disabledTarget.click(); enter(disabledTarget); await tick();
   test('Disabled styled text rejects activation and is excluded from tab traversal',
     pressCount() === expected && disabledTarget.tabIndex === -1 && disabledTarget.getAttribute('aria-disabled') === 'true');
