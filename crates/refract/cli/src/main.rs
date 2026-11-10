@@ -2,6 +2,7 @@ mod build;
 mod compile;
 mod dev;
 mod html;
+mod prerender;
 mod process;
 mod project;
 mod scaffold;

@@ -226,6 +226,95 @@ fn succeeds(output: std::process::Output) {
 }
 
 #[test]
+fn prerender_publishes_html_and_preserves_previous_build_on_failure() {
+    let directory = fixture("web");
+    let root = directory.path();
+    let html = "<head></head><main><!--refract:app--></main>";
+    fs::write(root.join("public/index.html"), html).unwrap();
+    let wasm = wat::parse_str(
+        r#"(module
+        (memory (export "memory") 1)
+        (data (i32.const 16) "\00<div>hi</div>")
+        (func (export "__refract_prerender_v1") (result i64)
+            i64.const 60129542160))"#,
+    )
+    .unwrap();
+    fs::write(root.join("build output/fixture.wasm"), &wasm).unwrap();
+    succeeds(build(
+        &directory,
+        &["--release", "--prerender", "--base-path", "/demo/"],
+    ));
+    let dist = root.join("dist/web");
+    let published = fs::read_to_string(dist.join("index.html")).unwrap();
+    assert!(published.contains("<base href=\"/demo/\">"));
+    assert!(published.contains("<main><div>hi</div></main>"));
+    assert_eq!(
+        fs::read_to_string(dist.join("app.html")).unwrap(),
+        "<div>hi</div>"
+    );
+    assert!(dist.join("pkg/fixture.js").exists());
+    let module = fs::read_to_string(dist.join("app.prerender.mjs")).unwrap();
+    assert!(module.contains("export default Object.freeze("));
+    assert!(module.contains("\"version\":1"));
+    assert!(dist.join("app.prerender.d.mts").is_file());
+    assert_eq!(
+        fs::read_to_string(root.join("public/index.html")).unwrap(),
+        html
+    );
+
+    // Rendering, marker validation, and bindgen must all succeed before publication.
+    fs::write(
+        root.join("build output/fixture.wasm"),
+        wat::parse_str("(module)").unwrap(),
+    )
+    .unwrap();
+    let failed = build(&directory, &["--prerender"]);
+    assert!(!failed.status.success());
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("missing prerender export"));
+    assert_eq!(
+        fs::read_to_string(dist.join("index.html")).unwrap(),
+        published
+    );
+    fs::write(root.join("build output/fixture.wasm"), &wasm).unwrap();
+    fs::write(root.join("public/index.html"), "<main></main>").unwrap();
+    assert!(!build(&directory, &["--prerender"]).status.success());
+    assert_eq!(
+        fs::read_to_string(dist.join("index.html")).unwrap(),
+        published
+    );
+    fs::write(root.join("public/index.html"), html).unwrap();
+    fs::write(root.join("bindgen-fail"), "").unwrap();
+    assert!(!build(&directory, &["--prerender"]).status.success());
+    assert_eq!(
+        fs::read_to_string(dist.join("index.html")).unwrap(),
+        published
+    );
+    fs::remove_file(root.join("bindgen-fail")).unwrap();
+
+    // Prerendering remains opt-in; a later plain build removes its stale fragment.
+    succeeds(build(&directory, &[]));
+    assert_eq!(fs::read_to_string(dist.join("index.html")).unwrap(), html);
+    assert!(!dist.join("app.html").exists());
+    assert!(!dist.join("app.prerender.mjs").exists());
+    assert!(!dist.join("app.prerender.d.mts").exists());
+}
+
+#[test]
+fn prerender_is_a_web_build_option_only() {
+    let directory = fixture("desktop");
+    let failure = build(&directory, &["--platform", "desktop", "--prerender"]);
+    assert!(!failure.status.success());
+    assert!(String::from_utf8_lossy(&failure.stderr).contains("web builds only"));
+    assert!(!directory.path().join("build output/cargo-args").exists());
+    let failure = fixture_command(&directory)
+        .args(["dev", "--prerender"])
+        .output()
+        .unwrap();
+    assert!(!failure.status.success());
+    assert!(String::from_utf8_lossy(&failure.stderr).contains("unexpected argument '--prerender'"));
+}
+
+#[test]
 fn web_distribution_is_complete_and_only_replaces_output_after_success() {
     let directory = fixture("web");
     let root = directory.path();

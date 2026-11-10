@@ -81,6 +81,8 @@ struct Dom {
     entries: HashMap<ElementId, Entry>,
     revision: u64,
     calls: u64,
+    adopting: bool,
+    hydrated: bool,
 }
 
 /// Own the JS callback until its root listener has been detached.
@@ -166,6 +168,10 @@ impl UpdateHandle {
 }
 
 impl Mount {
+    /// Whether startup reused a matching prerendered tree instead of mounting anew.
+    pub fn hydrated(&self) -> bool {
+        self.0.dom.borrow().hydrated
+    }
     /// Read metadata or submit requests through the normal update handle.
     pub fn surface(&self) -> Rc<refract_core::Surface> {
         self.0.surface_driver.surface()
@@ -247,6 +253,34 @@ pub fn mount(
     view: impl View,
     options: MountOptions,
 ) -> Result<Mount, JsValue> {
+    mount_inner(host, view, options, false)
+}
+
+/// Adopt matching prerendered HTML, or mount normally when no snapshot exists.
+/// A mismatching initial tree is replaced before effects start. Initial inputs
+/// must match the build export; event handlers and reactive state are recreated.
+pub fn hydrate(
+    host: web_sys::Element,
+    view: impl View,
+    options: MountOptions,
+) -> Result<Mount, JsValue> {
+    mount_inner(host, view, options, true)
+}
+
+fn direct_child(parent: &Node, attribute: &str) -> Option<web_sys::Element> {
+    let children = parent.child_nodes();
+    (0..children.length())
+        .filter_map(|index| children.item(index))
+        .filter_map(|node| node.dyn_into::<web_sys::Element>().ok())
+        .find(|element| element.has_attribute(attribute))
+}
+
+fn mount_inner(
+    host: web_sys::Element,
+    view: impl View,
+    options: MountOptions,
+    hydrate: bool,
+) -> Result<Mount, JsValue> {
     let document = host
         .owner_document()
         .ok_or_else(|| JsValue::from_str("host has no document"))?;
@@ -264,32 +298,80 @@ pub fn mount(
     // Own a root and stylesheet inside the chosen host boundary, leaving any
     // other host content alone when the mount is disposed.
     let parent: Node = if options.shadow {
-        if host.shadow_root().is_some() {
-            return Err(JsValue::from_str(
-                "host already has a shadow root; use a new host element",
-            ));
+        if let Some(shadow) = host.shadow_root() {
+            if !hydrate
+                || (shadow.has_child_nodes()
+                    && direct_child(shadow.as_ref(), "data-refract-prerender").is_none())
+            {
+                return Err(JsValue::from_str(
+                    "host already has a shadow root; use a new host element",
+                ));
+            }
+            shadow.into()
+        } else {
+            let template = if hydrate {
+                direct_child(host.as_ref(), "data-refract-prerender")
+                    .and_then(|element| element.dyn_into::<web_sys::HtmlTemplateElement>().ok())
+            } else {
+                None
+            };
+            let shadow = host.attach_shadow(&ShadowRootInit::new(ShadowRootMode::Open))?;
+            // innerHTML/client navigation does not activate declarative shadow
+            // roots. Materialize the supplied template without parsing strings.
+            if let Some(template) = template {
+                shadow.append_child(&template.content())?;
+                template.remove();
+            }
+            shadow.into()
         }
-        host.attach_shadow(&ShadowRootInit::new(ShadowRootMode::Open))?
-            .into()
     } else {
         host.clone().into()
     };
 
-    let root: HtmlElement = document.create_element("div")?.dyn_into()?;
+    let existing = if hydrate {
+        direct_child(&parent, "data-refract-prerender")
+    } else {
+        None
+    };
+    let adopting = existing.is_some();
+    if existing
+        .as_ref()
+        .is_some_and(|root| root.get_attribute("data-refract-prerender").as_deref() != Some("1"))
+    {
+        return Err(JsValue::from_str("unsupported Refract prerender format"));
+    }
+    let root: HtmlElement = match existing {
+        Some(root) => root,
+        None => document.create_element("div")?,
+    }
+    .dyn_into()?;
     root.set_class_name("refract-root");
     if matches!(options.sizing, RootSizing::Fill) {
         root.style().set_property("width", "100%")?;
         root.style().set_property("height", "100%")?;
     }
 
-    let stylesheet = document.create_element("style")?;
+    let existing_style = if adopting {
+        direct_child(&parent, "data-refract-style")
+    } else {
+        None
+    };
+    let stylesheet = match existing_style {
+        Some(style) if style.tag_name() == "STYLE" => style,
+        _ => {
+            let style = document.create_element("style")?;
+            style.set_text_content(Some(BASE_STYLE));
+            parent.append_child(&style)?;
+            style
+        }
+    };
     if let Some(nonce) = options.style_nonce {
         stylesheet.set_attribute("nonce", &nonce)?;
     }
 
-    stylesheet.set_text_content(Some(BASE_STYLE));
-    parent.append_child(&stylesheet)?;
-    parent.append_child(&root)?;
+    if !adopting {
+        parent.append_child(&root)?;
+    }
 
     let mut app = App::new(view);
     let surface_driver = refract_core::SurfaceDriver::install(
@@ -314,6 +396,8 @@ pub fn mount(
             entries: HashMap::new(),
             revision: 0,
             calls: 0,
+            adopting,
+            hydrated: false,
         }),
         listeners: RefCell::new(vec![]),
         captures: RefCell::new(HashMap::new()),
@@ -724,6 +808,119 @@ fn set_value(node: &HtmlElement, value: &str) {
 }
 
 impl Dom {
+    /// Check IDs, properties and ordered element children before taking ownership.
+    /// No app effects have run and no snapshot nodes have been changed yet.
+    fn adopt(&mut self, update: &Update) -> Result<bool, JsValue> {
+        let nodes = self.root.query_selector_all("[data-refract-id]")?;
+        let mut available = HashMap::new();
+        for index in 0..nodes.length() {
+            let Some(node) = nodes
+                .item(index)
+                .and_then(|n| n.dyn_into::<HtmlElement>().ok())
+            else {
+                return Ok(false);
+            };
+            let Some(id) = node
+                .get_attribute("data-refract-id")
+                .and_then(|id| id.parse::<u64>().ok())
+            else {
+                return Ok(false);
+            };
+            if available.insert(ElementId(id), node).is_some() {
+                return Ok(false);
+            }
+        }
+        let mut entries = HashMap::new();
+        for patch in &update.patches {
+            if let Patch::Create(id, element) = patch {
+                let Some(node) = available.remove(id) else {
+                    return Ok(false);
+                };
+                if !node
+                    .tag_name()
+                    .eq_ignore_ascii_case(crate::html::tag(element))
+                {
+                    return Ok(false);
+                }
+                let attributes = crate::html::attributes(*id, element);
+                if node.get_attribute_names().length() as usize != attributes.len() {
+                    return Ok(false);
+                }
+                for (key, value) in attributes {
+                    if node.get_attribute(key).as_deref() != Some(value.as_str()) {
+                        return Ok(false);
+                    }
+                }
+                if element.kind == ElementKind::Text
+                    && node.text_content().as_deref() != Some(element.text.as_str())
+                {
+                    return Ok(false);
+                }
+                if element.kind == ElementKind::TextInput && input_value(&node) != element.value {
+                    // V1 has no event replay: a modified form value cannot silently
+                    // become a different initial Rust model. Remount consistently.
+                    return Ok(false);
+                }
+                entries.insert(
+                    *id,
+                    Entry {
+                        node,
+                        element: element.clone(),
+                        styles: crate::style::css(element),
+                        composing: false,
+                        pending_value: None,
+                        image_url: None,
+                        scroll_tracker: Default::default(),
+                    },
+                );
+            }
+        }
+        if !available.is_empty() {
+            return Ok(false);
+        }
+        let children: HashMap<_, _> = update
+            .patches
+            .iter()
+            .filter_map(|patch| {
+                if let Patch::Children(parent, children) = patch {
+                    Some((*parent, children.as_slice()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (parent, node) in std::iter::once((None, &self.root))
+            .chain(entries.iter().map(|(id, entry)| (Some(*id), &entry.node)))
+        {
+            let expected = children.get(&parent).copied().unwrap_or_default();
+            let actual = node.child_nodes();
+            let text_leaf = parent.is_some_and(|id| {
+                let element = &entries[&id].element;
+                element.kind == ElementKind::Text
+                    || (element.kind == ElementKind::TextInput && element.multiline)
+            });
+            if text_leaf && expected.is_empty() {
+                // Text must be literal text, not an unexpected element with the same contents.
+                if (0..actual.length())
+                    .filter_map(|index| actual.item(index))
+                    .any(|node| node.node_type() != Node::TEXT_NODE)
+                {
+                    return Ok(false);
+                }
+            } else if actual.length() as usize != expected.len()
+                || expected.iter().enumerate().any(|(index, id)| {
+                    !actual
+                        .item(index as u32)
+                        .is_some_and(|node| node.is_same_node(Some(entries[id].node.as_ref())))
+                })
+            {
+                return Ok(false);
+            }
+        }
+        self.entries = entries;
+        Ok(true)
+    }
+
     /// Reject stale revisions and invalid patch targets before mutating the DOM.
     fn validate(&self, update: &Update) -> Result<(), JsValue> {
         if update.base_revision != self.revision {
@@ -759,6 +956,18 @@ impl Dom {
 
     /// Apply a validated batch while retaining nodes and focus wherever possible.
     fn apply(&mut self, update: &Update) -> Result<(), JsValue> {
+        if std::mem::take(&mut self.adopting) {
+            let adopted = self.adopt(update)?;
+            self.root.remove_attribute("data-refract-prerender")?;
+            if adopted {
+                self.hydrated = true;
+                self.revision = update.revision;
+                return Ok(());
+            }
+            // Validate the whole snapshot before adopting any of it. A changed
+            // initial view gets one clean mount, without duplicate DOM or effects.
+            self.root.set_text_content(None);
+        }
         // Document.activeElement identifies the host when focus is in a shadow
         // tree, so consult that tree first to find the actual focused control.
         let active = self
@@ -772,13 +981,7 @@ impl Dom {
         for patch in &update.patches {
             match patch {
                 Patch::Create(id, element) => {
-                    let tag = match element.kind {
-                        ElementKind::Box => "div",
-                        ElementKind::Text => "span",
-                        ElementKind::TextInput if element.multiline => "textarea",
-                        ElementKind::TextInput => "input",
-                        ElementKind::Image => "img",
-                    };
+                    let tag = crate::html::tag(element);
 
                     let node: HtmlElement = self.document.create_element(tag)?.dyn_into()?;
                     node.set_attribute("data-refract-id", &id.0.to_string())?;
@@ -1034,74 +1237,4 @@ fn apply_properties(entry: &mut Entry, new: &Element, initial: bool) -> Result<u
 
 // Scoped defaults complement per-element inline styles, including child-fill
 // behavior and interaction states that depend on CSS selectors.
-const BASE_STYLE: &str = r#"
-.refract-root {
-  font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  color: #20231e;
-  text-align: start;
-  max-width: 100%;
-  isolation: isolate;
-}
-
-.refract-root,
-.refract-root * {
-  box-sizing: border-box;
-  margin: 0;
-  min-width: 0;
-  min-height: 0;
-}
-
-.refract-root .refract-node {
-  border: 0 solid transparent;
-}
-
-.refract-root [data-refract-layout="overlay"] > .refract-node {
-  grid-area: 1 / 1;
-}
-
-.refract-root [data-refract-layout="row"] > [data-fill-width] {
-  flex: 1 1 0px !important;
-  width: auto !important;
-}
-
-.refract-root [data-refract-layout="column"] > [data-fill-height] {
-  flex: 1 1 0px !important;
-  height: auto !important;
-}
-
-.refract-root input,
-.refract-root textarea {
-  font: inherit;
-  color: inherit;
-}
-
-.refract-root [data-refract-activate] {
-  cursor: pointer;
-  text-align: inherit;
-  background: transparent;
-  touch-action: manipulation;
-}
-
-.refract-root [data-refract-activate]:hover:not([aria-disabled="true"]) {
-  filter: brightness(.95);
-}
-
-.refract-root [data-refract-activate]:active:not([aria-disabled="true"]) {
-  filter: brightness(.9);
-}
-
-.refract-root [data-refract-activate][aria-disabled="true"] {
-  cursor: default;
-  opacity: .45;
-}
-
-.refract-root :focus-visible {
-  outline: 3px solid #2857b7;
-  outline-offset: 4px;
-}
-
-.refract-root img {
-  max-width: 100%;
-  object-fit: contain;
-}
-"#;
+const BASE_STYLE: &str = crate::html::BASE_STYLE;
