@@ -177,7 +177,7 @@ fn inherited_typography_changes_reshape_text_and_reset_without_stale_metrics() {
                     None
                 }
             })
-            .last()
+            .next_back()
             .unwrap()
     };
     let original_x = last_x(frame(&mut host));
@@ -300,6 +300,78 @@ fn shadows_respect_opacity_and_ancestor_clips_without_affecting_layout() {
         );
         assert_eq!(host.stats().layout_passes, before.layout_passes);
         assert_eq!(host.stats().text_shapes, before.text_shapes);
+    }
+}
+
+#[test]
+fn blur_updates_preserve_geometry_input_and_text_caches() {
+    fn content(blur: Option<f32>, backdrop_blur: Option<f32>) -> impl View {
+        text("filtered")
+            .width(200.0)
+            .height(60.0)
+            .radius(12.0)
+            .opacity(0.5)
+            .clipped()
+            .on_press(|_| {})
+            .modify(false, move |element| {
+                element.style.blur = blur;
+                element.style.backdrop_blur = backdrop_blur;
+            })
+    }
+    let mut app = App::new(content(Some(4.0), Some(12.0)));
+    let mut host = Host::new().unwrap();
+    flush(&mut app, &mut host);
+    let rendered = frame(&mut host);
+    assert!(matches!(rendered.commands[0], DrawCommand::PushEffects {
+        blur: 4.0, backdrop_blur: 12.0, opacity: 0.5, radius, ..
+    } if radius == 12.0.into()));
+    assert!(matches!(
+        rendered.commands[1],
+        DrawCommand::PushLayer { opacity: 1.0, .. }
+    ));
+    let hit = host.hit_test(Point { x: 300.0, y: 350.0 });
+    assert!(hit.is_some());
+    assert!(host.hit_test(Point { x: 405.0, y: 350.0 }).is_none());
+    let before = host.stats();
+    for (blur, backdrop) in [
+        (Some(8.0), None),
+        (None, Some(5.0)),
+        (Some(0.0), Some(0.0)),
+        (None, None),
+    ] {
+        app.set_view(content(blur, backdrop));
+        flush(&mut app, &mut host);
+        let rendered = frame(&mut host);
+        assert_eq!(host.hit_test(Point { x: 300.0, y: 350.0 }), hit);
+        assert_eq!(host.stats().layout_passes, before.layout_passes);
+        assert_eq!(host.stats().text_shapes, before.text_shapes);
+        assert_eq!(
+            rendered
+                .commands
+                .iter()
+                .any(|c| matches!(c, DrawCommand::PushEffects { .. })),
+            blur.is_some_and(|v| v > 0.0) || backdrop.is_some_and(|v| v > 0.0)
+        );
+        let pushes = rendered
+            .commands
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c,
+                    DrawCommand::PushEffects { .. }
+                        | DrawCommand::PushLayer { .. }
+                        | DrawCommand::PushInsetLayer { .. }
+                )
+            })
+            .count();
+        assert_eq!(
+            pushes,
+            rendered
+                .commands
+                .iter()
+                .filter(|c| matches!(c, DrawCommand::PopLayer))
+                .count()
+        );
     }
 }
 

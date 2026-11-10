@@ -434,6 +434,10 @@ pub struct Style {
     pub border: Option<Border>,
     pub radius: CornerRadii,
     pub opacity: Option<f32>,
+    /// Subtree Gaussian blur, in logical pixels of standard deviation. Zero is off.
+    pub blur: Option<f32>,
+    /// Gaussian blur of the backdrop inside the rounded border box. Zero is off.
+    pub backdrop_blur: Option<f32>,
     pub clipped: bool,
 
     pub font_size: Option<f32>,
@@ -454,6 +458,15 @@ pub struct Style {
 impl Style {
     /// Reject invalid geometry and opacity before patches reach a host adapter.
     pub fn validate(&self) -> Result<(), ViewError> {
+        if [self.blur, self.backdrop_blur]
+            .into_iter()
+            .flatten()
+            .any(|value| !value.is_finite() || value < 0.0)
+        {
+            return Err(ViewError::new(
+                "blur amounts must be finite and nonnegative",
+            ));
+        }
         if let Some(gradient) = &self.background_gradient {
             gradient.validate()?;
         }
@@ -530,6 +543,30 @@ impl Style {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blur_amounts_allow_zero_but_reject_negative_and_nonfinite_values() {
+        for amount in [0.0, 0.5, 16.0] {
+            assert!(Style {
+                blur: Some(amount),
+                backdrop_blur: Some(amount),
+                ..Default::default()
+            }
+            .validate()
+            .is_ok());
+        }
+        for amount in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            for backdrop in [false, true] {
+                let mut style = Style::default();
+                if backdrop {
+                    style.backdrop_blur = Some(amount);
+                } else {
+                    style.blur = Some(amount);
+                }
+                assert!(style.validate().is_err());
+            }
+        }
+    }
 
     #[test]
     fn text_spacing_allows_signed_values_but_rejects_nonfinite_values() {

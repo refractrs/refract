@@ -1,18 +1,14 @@
 //! Vello implementation of the drawing contract. GPU objects stay in this module.
 
-use super::vello_geometry::{RoundedBox, rounded};
-use super::{DrawCommand, Frame, ImageId, Presentation, RasterImage, Renderer};
+use super::vello_scene::{color, Backdrop, Encoder, SceneResources};
+use super::{Frame, Presentation, Renderer};
 use crate::{NativeError, Result};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Weak},
-};
+use std::sync::Arc;
 use vello::{
-    AaConfig, AaSupport, RenderParams, RendererOptions, Scene,
-    kurbo::Affine,
-    peniko::{BlendMode, Blob, Color, Fill, ImageAlphaType, ImageData, ImageFormat},
+    kurbo::{Affine, Rect},
+    peniko::Fill,
     util::{RenderContext, RenderSurface},
-    wgpu,
+    wgpu, AaConfig, AaSupport, RenderParams, RendererOptions, Scene,
 };
 use winit::window::Window;
 
@@ -24,8 +20,8 @@ pub struct VelloRenderer {
     context: RenderContext,
     window: Arc<Window>,
     scene: Scene,
-    images: HashMap<ImageId, (Weak<RasterImage>, ImageData)>,
-    shadows: super::vello_shadow::ShadowCache,
+    resources: SceneResources,
+    effects: super::vello_effects::Effects,
 }
 
 impl VelloRenderer {
@@ -56,192 +52,39 @@ impl VelloRenderer {
             context,
             window,
             scene: Scene::new(),
-            images: HashMap::new(),
-            shadows: super::vello_shadow::ShadowCache::default(),
+            resources: SceneResources::default(),
+            effects: super::vello_effects::Effects::default(),
         })
     }
 
-    fn encode(&mut self, frame: &Frame) {
+    fn encode(&mut self, frame: &Frame) -> Result<()> {
+        self.effects.begin_frame(&mut self.renderer);
+        self.resources.begin_frame();
         self.scene.reset();
-        self.images
-            .retain(|_, (resource, _)| resource.strong_count() != 0);
-        let scale = Affine::scale(frame.scale_factor);
-        for command in &frame.commands {
-            match command {
-                DrawCommand::BoxShadow {
-                    rect,
-                    radius,
-                    shadow,
-                } => {
-                    super::vello_shadow::draw(
-                        &mut self.scene,
-                        &mut self.shadows,
-                        frame.scale_factor,
-                        *rect,
-                        *radius,
-                        *shadow,
-                    );
-                }
-                DrawCommand::Image { rect, image } => {
-                    if rect.width <= 0.0 || rect.height <= 0.0 {
-                        continue;
-                    }
-                    let (_, data) = self.images.entry(image.id()).or_insert_with(|| {
-                        (
-                            Arc::downgrade(image),
-                            ImageData {
-                                // One shared pixel allocation; Blob identity stays stable
-                                // so Vello can reuse its image atlas across frames.
-                                data: Blob::new(Arc::new(image.rgba().clone())),
-                                format: ImageFormat::Rgba8,
-                                alpha_type: ImageAlphaType::Alpha,
-                                width: image.width(),
-                                height: image.height(),
-                            },
-                        )
-                    });
-                    let transform = scale
-                        * Affine::translate((rect.x as f64, rect.y as f64))
-                        * Affine::scale_non_uniform(
-                            rect.width as f64 / image.width() as f64,
-                            rect.height as f64 / image.height() as f64,
-                        );
-                    self.scene.draw_image(&*data, transform);
-                }
-                DrawCommand::Fill {
-                    rect,
-                    radius,
-                    color: brush,
-                } => {
-                    self.scene.fill(
-                        Fill::NonZero,
-                        scale,
-                        color(*brush),
-                        None,
-                        &rounded(*rect, *radius),
-                    );
-                }
-                DrawCommand::LinearGradient {
-                    rect,
-                    radius,
-                    gradient,
-                } => {
-                    let (start, end) = gradient.endpoints(rect.width as f64, rect.height as f64);
-                    let stops: Vec<_> = gradient
-                        .stops
-                        .iter()
-                        .map(|stop| vello::peniko::ColorStop {
-                            offset: stop.offset,
-                            color: color(stop.color).into(),
-                        })
-                        .collect();
-                    let brush = vello::peniko::Gradient::new_linear(
-                        (rect.x as f64 + start.0, rect.y as f64 + start.1),
-                        (rect.x as f64 + end.0, rect.y as f64 + end.1),
-                    )
-                    .with_stops(stops.as_slice());
-                    self.scene
-                        .fill(Fill::NonZero, scale, &brush, None, &rounded(*rect, *radius));
-                }
-                DrawCommand::RadialGradient {
-                    rect,
-                    radius,
-                    gradient,
-                } => {
-                    let stops: Vec<_> = gradient
-                        .stops
-                        .iter()
-                        .map(|stop| vello::peniko::ColorStop {
-                            offset: stop.offset,
-                            color: color(stop.color).into(),
-                        })
-                        .collect();
-                    let brush = vello::peniko::Gradient::new_radial(
-                        (
-                            f64::from(rect.x)
-                                + f64::from(rect.width) * f64::from(gradient.center.0),
-                            f64::from(rect.y)
-                                + f64::from(rect.height) * f64::from(gradient.center.1),
-                        ),
-                        gradient.radius,
-                    )
-                    .with_stops(stops.as_slice());
-                    self.scene
-                        .fill(Fill::NonZero, scale, &brush, None, &rounded(*rect, *radius));
-                }
-                DrawCommand::Stroke {
-                    rect,
-                    radius,
-                    width,
-                    color: brush,
-                } => {
-                    super::vello_geometry::border(
-                        &mut self.scene,
-                        scale,
-                        *rect,
-                        *radius,
-                        refract_core::Border::all(*width, *brush),
-                    );
-                }
-                DrawCommand::Border {
-                    rect,
-                    radius,
-                    border,
-                } => {
-                    super::vello_geometry::border(&mut self.scene, scale, *rect, *radius, *border);
-                }
-                DrawCommand::PushInsetLayer {
-                    rect,
-                    radius,
-                    insets,
-                } => {
-                    self.scene.push_clip_layer(
-                        Fill::NonZero,
-                        scale,
-                        &RoundedBox::new(*rect, *radius).inset(*insets).path(),
-                    );
-                }
-                DrawCommand::Glyphs {
-                    origin,
-                    color: brush,
-                    run,
-                } => {
-                    self.scene
-                        .draw_glyphs(&run.font)
-                        .font_size(run.font_size)
-                        .normalized_coords(&run.normalized_coords)
-                        .glyph_transform(
-                            run.skew.map(|angle| {
-                                Affine::skew(f64::from(angle).to_radians().tan(), 0.0)
-                            }),
-                        )
-                        .transform(scale * Affine::translate((origin.x as f64, origin.y as f64)))
-                        .brush(color(*brush))
-                        .draw(
-                            Fill::NonZero,
-                            run.glyphs.iter().map(|g| vello::Glyph {
-                                id: g.id,
-                                x: g.x,
-                                y: g.y,
-                            }),
-                        );
-                }
-                DrawCommand::PushLayer {
-                    clip,
-                    radius,
-                    opacity,
-                } => {
-                    self.scene.push_layer(
-                        Fill::NonZero,
-                        BlendMode::default(),
-                        *opacity,
-                        scale,
-                        &rounded(*clip, *radius),
-                    );
-                }
-                DrawCommand::PopLayer => self.scene.pop_layer(),
-            }
-        }
+        let extent = Rect::new(
+            0.0,
+            0.0,
+            f64::from(self.surface.config.width),
+            f64::from(self.surface.config.height),
+        );
+        let mut backdrop = Backdrop::default();
+        backdrop.scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            color(frame.background),
+            None,
+            &extent,
+        );
+        let device = &self.context.devices[self.surface.dev_id];
+        Encoder {
+            resources: &mut self.resources,
+            effects: &mut self.effects,
+            renderer: &mut self.renderer,
+            device: &device.device,
+            queue: &device.queue,
+            scale_factor: frame.scale_factor,
+            has_backdrop: frame.commands.iter().any(|c| matches!(c, super::DrawCommand::PushEffects { backdrop_blur, .. } if *backdrop_blur > 0.0)),
+        }.encode(&mut frame.commands.iter(), &mut self.scene, &backdrop, extent)
     }
 }
 
@@ -261,7 +104,7 @@ impl Renderer for VelloRenderer {
         // Live edge resizing and display/window-manager transitions need
         // different fallback behavior for the previous drawable.
         configure_window_presentation(&self.surface.surface, &self.window);
-        self.encode(frame);
+        self.encode(frame)?;
         let (texture, reconfigure) = match self.surface.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(texture) => (texture, false),
             // Suboptimal drawables are still usable. Present this frame instead
@@ -291,6 +134,7 @@ impl Renderer for VelloRenderer {
                     },
                 )
                 .map_err(render_error)?;
+                self.effects = super::vello_effects::Effects::default();
                 return Ok(Presentation::Retry);
             }
             wgpu::CurrentSurfaceTexture::Validation => {
@@ -336,9 +180,6 @@ impl Renderer for VelloRenderer {
     }
 }
 
-fn color(c: refract_core::Color) -> Color {
-    Color::from_rgba8(c.0, c.1, c.2, c.3)
-}
 fn render_error(error: impl std::fmt::Display) -> NativeError {
     NativeError::Render(error.to_string())
 }

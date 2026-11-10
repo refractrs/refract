@@ -79,6 +79,21 @@ macro_rules! element_modifiers {
             $apply(self, move |e| e.style.opacity = Some(value))
         }
 
+        /// Blur this element and its descendants as one image. The amount is
+        /// Gaussian standard deviation in logical pixels; zero disables the effect.
+        /// Does not change layout or hit testing. Ancestor clips constrain the result.
+        $visibility fn blur(self, amount: f32) -> $output {
+            $apply(self, move |e| e.style.blur = Some(amount))
+        }
+
+        /// Blur previously painted content behind this element, inside its rounded
+        /// border box. Its own background and descendants remain sharp. Use a
+        /// translucent background to reveal the effect. Zero disables the effect.
+        /// The amount is Gaussian standard deviation in logical pixels.
+        $visibility fn backdrop_blur(self, amount: f32) -> $output {
+            $apply(self, move |e| e.style.backdrop_blur = Some(amount))
+        }
+
         $visibility fn clipped(self) -> $output {
             $apply(self, move |e| e.style.clipped = true)
         }
