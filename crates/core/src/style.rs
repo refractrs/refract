@@ -438,6 +438,12 @@ pub struct Style {
 
     pub font_size: Option<f32>,
     pub font_weight: Option<u16>,
+    /// Inherited when absent; `Some(false)` explicitly requests upright text.
+    pub italic: Option<bool>,
+    /// Extra spacing between letters in logical pixels; finite negative values are allowed.
+    pub letter_spacing: Option<f32>,
+    /// Extra spacing between words in logical pixels; finite negative values are allowed.
+    pub word_spacing: Option<f32>,
     pub font_family: Option<String>,
     pub line_height: Option<f32>,
     pub text_align: Option<Alignment>,
@@ -494,6 +500,14 @@ impl Style {
             ));
         }
 
+        if [self.letter_spacing, self.word_spacing]
+            .into_iter()
+            .flatten()
+            .any(|value| !value.is_finite())
+        {
+            return Err(ViewError::new("text spacing must be finite"));
+        }
+
         for (min, max) in [
             (self.min_width, self.max_width),
             (self.min_height, self.max_height),
@@ -516,6 +530,35 @@ impl Style {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_spacing_allows_signed_values_but_rejects_nonfinite_values() {
+        for spacing in [-2.0, 0.0, 3.5] {
+            assert!(
+                Style {
+                    letter_spacing: Some(spacing),
+                    word_spacing: Some(spacing),
+                    ..Default::default()
+                }
+                .validate()
+                .is_ok()
+            );
+        }
+        for spacing in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            for style in [
+                Style {
+                    letter_spacing: Some(spacing),
+                    ..Default::default()
+                },
+                Style {
+                    word_spacing: Some(spacing),
+                    ..Default::default()
+                },
+            ] {
+                assert!(style.validate().is_err());
+            }
+        }
+    }
 
     #[test]
     fn every_border_edge_and_corner_rejects_invalid_geometry() {

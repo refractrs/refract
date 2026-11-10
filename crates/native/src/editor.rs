@@ -78,6 +78,9 @@ impl TextEditor {
             styles.insert(StyleProperty::FontWeight(parley::FontWeight::new(
                 typography.weight as f32,
             )));
+            styles.insert(StyleProperty::FontStyle(typography.font_style()));
+            styles.insert(StyleProperty::LetterSpacing(typography.letter_spacing));
+            styles.insert(StyleProperty::WordSpacing(typography.word_spacing));
             styles.insert(StyleProperty::LineHeight(parley::LineHeight::Absolute(
                 typography.line_height.unwrap_or(typography.size * 1.5),
             )));
@@ -656,6 +659,9 @@ mod tests {
         element.placeholder = Some("Search conversations".into());
         let typography = Typography {
             size: 12.0,
+            italic: true,
+            letter_spacing: 0.75,
+            word_spacing: 2.0,
             ..Typography::default()
         };
         editor.sync(&element, &typography, &mut text);
@@ -694,6 +700,12 @@ mod tests {
         frame.commands.clear();
         editor.paint(bounds, true, &mut text, &mut frame);
         let value = glyph_position(&frame);
+        assert!(
+            (editor.buffer.try_layout().unwrap().width()
+                - editor.placeholder.as_ref().unwrap().content_widths().1)
+                .abs()
+                < 0.001
+        );
         assert_eq!(
             placeholder, value,
             "typing must preserve the placeholder baseline"
@@ -749,5 +761,19 @@ mod tests {
             bounds.y,
             "text areas remain top-aligned"
         );
+        let spaced_width = editor.buffer.try_layout().unwrap().width();
+        editor.sync(
+            &element,
+            &Typography {
+                size: 12.0,
+                ..Default::default()
+            },
+            &mut text,
+        );
+        frame.commands.clear();
+        editor.paint(taller, false, &mut text, &mut frame);
+        assert!(editor.buffer.try_layout().unwrap().width() < spaced_width);
+        assert_eq!(editor.buffer.selected_text(), Some("Search conversations"));
+        assert_eq!(editor.buffer.raw_text(), "Search conversations");
     }
 }

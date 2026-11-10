@@ -153,6 +153,92 @@ fn paint_changes_do_not_reshape_text_or_recompute_layout() {
 }
 
 #[test]
+fn inherited_typography_changes_reshape_text_and_reset_without_stale_metrics() {
+    let content = |style: refract_core::Style| {
+        v_stack()
+            .child(text("ONE TWO").width(400.0))
+            .modify(false, move |element| {
+                element.style.italic = style.italic;
+                element.style.letter_spacing = style.letter_spacing;
+                element.style.word_spacing = style.word_spacing;
+            })
+    };
+    let mut app = App::new(content(Default::default()));
+    let mut host = Host::new().unwrap();
+    flush(&mut app, &mut host);
+    let last_x = |frame: renderer::Frame| {
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| {
+                if let DrawCommand::Glyphs { run, .. } = command {
+                    run.glyphs.last().map(|g| g.x)
+                } else {
+                    None
+                }
+            })
+            .last()
+            .unwrap()
+    };
+    let original_x = last_x(frame(&mut host));
+    for (style, wider) in [
+        (
+            refract_core::Style {
+                letter_spacing: Some(2.0),
+                ..Default::default()
+            },
+            Some(true),
+        ),
+        (
+            refract_core::Style {
+                word_spacing: Some(5.0),
+                ..Default::default()
+            },
+            Some(true),
+        ),
+        (
+            refract_core::Style {
+                letter_spacing: Some(-0.5),
+                word_spacing: Some(-1.0),
+                ..Default::default()
+            },
+            Some(false),
+        ),
+        (
+            refract_core::Style {
+                italic: Some(true),
+                ..Default::default()
+            },
+            None,
+        ),
+        (
+            refract_core::Style {
+                italic: Some(false),
+                letter_spacing: Some(0.0),
+                word_spacing: Some(0.0),
+                ..Default::default()
+            },
+            None,
+        ),
+    ] {
+        let before = host.stats();
+        app.set_view(content(style));
+        flush(&mut app, &mut host);
+        let x = last_x(frame(&mut host));
+        assert_eq!(host.stats().text_shapes, before.text_shapes + 1);
+        assert!(host.stats().layout_passes > before.layout_passes);
+        if let Some(wider) = wider {
+            assert_eq!(x > original_x, wider);
+        }
+        let after = host.stats();
+        frame(&mut host);
+        assert_eq!(host.stats().text_shapes, after.text_shapes);
+        assert_eq!(host.stats().layout_passes, after.layout_passes);
+    }
+    assert!((last_x(frame(&mut host)) - original_x).abs() < 0.001);
+}
+
+#[test]
 fn shadows_respect_opacity_and_ancestor_clips_without_affecting_layout() {
     fn content(shadow: Option<BoxShadow>) -> impl View {
         text("shadow").modify(false, move |element| {

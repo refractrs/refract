@@ -162,6 +162,21 @@ macro_rules! text_modifiers {
             $apply(self, move |e| e.style.font_weight = Some(value))
         }
 
+        /// Request an italic face, or a synthesized slant when unavailable.
+        $visibility fn italic(self) -> $output {
+            $apply(self, move |e| e.style.italic = Some(true))
+        }
+
+        /// Add spacing between letters in logical pixels. Negative values tighten text.
+        $visibility fn letter_spacing(self, value: f32) -> $output {
+            $apply(self, move |e| e.style.letter_spacing = Some(value))
+        }
+
+        /// Add spacing between words in logical pixels. Negative values tighten text.
+        $visibility fn word_spacing(self, value: f32) -> $output {
+            $apply(self, move |e| e.style.word_spacing = Some(value))
+        }
+
         $visibility fn font_family(self, value: impl Into<String>) -> $output {
             let value = value.into();
             $apply(self, move |e| e.style.font_family = Some(value.clone()))

@@ -12,6 +12,9 @@ pub(crate) struct Typography {
     pub family: String,
     pub size: f32,
     pub weight: u16,
+    pub italic: bool,
+    pub letter_spacing: f32,
+    pub word_spacing: f32,
     pub line_height: Option<f32>,
     pub align: Alignment,
     pub color: Color,
@@ -23,6 +26,9 @@ impl Default for Typography {
             family: "system-ui, sans-serif".into(),
             size: 14.0,
             weight: 400,
+            italic: false,
+            letter_spacing: 0.0,
+            word_spacing: 0.0,
             line_height: None,
             align: Alignment::Start,
             color: Color::BLACK,
@@ -39,6 +45,9 @@ impl Typography {
                 .unwrap_or_else(|| self.family.clone()),
             size: style.font_size.unwrap_or(self.size),
             weight: style.font_weight.unwrap_or(self.weight),
+            italic: style.italic.unwrap_or(self.italic),
+            letter_spacing: style.letter_spacing.unwrap_or(self.letter_spacing),
+            word_spacing: style.word_spacing.unwrap_or(self.word_spacing),
             line_height: style.line_height.or(self.line_height),
             align: style.text_align.unwrap_or(self.align),
             color: style.foreground.unwrap_or(self.color),
@@ -49,7 +58,18 @@ impl Typography {
         self.family == other.family
             && self.size == other.size
             && self.weight == other.weight
+            && self.italic == other.italic
+            && self.letter_spacing == other.letter_spacing
+            && self.word_spacing == other.word_spacing
             && self.line_height == other.line_height
+    }
+
+    pub fn font_style(&self) -> parley::FontStyle {
+        if self.italic {
+            parley::FontStyle::Italic
+        } else {
+            parley::FontStyle::Normal
+        }
     }
 }
 
@@ -80,6 +100,9 @@ impl TextSystem {
             typography.weight as f32,
         )));
         builder.push_default(StyleProperty::FontFamily(typography.family.as_str().into()));
+        builder.push_default(StyleProperty::FontStyle(typography.font_style()));
+        builder.push_default(StyleProperty::LetterSpacing(typography.letter_spacing));
+        builder.push_default(StyleProperty::WordSpacing(typography.word_spacing));
         if let Some(height) = typography.line_height {
             builder.push_default(StyleProperty::LineHeight(parley::LineHeight::Absolute(
                 height,
@@ -148,6 +171,7 @@ pub(crate) fn glyph_runs(layout: &parley::Layout<()>) -> Vec<Rc<GlyphRun>> {
             Some(Rc::new(GlyphRun {
                 font: run.font().clone(),
                 font_size: run.font_size(),
+                skew: run.synthesis().skew(),
                 normalized_coords: run
                     .normalized_coords()
                     .iter()
@@ -164,4 +188,71 @@ pub(crate) fn glyph_runs(layout: &parley::Layout<()>) -> Vec<Rc<GlyphRun>> {
             }))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typography_inherits_and_explicit_values_override_it() {
+        let inherited = Typography {
+            italic: true,
+            letter_spacing: 1.5,
+            word_spacing: -0.5,
+            ..Default::default()
+        };
+        assert_eq!(inherited.inherit(&Style::default()), inherited);
+        let reset = inherited.inherit(&Style {
+            italic: Some(false),
+            letter_spacing: Some(0.0),
+            word_spacing: Some(0.0),
+            ..Default::default()
+        });
+        assert_eq!(reset, Typography::default());
+    }
+
+    #[test]
+    fn italic_synthesis_survives_glyph_extraction() {
+        use parley::fontique::{Collection, CollectionOptions, FontInfoOverride};
+
+        // Reuse an installed static monospace font, but register only upright
+        // faces in an isolated collection so italic must use synthesis.
+        let mut system = TextSystem::default();
+        let typography = Typography {
+            family: "'Courier New', 'DejaVu Sans Mono', monospace".into(),
+            ..Default::default()
+        };
+        let mut regular = system.shape("Hello", &typography);
+        regular.measure(None, Alignment::Start);
+        let font = regular.glyph_runs()[0].font.clone();
+        let mut isolated = TextSystem::default();
+        isolated.fonts.collection = Collection::new(CollectionOptions {
+            system_fonts: false,
+            ..Default::default()
+        });
+        let registered = isolated.fonts.collection.register_fonts(
+            font.data,
+            Some(FontInfoOverride {
+                family_name: Some("Refract Test Upright"),
+                style: Some(parley::FontStyle::Normal),
+                ..Default::default()
+            }),
+        );
+        assert!(!registered.is_empty());
+        for italic in [false, true] {
+            let mut block = isolated.shape(
+                "Hello",
+                &Typography {
+                    family: "'Refract Test Upright'".into(),
+                    italic,
+                    ..Default::default()
+                },
+            );
+            block.measure(None, Alignment::Start);
+            let runs = block.glyph_runs();
+            assert!(!runs.is_empty());
+            assert!(runs.iter().all(|run| run.skew.is_some() == italic));
+        }
+    }
 }

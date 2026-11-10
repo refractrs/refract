@@ -210,4 +210,30 @@ mod tests {
         assert!(html.contains("background-origin:border-box;"));
         assert!(html.contains("border-radius:12px 12px 12px 12px;"));
     }
+
+    #[test]
+    fn typography_is_prerendered_for_text_and_editable_fields() {
+        let html = prerender(
+            view_fn(|cx| {
+                let value = cx.state("value", || "One two".to_owned());
+                Ok(v_stack()
+                    .child(
+                        text("One two")
+                            .italic()
+                            .letter_spacing(-0.5)
+                            .word_spacing(2.0),
+                    )
+                    .child(field(value).italic().letter_spacing(-0.5).word_spacing(2.0)))
+            }),
+            PrerenderOptions::default(),
+        )
+        .unwrap();
+        for property in [
+            "font-style:italic;",
+            "letter-spacing:-0.5px;",
+            "word-spacing:2px;",
+        ] {
+            assert_eq!(html.matches(property).count(), 2);
+        }
+    }
 }

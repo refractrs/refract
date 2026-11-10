@@ -71,6 +71,8 @@ pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
         ("max-height", s.max_height),
         ("font-size", s.font_size),
         ("line-height", s.line_height),
+        ("letter-spacing", s.letter_spacing),
+        ("word-spacing", s.word_spacing),
     ] {
         if let Some(value) = value {
             out.insert(key, format!("{value}px"));
@@ -147,6 +149,12 @@ pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
 
     if let Some(weight) = s.font_weight {
         out.insert("font-weight", weight.to_string());
+    }
+    if let Some(italic) = s.italic {
+        out.insert(
+            "font-style",
+            if italic { "italic" } else { "normal" }.into(),
+        );
     }
     if let Some(family) = &s.font_family {
         out.insert("font-family", family.clone());
@@ -226,6 +234,44 @@ pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typography_can_be_set_reset_and_removed_on_text_and_fields() {
+        let Some(Description::Element(mut element, _, _)) = text("One two")
+            .italic()
+            .letter_spacing(-0.5)
+            .word_spacing(2.0)
+            .describe()
+        else {
+            panic!("element")
+        };
+        for kind in [ElementKind::Text, ElementKind::TextInput] {
+            element.kind = kind;
+            element.style.italic = Some(true);
+            element.style.letter_spacing = Some(-0.5);
+            element.style.word_spacing = Some(2.0);
+            let styled = css(&element);
+            assert_eq!(styled["font-style"], "italic");
+            assert_eq!(styled["letter-spacing"], "-0.5px");
+            assert_eq!(styled["word-spacing"], "2px");
+
+            element.style.italic = Some(false);
+            element.style.letter_spacing = Some(0.0);
+            element.style.word_spacing = Some(0.0);
+            let reset = css(&element);
+            assert_eq!(reset["font-style"], "normal");
+            assert_eq!(reset["letter-spacing"], "0px");
+            assert_eq!(reset["word-spacing"], "0px");
+
+            element.style.italic = None;
+            element.style.letter_spacing = None;
+            element.style.word_spacing = None;
+            let removed = css(&element);
+            for property in ["font-style", "letter-spacing", "word-spacing"] {
+                assert!(!removed.contains_key(property));
+            }
+        }
+    }
 
     #[test]
     fn gradient_kinds_replace_and_remove_without_leaving_background_properties() {
