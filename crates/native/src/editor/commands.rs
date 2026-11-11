@@ -17,15 +17,6 @@ pub(crate) enum EditCommand {
 }
 
 impl EditCommand {
-    pub const ALL: [Self; 6] = [
-        Self::Undo,
-        Self::Redo,
-        Self::Cut,
-        Self::Copy,
-        Self::Paste,
-        Self::SelectAll,
-    ];
-
     pub fn label(self) -> &'static str {
         match self {
             Self::Undo => "Undo",
@@ -34,6 +25,28 @@ impl EditCommand {
             Self::Copy => "Copy",
             Self::Paste => "Paste",
             Self::SelectAll => "Select All",
+        }
+    }
+
+    pub fn shortcut(self) -> &'static str {
+        if cfg!(target_os = "macos") {
+            match self {
+                Self::Undo => "⌘ Z",
+                Self::Redo => "⇧⌘ Z",
+                Self::Cut => "⌘ X",
+                Self::Copy => "⌘ C",
+                Self::Paste => "⌘ V",
+                Self::SelectAll => "⌘ A",
+            }
+        } else {
+            match self {
+                Self::Undo => "Ctrl+Z",
+                Self::Redo => "Ctrl+Shift+Z",
+                Self::Cut => "Ctrl+X",
+                Self::Copy => "Ctrl+C",
+                Self::Paste => "Ctrl+V",
+                Self::SelectAll => "Ctrl+A",
+            }
         }
     }
 

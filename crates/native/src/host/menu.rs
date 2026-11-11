@@ -9,16 +9,27 @@ use crate::{
     renderer::{DrawCommand, Frame, Point, Rect},
     text::{TextBlock, Typography},
 };
-use refract_core::{Alignment, Color, ElementId, Event};
+use refract_core::{Alignment, BoxShadow, Color, ElementId, Event};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 
 const PADDING: f32 = 6.0;
-const ROW: f32 = 28.0;
+const ROW: f32 = 24.0;
+const TEXT_INSET: f32 = 10.0;
+const COLUMN_GAP: f32 = 24.0;
+const RADIUS: f32 = 12.0;
+const MENU_COMMANDS: [EditCommand; 5] = [
+    EditCommand::Undo,
+    EditCommand::Redo,
+    EditCommand::Cut,
+    EditCommand::Copy,
+    EditCommand::Paste,
+];
 
 pub(super) struct EditMenu {
     target: ElementId,
     bounds: Rect,
     labels: Vec<TextBlock>,
+    shortcuts: Vec<TextBlock>,
     selected: Option<usize>,
 }
 
@@ -60,27 +71,44 @@ impl Host {
         self.cancel_scroll();
         self.set_pressed(None);
         self.set_hover(None);
-        let bounds = Rect {
-            x: point.x.min((self.viewport.0 - 190.0).max(0.0)).max(0.0),
-            y: point
-                .y
-                .min((self.viewport.1 - (ROW * 6.0 + PADDING * 2.0)).max(0.0))
-                .max(0.0),
-            width: 190.0,
-            height: ROW * 6.0 + PADDING * 2.0,
-        };
         let typography = Typography {
-            size: 14.0,
+            size: 13.0,
+            weight: 500,
+            line_height: Some(18.0),
             ..Default::default()
         };
-        let labels = EditCommand::ALL
+        let mut labels: Vec<_> = MENU_COMMANDS
             .iter()
             .map(|c| self.text.shape(c.label(), &typography))
             .collect();
+        let mut shortcuts: Vec<_> = MENU_COMMANDS
+            .iter()
+            .map(|c| self.text.shape(c.shortcut(), &typography))
+            .collect();
+        // Measure both columns so platform shortcut names never collide with labels.
+        let label_width = labels
+            .iter_mut()
+            .map(|label| label.measure(None, Alignment::Start).0)
+            .fold(0.0_f32, f32::max);
+        let shortcut_width = shortcuts
+            .iter_mut()
+            .map(|label| label.measure(None, Alignment::Start).0)
+            .fold(0.0_f32, f32::max);
+        let width = (label_width + shortcut_width + COLUMN_GAP + 2.0 * (PADDING + TEXT_INSET))
+            .ceil()
+            .max(144.0);
+        let height = ROW * MENU_COMMANDS.len() as f32 + PADDING * 2.0;
+        let bounds = Rect {
+            x: point.x.min((self.viewport.0 - width).max(0.0)).max(0.0),
+            y: point.y.min((self.viewport.1 - height).max(0.0)).max(0.0),
+            width,
+            height,
+        };
         self.menu = Some(EditMenu {
             target,
             bounds,
             labels,
+            shortcuts,
             selected: None,
         });
         if keyboard {
@@ -94,7 +122,7 @@ impl Host {
             .get(&target)
             .filter(|e| !e.element.disabled)
             .and_then(|e| e.editor.as_ref())
-            .is_some_and(|editor| editor.can_command(EditCommand::ALL[index]))
+            .is_some_and(|editor| editor.can_command(MENU_COMMANDS[index]))
     }
 
     pub fn menu_pointer(&mut self, point: Point) -> bool {
@@ -104,7 +132,9 @@ impl Host {
             .contains(point)
             .then(|| {
                 let row = ((point.y - menu.bounds.y - PADDING) / ROW).floor();
-                (0.0..6.0).contains(&row).then_some(row as usize)
+                (0.0..MENU_COMMANDS.len() as f32)
+                    .contains(&row)
+                    .then_some(row as usize)
             })
             .flatten()
             .filter(|&i| self.menu_enabled(menu.target, i));
@@ -116,13 +146,16 @@ impl Host {
 
     fn menu_step(&mut self, backwards: bool) {
         let Some(menu) = &self.menu else { return };
-        let current = menu.selected.unwrap_or(if backwards { 0 } else { 5 });
-        let next = (1..=6)
+        let count = MENU_COMMANDS.len();
+        let current = menu
+            .selected
+            .unwrap_or(if backwards { 0 } else { count - 1 });
+        let next = (1..=count)
             .map(|n| {
                 if backwards {
-                    (current + 6 - n) % 6
+                    (current + count - n) % count
                 } else {
-                    (current + n) % 6
+                    (current + n) % count
                 }
             })
             .find(|&i| self.menu_enabled(menu.target, i));
@@ -140,7 +173,7 @@ impl Host {
 
     fn execute_menu(&mut self, clipboard: &mut dyn Clipboard) -> Option<(ElementId, Event)> {
         let menu = self.menu.take()?;
-        let command = EditCommand::ALL[menu.selected?];
+        let command = MENU_COMMANDS[menu.selected?];
         self.edit_command(menu.target, command, clipboard)
             .map(|event| (menu.target, event))
     }
@@ -192,7 +225,9 @@ impl Host {
             self.menu = None;
             return;
         }
-        let enabled: Vec<_> = (0..6).map(|i| self.menu_enabled(menu.target, i)).collect();
+        let enabled: Vec<_> = (0..MENU_COMMANDS.len())
+            .map(|i| self.menu_enabled(menu.target, i))
+            .collect();
         let menu = self.menu.as_mut().unwrap();
         let bounds = menu.bounds;
         frame.commands.push(DrawCommand::PushLayer {
@@ -205,18 +240,41 @@ impl Host {
             radius: 0.0.into(),
             opacity: 1.0,
         });
+        frame.commands.push(DrawCommand::BoxShadow {
+            rect: bounds,
+            radius: RADIUS.into(),
+            shadow: BoxShadow::new(0.0, 5.0, 18.0, Color(0, 0, 0, 85)),
+        });
+        frame.commands.push(DrawCommand::PushEffects {
+            rect: bounds,
+            radius: RADIUS.into(),
+            blur: 0.0,
+            backdrop_blur: 18.0,
+            opacity: 1.0,
+        });
         frame.commands.push(DrawCommand::Fill {
             rect: bounds,
-            radius: 8.0.into(),
-            color: Color::rgb(37, 39, 41),
+            radius: RADIUS.into(),
+            color: Color(38, 38, 38, 220),
         });
         frame.commands.push(DrawCommand::Stroke {
             rect: bounds,
-            radius: 8.0.into(),
+            radius: RADIUS.into(),
             width: 1.0,
-            color: Color::rgb(95, 97, 99),
+            color: Color(0, 0, 0, 160),
         });
-        for (i, label) in menu.labels.iter_mut().enumerate() {
+        frame.commands.push(DrawCommand::Stroke {
+            rect: Rect {
+                x: bounds.x + 1.0,
+                y: bounds.y + 1.0,
+                width: bounds.width - 2.0,
+                height: bounds.height - 2.0,
+            },
+            radius: (RADIUS - 1.0).into(),
+            width: 0.5,
+            color: Color(255, 255, 255, 65),
+        });
+        for (i, (label, shortcut)) in menu.labels.iter_mut().zip(&mut menu.shortcuts).enumerate() {
             let row = Rect {
                 x: bounds.x + PADDING,
                 y: bounds.y + PADDING + i as f32 * ROW,
@@ -226,26 +284,43 @@ impl Host {
             if enabled[i] && menu.selected == Some(i) {
                 frame.commands.push(DrawCommand::Fill {
                     rect: row,
-                    radius: 4.0.into(),
-                    color: Color::rgb(63, 81, 75),
+                    radius: 6.0.into(),
+                    // Lighten the resolved backdrop instead of matching its gray.
+                    color: Color(255, 255, 255, 28),
                 });
             }
-            label.measure(Some(row.width - 16.0), Alignment::Start);
+            let (_, label_height) = label.measure(None, Alignment::Start);
+            let (shortcut_width, shortcut_height) = shortcut.measure(None, Alignment::Start);
             for run in label.glyph_runs() {
                 frame.commands.push(DrawCommand::Glyphs {
                     origin: Point {
-                        x: row.x + 8.0,
-                        y: row.y + 3.0,
+                        x: row.x + TEXT_INSET,
+                        y: row.y + (ROW - label_height) / 2.0,
                     },
                     color: if enabled[i] {
-                        Color::rgb(245, 245, 245)
+                        Color::rgb(235, 235, 235)
                     } else {
-                        Color::rgb(130, 130, 130)
+                        Color::rgb(105, 105, 105)
+                    },
+                    run: run.clone(),
+                });
+            }
+            for run in shortcut.glyph_runs() {
+                frame.commands.push(DrawCommand::Glyphs {
+                    origin: Point {
+                        x: row.x + row.width - TEXT_INSET - shortcut_width,
+                        y: row.y + (ROW - shortcut_height) / 2.0,
+                    },
+                    color: if enabled[i] {
+                        Color::rgb(175, 175, 175)
+                    } else {
+                        Color::rgb(105, 105, 105)
                     },
                     run: run.clone(),
                 });
             }
         }
+        frame.commands.push(DrawCommand::PopLayer);
         frame.commands.push(DrawCommand::PopLayer);
     }
 }
@@ -254,8 +329,8 @@ impl Host {
 mod tests {
     use super::*;
     use refract::prelude::*;
-    use winit::keyboard::Key;
     use refract_core::App;
+    use winit::keyboard::Key;
 
     struct MemoryClipboard;
     impl Clipboard for MemoryClipboard {
@@ -329,13 +404,38 @@ mod tests {
         host.set_focus(Some(id));
         assert!(host.open_edit_menu(point, true));
         assert_eq!(host.menu.as_ref().unwrap().selected, Some(4));
-        let stats = host.stats();
         host.menu_key(
             &Key::Named(NamedKey::ArrowDown),
             ModifiersState::empty(),
             &mut MemoryClipboard,
         );
-        assert_eq!(host.menu.as_ref().unwrap().selected, Some(5));
+        assert_eq!(host.menu.as_ref().unwrap().selected, Some(4));
+        // Select All remains a keyboard command, but is not a menu row.
+        let command = if cfg!(target_os = "macos") {
+            ModifiersState::SUPER
+        } else {
+            ModifiersState::CONTROL
+        };
+        host.menu_key(&Key::Character("a".into()), command, &mut MemoryClipboard);
+        assert!(!host.menu_is_open());
+        assert_eq!(
+            host.entries[&id]
+                .editor
+                .as_ref()
+                .unwrap()
+                .buffer
+                .selected_text(),
+            Some("hello")
+        );
+        host.open_edit_menu(point, true);
+        assert_eq!(host.menu.as_ref().unwrap().selected, Some(2));
+        host.menu_key(
+            &Key::Named(NamedKey::ArrowUp),
+            ModifiersState::empty(),
+            &mut MemoryClipboard,
+        );
+        assert_eq!(host.menu.as_ref().unwrap().selected, Some(4));
+        let stats = host.stats();
         host.frame(600.0, 400.0, 1.0, Color::WHITE).unwrap();
         assert_eq!(host.stats().text_shapes, stats.text_shapes);
         assert_eq!(host.stats().layout_passes, stats.layout_passes);
