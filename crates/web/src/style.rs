@@ -6,6 +6,19 @@ use std::collections::BTreeMap;
 pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
     let s = &e.style;
     let mut out = BTreeMap::new();
+    // Set both sets on every node: CSS variables inherit, focus styles do not.
+    for (ring, color, width, offset, pointer_color, pointer_width) in [
+        (s.focus_ring.unwrap_or_default(), "--refract-focus-color", "--refract-focus-width",
+            "--refract-focus-offset", "--refract-edit-color", "--refract-edit-width"),
+        (s.focus_within.unwrap_or(FocusRing::none()), "--refract-within-color", "--refract-within-width",
+            "--refract-within-offset", "--refract-within-edit-color", "--refract-within-edit-width"),
+    ] {
+        out.insert(color, ring.color.css());
+        out.insert(width, format!("{}px", ring.width));
+        out.insert(offset, format!("{}px", ring.offset));
+        out.insert(pointer_color, ring.pointer().color.css());
+        out.insert(pointer_width, format!("{}px", ring.pointer().width));
+    }
     let align = |a| {
         match a {
             Alignment::Start => "flex-start",
@@ -378,4 +391,22 @@ mod tests {
         );
         assert_eq!(reset["border-radius"], "4px 4px 4px 4px");
     }
+    #[test]
+    fn focus_styles_reset_and_do_not_inherit_from_ancestors() {
+        let Some(Description::Element(mut element, _, _)) = view().describe() else { panic!("element") };
+        element.style.focus_ring = Some(FocusRing::none());
+        element.style.focus_within = Some(FocusRing::new(Color::BLACK, 3.0, 4.0));
+        let custom = css(&element);
+        assert_eq!(custom["--refract-focus-width"], "0px");
+        assert_eq!(custom["--refract-within-width"], "3px");
+        assert_eq!(custom["--refract-within-offset"], "4px");
+        assert_eq!(custom["--refract-within-edit-width"], "1px");
+        element.style.focus_ring = None;
+        element.style.focus_within = None;
+        let reset = css(&element);
+        assert_eq!(reset["--refract-focus-width"], "2px");
+        assert_eq!(reset["--refract-within-width"], "0px");
+        assert_eq!(reset["--refract-within-edit-width"], "0px");
+    }
+
 }

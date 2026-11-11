@@ -85,6 +85,15 @@ impl Host {
 }
 
 impl Host {
+    pub(super) fn has_focus_within(&self, id: ElementId) -> bool {
+        let mut current = self.focus;
+        while let Some(target) = current {
+            if target == id { return true; }
+            current = self.entries.get(&target).and_then(|entry| entry.parent);
+        }
+        false
+    }
+
     pub fn is_editor(&self, id: ElementId) -> bool {
         self.entries
             .get(&id)

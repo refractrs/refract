@@ -61,17 +61,27 @@
   opacity: .45;
 }
 
-.refract-root :focus {
+.refract-root .refract-node:focus-within {
+  outline: var(--refract-within-width) solid var(--refract-within-color);
+  outline-offset: var(--refract-within-offset);
+}
+
+.refract-root[data-refract-input="pointer"] .refract-node:focus-within {
+  outline: var(--refract-within-edit-width) solid var(--refract-within-edit-color);
+  outline-offset: 0;
+}
+
+.refract-root .refract-node:focus {
   outline: none;
 }
 
-.refract-root:not([data-refract-input="pointer"]) :focus-visible {
-  outline: 2px solid #2d57e8;
-  outline-offset: 2px;
+.refract-root:not([data-refract-input="pointer"]) .refract-node:focus-visible {
+  outline: var(--refract-focus-width) solid var(--refract-focus-color);
+  outline-offset: var(--refract-focus-offset);
 }
 
-.refract-root[data-refract-input="pointer"] :is(input, textarea):focus {
-  outline: 1px solid rgba(45, 87, 232, .31);
+.refract-root[data-refract-input="pointer"] :is(input, textarea).refract-node:focus {
+  outline: var(--refract-edit-width) solid var(--refract-edit-color);
   outline-offset: 0;
 }
 

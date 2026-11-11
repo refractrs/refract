@@ -28,6 +28,50 @@ impl Color {
     }
 }
 
+/// A focus indicator outside an element's border box. It follows the element's
+/// corner radii and does not affect layout. Pointer editing uses a one-pixel,
+/// translucent version; keyboard navigation uses the full indicator.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FocusRing {
+    pub color: Color,
+    pub width: f32,
+    /// Gap between the border box and the keyboard indicator, in logical pixels.
+    pub offset: f32,
+}
+
+impl Default for FocusRing {
+    fn default() -> Self {
+        Self { color: Color::BLUE, width: 2.0, offset: 2.0 }
+    }
+}
+
+impl FocusRing {
+    pub const fn new(color: Color, width: f32, offset: f32) -> Self {
+        Self { color, width, offset }
+    }
+
+    /// Suppress this indicator, for example when a parent supplies focus feedback.
+    pub const fn none() -> Self {
+        Self::new(Color::BLUE, 0.0, 0.0)
+    }
+
+    pub fn validate(&self) -> Result<(), ViewError> {
+        if !self.width.is_finite() || self.width < 0.0
+            || !self.offset.is_finite() || self.offset < 0.0
+        {
+            return Err(ViewError::new("focus ring width and offset must be finite and nonnegative"));
+        }
+        Ok(())
+    }
+
+    /// Resolve the quieter treatment used for pointer editing and focus-within.
+    pub fn pointer(self) -> Self {
+        Self::new(Color(self.color.0, self.color.1, self.color.2,
+            (f32::from(self.color.3) * (80.0 / 255.0)).round() as u8),
+            self.width.min(1.0), 0.0)
+    }
+}
+
 /// A color and its position along a gradient line or radius.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GradientStop {
@@ -435,6 +479,10 @@ pub struct Style {
     pub foreground: Option<Color>,
     pub border: Option<Border>,
     pub radius: CornerRadii,
+    /// Override the default indicator for this element. Radius follows `radius`.
+    pub focus_ring: Option<FocusRing>,
+    /// Highlight this container while it or any descendant has focus.
+    pub focus_within: Option<FocusRing>,
     pub opacity: Option<f32>,
     /// Subtree Gaussian blur, in logical pixels of standard deviation. Zero is off.
     pub blur: Option<f32>,
@@ -468,6 +516,9 @@ impl Style {
             return Err(ViewError::new(
                 "blur amounts must be finite and nonnegative",
             ));
+        }
+        for ring in [self.focus_ring, self.focus_within].into_iter().flatten() {
+            ring.validate()?;
         }
         if let Some(gradient) = &self.background_gradient {
             gradient.validate()?;
@@ -762,4 +813,18 @@ mod tests {
             assert!(BoxShadow::new(x, y, blur, Color::BLACK).validate().is_err());
         }
     }
+    #[test]
+    fn focus_indicators_reject_invalid_geometry() {
+        for invalid in [-1.0, f32::NAN, f32::INFINITY] {
+            for ring in [FocusRing::new(Color::BLUE, invalid, 0.0),
+                FocusRing::new(Color::BLUE, 2.0, invalid)] {
+                assert!(Style { focus_ring: Some(ring), ..Default::default() }.validate().is_err());
+                assert!(Style { focus_within: Some(ring), ..Default::default() }.validate().is_err());
+            }
+        }
+        assert!(FocusRing::none().validate().is_ok());
+        assert_eq!(FocusRing::new(Color(1, 2, 3, 128), 3.0, 4.0).pointer(),
+            FocusRing::new(Color(1, 2, 3, 40), 1.0, 0.0));
+    }
+
 }

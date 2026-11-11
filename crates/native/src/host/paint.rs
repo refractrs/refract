@@ -124,6 +124,7 @@ impl Host {
         inherited_clip: Rect,
         frame: &mut Frame,
     ) -> Result<()> {
+        let focus_within = self.has_focus_within(id);
         let entry = self.entries.get_mut(&id).unwrap();
         let layout = self.tree.layout(entry.node)?;
         let rect = Rect {
@@ -201,16 +202,6 @@ impl Host {
                 rect,
                 radius: s.radius,
                 border,
-            });
-        }
-        if self.focus == Some(id)
-            && (self.keyboard_focus || entry.element.kind == ElementKind::TextInput)
-        {
-            frame.commands.push(DrawCommand::Stroke {
-                rect,
-                radius: s.radius,
-                width: if self.keyboard_focus { 2.0 } else { 1.0 },
-                color: if self.keyboard_focus { Color::BLUE } else { Color(45, 87, 232, 80) },
             });
         }
         // Replaced image content lives inside padding/borders. Cover may extend
@@ -336,6 +327,16 @@ impl Host {
         let feedback = (self.hover == Some(id) && !entry.element.disabled)
             .then_some((s.radius, if self.pressed == Some(id) { 26 } else { 13 }));
         let has_opacity = s.opacity.is_some() || has_effects;
+        let ring = if self.focus == Some(id)
+            && (self.keyboard_focus || entry.element.kind == ElementKind::TextInput)
+        {
+            Some(s.focus_ring.unwrap_or_default())
+        } else if focus_within {
+            s.focus_within
+        } else {
+            None
+        };
+        let radius = s.radius;
         for child in children {
             self.paint(child, origin, clip, frame)?;
         }
@@ -349,6 +350,24 @@ impl Host {
         self.paint_scrollbars(id, frame);
         if clipped {
             frame.commands.push(DrawCommand::PopLayer);
+        }
+        // Paint after descendants and outside our own clip, while retaining
+        // ancestor clipping and group opacity. The stroke occupies its outer box.
+        if let Some(ring) = ring.filter(|ring| ring.width > 0.0) {
+            let ring = if self.keyboard_focus { ring } else { ring.pointer() };
+            let outset = ring.offset + ring.width;
+            frame.commands.push(DrawCommand::Stroke {
+                rect: Rect { x: rect.x - outset, y: rect.y - outset,
+                    width: rect.width + outset * 2.0, height: rect.height + outset * 2.0 },
+                radius: refract_core::CornerRadii {
+                    top_left: radius.top_left + outset,
+                    top_right: radius.top_right + outset,
+                    bottom_right: radius.bottom_right + outset,
+                    bottom_left: radius.bottom_left + outset,
+                },
+                width: ring.width,
+                color: ring.color,
+            });
         }
         if has_opacity {
             frame.commands.push(DrawCommand::PopLayer);

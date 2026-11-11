@@ -1578,3 +1578,39 @@ fn pointer_editing_and_keyboard_navigation_have_distinct_focus_feedback() {
     assert_eq!(host.focus, Some(editor));
     assert_eq!(strokes(&mut host), vec![(2.0, Color::BLUE)]);
 }
+
+#[test]
+fn focus_within_delegates_the_editor_ring_without_layout_changes() {
+    let accent = Color::rgb(30, 100, 75);
+    let mut app = App::new(view_fn(move |cx| {
+        let value = cx.state("draft", String::new);
+        Ok(v_stack().width(200.0).height(100.0).radius(14.0).clipped()
+            .focus_within(FocusRing::new(accent, 3.0, 4.0))
+            .child(field(value).focus_ring(FocusRing::none())))
+    }));
+    let mut host = Host::new().unwrap();
+    flush(&mut app, &mut host);
+    frame(&mut host);
+    let before = host.stats();
+    host.focus_next(false);
+    let keyboard = frame(&mut host);
+    let rings: Vec<_> = keyboard.commands.iter().filter_map(|c| match c {
+        DrawCommand::Stroke { rect, radius, width, color } => Some((rect, radius, width, color)),
+        _ => None,
+    }).collect();
+    assert_eq!(rings.len(), 1);
+    let (rect, radius, width, color) = rings[0];
+    assert_eq!((rect.width, rect.height), (214.0, 114.0));
+    assert_eq!(radius.top_left, 21.0);
+    assert_eq!((*width, *color), (3.0, accent));
+    // The container's own clip must end before its outer indicator is painted.
+    let index = keyboard.commands.iter().position(|c| matches!(c, DrawCommand::Stroke { .. })).unwrap();
+    assert!(matches!(keyboard.commands[index - 1], DrawCommand::PopLayer));
+    host.focus_pointer(host.focus);
+    let pointer = frame(&mut host);
+    assert!(pointer.commands.iter().any(|c| matches!(c,
+        DrawCommand::Stroke { width: 1.0, color: Color(30, 100, 75, 80), .. })));
+    assert_eq!(host.stats().layout_passes, before.layout_passes);
+    host.set_focus(None);
+    assert!(!frame(&mut host).commands.iter().any(|c| matches!(c, DrawCommand::Stroke { .. })));
+}

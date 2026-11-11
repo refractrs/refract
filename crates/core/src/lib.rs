@@ -69,7 +69,7 @@ pub mod prelude {
     pub use crate::{
         field, fragment, h_stack, scroll_view, spacer, stack, text, v_stack, view_fn, z_stack,
         ActionContext, Alignment, AnyView, Axis, Binding, Border, BorderSide, BoxShadow, Color,
-        Container, CornerRadii, Derived, Direction, Empty, EnvironmentKey, Field, Gradient,
+        Container, CornerRadii, Derived, Direction, Empty, EnvironmentKey, Field, FocusRing, Gradient,
         GradientStop, HistoryMode, Image, ImageFit, ImageFormat, ImageSource, Insets,
         LinearGradient, MemoryHistory, MessageSender, MessageSubscription, Overlay, RadialGradient,
         Read, Request, RequestStatus, Runtime, ScrollEvent, ScrollFollow, ScrollMetrics,

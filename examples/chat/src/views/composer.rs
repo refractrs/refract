@@ -27,6 +27,7 @@ pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
                             background: Some(Color::WHITE),
                             foreground: Some(INK),
                             border: Some(Border::all(0.0, Color::WHITE)),
+                            focus_ring: Some(FocusRing::none()),
                             ..Default::default()
                         }),
                 )
@@ -41,6 +42,7 @@ pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
                 .background(Color::WHITE)
                 .border(Border::all(1.0, LINE))
                 .radius(14.0)
+                .focus_within(FocusRing::new(ACCENT, 2.0, 2.0))
                 .shadow(BoxShadow::new(0.0, 4.0, 20.0, Color(24, 40, 63, 18)))
                 .max_width(740.0)
                 .fill_width(),

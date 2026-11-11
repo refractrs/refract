@@ -74,3 +74,15 @@ class. Streaming and drafts continue while the compact menu is visible.
 titles. User selection pushes history; deletion and URL normalization replace
 it. Host observations never call the selection command that pushes history.
 The native launcher supplies `app://chat/` as its initial application URL.
+
+## Focus feedback
+
+Clicking the composer shows a quiet accent outline around its rounded container;
+Tab navigation uses a stronger outline. The inner field delegates its indicator
+with `.focus_ring(FocusRing::none())`, and the container uses
+`.focus_within(FocusRing::new(ACCENT, 2.0, 2.0))`.
+
+`FocusRing::new(color, width, offset)` configures the keyboard indicator in logical
+pixels. Its corners follow `.radius(...)`; it occupies no layout space. Pointer
+editing uses the same color at reduced opacity with at most a one-pixel outline
+and no gap. Ordinary typing preserves that quieter treatment.
