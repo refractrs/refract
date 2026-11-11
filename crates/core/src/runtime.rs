@@ -459,7 +459,12 @@ impl App {
     fn add_dirty(&mut self, id: MountId) {
         let mut cursor = Some(id);
         while let Some(id) = cursor {
-            self.dirty.insert(id);
+            // A previously marked mount already has a path to the root. The
+            // child-to-parent edge below is recorded before reaching it, so
+            // additional dirty branches still join the existing path.
+            if !self.dirty.insert(id) {
+                break;
+            }
             cursor = self.mounts.get(&id).and_then(|m| m.parent);
             if let Some(parent) = cursor {
                 self.dirty_children.entry(parent).or_default().insert(id);
