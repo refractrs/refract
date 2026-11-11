@@ -54,6 +54,7 @@ impl Host {
     }
 
     pub fn focus_next(&mut self, backwards: bool) {
+        self.keyboard_focus = true;
         let items: Vec<_> = self
             .paint_order
             .iter()
@@ -88,6 +89,12 @@ impl Host {
         self.entries
             .get(&id)
             .is_some_and(|e| e.editor.is_some() && !e.element.disabled)
+    }
+
+    /// Pointer focus keeps editing feedback without the keyboard navigation ring.
+    pub fn focus_pointer(&mut self, target: Option<ElementId>) {
+        self.keyboard_focus = false;
+        self.set_focus(target);
     }
 
     pub fn set_focus(&mut self, target: Option<ElementId>) {

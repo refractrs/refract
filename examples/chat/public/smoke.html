@@ -70,7 +70,14 @@ try {
   await press('New conversation');
   check(find('Search conversations').value === '' && root.textContent.includes('Where shall we begin?'), 'new chat clears search and shows prompt suggestions');
   await input('Message Refract', 'Explain Rust state');
-  const composer = find('Message Refract'); composer.focus();
+  const composer = find('Message Refract');
+  composer.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, composed:true}));
+  composer.focus();
+  check(getComputedStyle(composer).outlineWidth === '1px', 'pointer focus uses a quiet editing cue');
+  composer.dispatchEvent(new KeyboardEvent('keydown', {key:'a', bubbles:true, composed:true}));
+  check(getComputedStyle(composer).outlineWidth === '1px', 'typing preserves pointer focus appearance');
+  document.dispatchEvent(new KeyboardEvent('keydown', {key:'Tab', bubbles:true}));
+  check(getComputedStyle(composer).outlineWidth === '2px', 'Tab restores the keyboard focus ring from outside the mount');
   composer.dispatchEvent(new CompositionEvent('compositionstart', {bubbles:true, composed:true}));
   await key('Message Refract', {ctrlKey:true, isComposing:true});
   check(app.active_streams() === 0, 'Enter during IME composition cannot submit');

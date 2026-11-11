@@ -482,7 +482,7 @@ impl ApplicationHandler<()> for NativeApp {
                 if state == ElementState::Pressed {
                     self.pressed = target;
                     self.host.set_pressed(target);
-                    self.host.set_focus(target);
+                    self.host.focus_pointer(target);
                     self.host
                         .editor_pointer(self.cursor, self.modifiers.shift_key());
                     self.needs_frame = true;

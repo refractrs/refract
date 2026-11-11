@@ -61,9 +61,18 @@
   opacity: .45;
 }
 
-.refract-root :focus-visible {
-  outline: 3px solid #2857b7;
-  outline-offset: 4px;
+.refract-root :focus {
+  outline: none;
+}
+
+.refract-root:not([data-refract-input="pointer"]) :focus-visible {
+  outline: 2px solid #2d57e8;
+  outline-offset: 2px;
+}
+
+.refract-root[data-refract-input="pointer"] :is(input, textarea):focus {
+  outline: 1px solid rgba(45, 87, 232, .31);
+  outline-offset: 0;
 }
 
 .refract-root img {

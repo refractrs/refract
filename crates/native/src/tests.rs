@@ -1547,3 +1547,34 @@ fn independent_borders_affect_layout_and_preserve_corners_in_paint_and_image_cli
             .count()
     );
 }
+
+#[test]
+fn pointer_editing_and_keyboard_navigation_have_distinct_focus_feedback() {
+    let mut app = App::new(view_fn(|cx| {
+        let value = cx.state("draft", String::new);
+        Ok(v_stack().child(field(value)).child(text("button").on_press(|_| {})))
+    }));
+    let mut host = Host::new().unwrap();
+    flush(&mut app, &mut host);
+    frame(&mut host);
+    let strokes = |host: &mut Host| {
+        frame(host).commands.into_iter().filter_map(|command| match command {
+            DrawCommand::Stroke { width, color, .. } => Some((width, color)),
+            _ => None,
+        }).collect::<Vec<_>>()
+    };
+    host.focus_next(false);
+    let editor = host.focus.unwrap();
+    assert_eq!(strokes(&mut host), vec![(2.0, Color::BLUE)]);
+    host.focus_pointer(Some(editor));
+    assert_eq!(strokes(&mut host), vec![(1.0, Color(45, 87, 232, 80))]);
+    host.focus_next(false);
+    let button = host.focus.unwrap();
+    assert_ne!(editor, button);
+    assert_eq!(strokes(&mut host), vec![(2.0, Color::BLUE)]);
+    host.focus_pointer(Some(button));
+    assert!(strokes(&mut host).is_empty());
+    host.focus_next(true);
+    assert_eq!(host.focus, Some(editor));
+    assert_eq!(strokes(&mut host), vec![(2.0, Color::BLUE)]);
+}

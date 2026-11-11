@@ -152,7 +152,7 @@ impl NativeApp {
                     PointerPhase::Down if !prevented => {
                         let target = self.host.hit_test(point);
                         self.touch_presses.insert(touch.id, (target, point));
-                        self.host.set_focus(target);
+                        self.host.focus_pointer(target);
                     }
                     PointerPhase::Move => {
                         if self.touch_presses.get(&touch.id).is_some_and(|(_, start)| {

@@ -203,12 +203,14 @@ impl Host {
                 border,
             });
         }
-        if self.focus == Some(id) {
+        if self.focus == Some(id)
+            && (self.keyboard_focus || entry.element.kind == ElementKind::TextInput)
+        {
             frame.commands.push(DrawCommand::Stroke {
                 rect,
                 radius: s.radius,
-                width: 2.0,
-                color: Color::BLUE,
+                width: if self.keyboard_focus { 2.0 } else { 1.0 },
+                color: if self.keyboard_focus { Color::BLUE } else { Color(45, 87, 232, 80) },
             });
         }
         // Replaced image content lives inside padding/borders. Cover may extend
