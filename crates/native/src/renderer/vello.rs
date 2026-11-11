@@ -1,14 +1,16 @@
 //! Vello implementation of the drawing contract. GPU objects stay in this module.
 
-use super::vello_scene::{color, Backdrop, Encoder, SceneResources};
+#[cfg(feature = "debug-damage")]
+use super::vello_debug::DamageOverlay;
+use super::vello_painter::{Painter, RenderMode, RenderStats};
 use super::{Frame, Presentation, Renderer};
 use crate::{NativeError, Result};
 use std::sync::Arc;
+#[cfg(feature = "debug-damage")]
+use std::time::Instant;
 use vello::{
-    kurbo::{Affine, Rect},
-    peniko::Fill,
     util::{RenderContext, RenderSurface},
-    wgpu, AaConfig, AaSupport, RenderParams, RendererOptions, Scene,
+    wgpu,
 };
 use winit::window::Window;
 
@@ -16,12 +18,12 @@ use winit::window::Window;
 pub struct VelloRenderer {
     // Drop the surface before its window/device owners.
     surface: RenderSurface<'static>,
-    renderer: vello::Renderer,
+    painter: Painter,
+    stats: RenderStats,
+    #[cfg(feature = "debug-damage")]
+    overlay: DamageOverlay,
     context: RenderContext,
     window: Arc<Window>,
-    scene: Scene,
-    resources: SceneResources,
-    effects: super::vello_effects::Effects,
 }
 
 impl VelloRenderer {
@@ -37,54 +39,26 @@ impl VelloRenderer {
         ))
         .map_err(render_error)?;
         configure_window_presentation(&surface.surface, &window);
-        let renderer = vello::Renderer::new(
-            &context.devices[surface.dev_id].device,
-            RendererOptions {
-                use_cpu: false,
-                antialiasing_support: AaSupport::area_only(),
-                ..RendererOptions::default()
-            },
-        )
-        .map_err(render_error)?;
+        let painter = Painter::new(&context.devices[surface.dev_id].device)?;
         Ok(Self {
             surface,
-            renderer,
+            painter,
+            stats: RenderStats::default(),
+            #[cfg(feature = "debug-damage")]
+            overlay: DamageOverlay::default(),
             context,
             window,
-            scene: Scene::new(),
-            resources: SceneResources::default(),
-            effects: super::vello_effects::Effects::default(),
         })
     }
 
-    fn encode(&mut self, frame: &Frame) -> Result<()> {
-        self.effects.begin_frame(&mut self.renderer);
-        self.resources.begin_frame();
-        self.scene.reset();
-        let extent = Rect::new(
-            0.0,
-            0.0,
-            f64::from(self.surface.config.width),
-            f64::from(self.surface.config.height),
-        );
-        let mut backdrop = Backdrop::default();
-        backdrop.scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            color(frame.background),
-            None,
-            &extent,
-        );
-        let device = &self.context.devices[self.surface.dev_id];
-        Encoder {
-            resources: &mut self.resources,
-            effects: &mut self.effects,
-            renderer: &mut self.renderer,
-            device: &device.device,
-            queue: &device.queue,
-            scale_factor: frame.scale_factor,
-            has_backdrop: frame.commands.iter().any(|c| matches!(c, super::DrawCommand::PushEffects { backdrop_blur, .. } if *backdrop_blur > 0.0)),
-        }.encode(&mut frame.commands.iter(), &mut self.scene, &backdrop, extent)
+    /// Work submitted for the most recent successfully rendered frame.
+    pub fn stats(&self) -> RenderStats {
+        self.stats
+    }
+
+    /// Select full rendering for diagnostics or comparisons. Incremental is the default.
+    pub fn set_render_mode(&mut self, mode: RenderMode) {
+        self.painter.mode = mode;
     }
 }
 
@@ -101,10 +75,48 @@ impl Renderer for VelloRenderer {
     }
 
     fn render(&mut self, frame: &Frame) -> Result<Presentation> {
+        #[cfg(feature = "debug-damage")]
+        {
+            self.present_frame(Some(frame))
+        }
+        #[cfg(not(feature = "debug-damage"))]
+        {
+            self.present_frame(frame)
+        }
+    }
+
+    #[cfg(feature = "debug-damage")]
+    fn redraw_deadline(&self) -> Option<Instant> {
+        self.overlay.deadline()
+    }
+
+    #[cfg(feature = "debug-damage")]
+    fn refresh(&mut self) -> Result<Option<Presentation>> {
+        self.present_frame(None).map(Some)
+    }
+}
+
+impl VelloRenderer {
+    fn paint_frame(&mut self, frame: &Frame) -> Result<()> {
+        let device = &self.context.devices[self.surface.dev_id];
+        self.stats = self.painter.paint(
+            &device.device,
+            &device.queue,
+            frame,
+            self.surface.config.width,
+            self.surface.config.height,
+        )?;
+        Ok(())
+    }
+
+    fn present_frame(
+        &mut self,
+        #[cfg(feature = "debug-damage")] frame: Option<&Frame>,
+        #[cfg(not(feature = "debug-damage"))] frame: &Frame,
+    ) -> Result<Presentation> {
         // Live edge resizing and display/window-manager transitions need
         // different fallback behavior for the previous drawable.
         configure_window_presentation(&self.surface.surface, &self.window);
-        self.encode(frame)?;
         let (texture, reconfigure) = match self.surface.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(texture) => (texture, false),
             // Suboptimal drawables are still usable. Present this frame instead
@@ -126,36 +138,38 @@ impl Renderer for VelloRenderer {
                 ))
                 .map_err(render_error)?;
                 configure_window_presentation(&self.surface.surface, &self.window);
-                self.renderer = vello::Renderer::new(
-                    &self.context.devices[self.surface.dev_id].device,
-                    RendererOptions {
-                        antialiasing_support: AaSupport::area_only(),
-                        ..RendererOptions::default()
-                    },
-                )
-                .map_err(render_error)?;
-                self.effects = super::vello_effects::Effects::default();
+                let mode = self.painter.mode;
+                self.painter = Painter::new(&self.context.devices[self.surface.dev_id].device)?;
+                self.painter.mode = mode;
+                #[cfg(feature = "debug-damage")]
+                {
+                    self.overlay = DamageOverlay::default();
+                }
                 return Ok(Presentation::Retry);
             }
             wgpu::CurrentSurfaceTexture::Validation => {
                 return Err(NativeError::Render("surface validation failed".into()));
             }
         };
+        #[cfg(feature = "debug-damage")]
+        {
+            self.overlay.expire(Instant::now());
+            if let Some(frame) = frame {
+                self.paint_frame(frame)?;
+                if let Some(region) = self.stats.damage {
+                    self.overlay.flash(region, Instant::now());
+                }
+            } else {
+                self.stats = RenderStats::default();
+            }
+        }
+        #[cfg(not(feature = "debug-damage"))]
+        self.paint_frame(frame)?;
         let device = &self.context.devices[self.surface.dev_id];
-        self.renderer
-            .render_to_texture(
-                &device.device,
-                &device.queue,
-                &self.scene,
-                &self.surface.target_view,
-                &RenderParams {
-                    base_color: color(frame.background),
-                    width: self.surface.config.width,
-                    height: self.surface.config.height,
-                    antialiasing_method: AaConfig::Area,
-                },
-            )
-            .map_err(render_error)?;
+        // Reuse RenderSurface's target slots instead of retaining its original,
+        // unused full-size allocation alongside our persistent target.
+        self.surface.target_texture = self.painter.target().clone();
+        self.surface.target_view = self.surface.target_texture.create_view(&Default::default());
         let view = texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -169,6 +183,16 @@ impl Renderer for VelloRenderer {
             &mut encoder,
             &self.surface.target_view,
             &view,
+        );
+        #[cfg(feature = "debug-damage")]
+        self.overlay.draw(
+            &device.device,
+            &mut encoder,
+            &view,
+            self.surface.config.format,
+            self.surface.config.width,
+            self.surface.config.height,
+            self.window.scale_factor(),
         );
         device.queue.submit([encoder.finish()]);
         self.window.pre_present_notify();

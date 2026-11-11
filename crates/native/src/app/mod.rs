@@ -219,6 +219,27 @@ impl NativeApp {
         if size.width == 0 || size.height == 0 || self.occluded {
             return Ok(());
         }
+        #[cfg(feature = "debug-damage")]
+        if !self.needs_frame
+            && self.rendered_size == Some(size)
+            && renderer
+                .redraw_deadline()
+                .is_some_and(|deadline| deadline <= Instant::now())
+        {
+            if let Some(presentation) = renderer.refresh()? {
+                match presentation {
+                    Presentation::Presented => {
+                        self.presented += 1;
+                        self.retry_at = None;
+                    }
+                    Presentation::Retry => {
+                        self.needs_frame = true;
+                        self.retry_at = Some(Instant::now() + Duration::from_millis(100));
+                    }
+                }
+                return Ok(());
+            }
+        }
         // Use one latest-size snapshot for both surface allocation and layout.
         // Resize events can queue faster than GPU frames during a live drag.
         if self.rendered_size != Some(size) {
@@ -598,6 +619,12 @@ impl ApplicationHandler<()> for NativeApp {
         }
         let now = Instant::now();
         let scrollbar = self.host.scrollbar_deadline().filter(|_| !self.occluded);
+        #[cfg(feature = "debug-damage")]
+        let renderer = self
+            .renderer
+            .as_ref()
+            .and_then(|r| r.redraw_deadline())
+            .filter(|_| !self.occluded);
         self.needs_frame |= scrollbar.is_some_and(|deadline| deadline <= now);
         if let Some(window) = &self.window {
             self.text_input.sync(
@@ -610,7 +637,10 @@ impl ApplicationHandler<()> for NativeApp {
         }
         if let Some(window) = &self.window {
             let size = window.inner_size();
-            if self.needs_frame
+            let needs_frame = self.needs_frame;
+            #[cfg(feature = "debug-damage")]
+            let needs_frame = needs_frame || renderer.is_some_and(|deadline| deadline <= now);
+            if needs_frame
                 && !self.occluded
                 && size.width > 0
                 && size.height > 0
@@ -621,17 +651,20 @@ impl ApplicationHandler<()> for NativeApp {
         }
         let deadline = self.scheduler.as_ref().and_then(Scheduler::deadline);
         let retry = self.retry_at.filter(|_| !self.occluded);
-        event_loop.set_control_flow(
-            match deadline
-                .into_iter()
-                .chain(retry)
-                .chain(scrollbar.filter(|deadline| *deadline > now))
-                .min()
-            {
-                Some(deadline) => ControlFlow::WaitUntil(deadline),
-                None => ControlFlow::Wait,
-            },
-        );
+        let deadline = deadline
+            .into_iter()
+            .chain(retry)
+            .chain(scrollbar.filter(|deadline| *deadline > now))
+            .min();
+        #[cfg(feature = "debug-damage")]
+        let deadline = deadline
+            .into_iter()
+            .chain(renderer.filter(|deadline| *deadline > now))
+            .min();
+        event_loop.set_control_flow(match deadline {
+            Some(deadline) => ControlFlow::WaitUntil(deadline),
+            None => ControlFlow::Wait,
+        });
     }
 }
 

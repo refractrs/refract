@@ -27,6 +27,7 @@ refract-test.workspace = true
 
 [features]
 desktop = ["dep:refract-native"]
+debug-damage = ["desktop", "refract-native/debug-damage"]
 
 [[bin]]
 name = "refract-chat-desktop"
