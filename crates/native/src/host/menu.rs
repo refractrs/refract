@@ -50,6 +50,9 @@ impl Host {
         {
             return false;
         }
+        if !keyboard {
+            self.keyboard_focus = false;
+        }
         if self.focus != Some(target) {
             self.set_focus(Some(target));
             self.editor_pointer(point, false);

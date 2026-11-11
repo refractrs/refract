@@ -88,6 +88,11 @@ fn apply(inner: &Rc<Inner>, native: &web_sys::Event, response: EventResponse) {
 }
 
 pub(super) fn dispatch(inner: &Rc<Inner>, native: &web_sys::Event) -> bool {
+    // Typing in a pointer-focused editor must not promote its editing cue to
+    // a navigation ring. Tab is the explicit switch back to keyboard navigation.
+    if native.type_() == "pointerdown" {
+        let _ = inner.dom.borrow().root.set_attribute("data-refract-input", "pointer");
+    }
     let Some(id) = owner(inner, native) else {
         return true;
     };

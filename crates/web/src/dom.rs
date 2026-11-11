@@ -87,7 +87,7 @@ struct Dom {
 
 /// Own the JS callback until its root listener has been detached.
 struct Listener {
-    root: HtmlElement,
+    root: web_sys::EventTarget,
     name: &'static str,
     callback: Closure<dyn FnMut(web_sys::Event)>,
     capture: bool,
@@ -437,6 +437,25 @@ fn mount_inner(
             }
         });
 
+    // Observe Tab before it enters the mount, including after pointer use here.
+    // Root-only key listeners miss navigation from elsewhere in the document.
+    let weak = Rc::downgrade(&inner);
+    let callback = Closure::new(move |event: web_sys::Event| {
+        if event.dyn_ref::<web_sys::KeyboardEvent>().is_some_and(|key| key.key() == "Tab") {
+            if let Some(inner) = weak.upgrade() {
+                let _ = inner.dom.borrow().root.set_attribute("data-refract-input", "keyboard");
+            }
+        }
+    });
+    let target: web_sys::EventTarget = inner.dom.borrow().document.clone().into();
+    target.add_event_listener_with_callback_and_bool("keydown", callback.as_ref().unchecked_ref(), true)?;
+    inner.listeners.borrow_mut().push(Listener {
+        root: target,
+        name: "keydown",
+        callback,
+        capture: true,
+    });
+
     // Delegate input from the root. Scroll uses capture because native scroll
     // events do not bubble, and its geometry reads are batched separately.
     for name in [
@@ -478,7 +497,7 @@ fn mount_inner(
         }
 
         inner.listeners.borrow_mut().push(Listener {
-            root: root.clone(),
+            root: root.clone().into(),
             name,
             callback,
             capture: matches!(name, "scroll" | "pointerenter" | "pointerleave"),
