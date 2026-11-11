@@ -73,11 +73,13 @@ try {
   const composer = find('Message Refract');
   composer.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, composed:true}));
   composer.focus();
-  check(getComputedStyle(composer).outlineWidth === '1px', 'pointer focus uses a quiet editing cue');
+  const composerBox = [...root.querySelectorAll('[data-refract-id]')].find(el => el.contains(composer) && getComputedStyle(el).boxShadow !== 'none');
+  check(getComputedStyle(composer).outlineWidth === '0px', 'composer delegates focus feedback to its container');
+  check(getComputedStyle(composerBox).outlineWidth === '1px', 'pointer focus uses a quiet editing cue');
   composer.dispatchEvent(new KeyboardEvent('keydown', {key:'a', bubbles:true, composed:true}));
-  check(getComputedStyle(composer).outlineWidth === '1px', 'typing preserves pointer focus appearance');
+  check(getComputedStyle(composerBox).outlineWidth === '1px', 'typing preserves pointer focus appearance');
   document.dispatchEvent(new KeyboardEvent('keydown', {key:'Tab', bubbles:true}));
-  check(getComputedStyle(composer).outlineWidth === '2px', 'Tab restores the keyboard focus ring from outside the mount');
+  check(getComputedStyle(composerBox).outlineWidth === '2px', 'Tab restores the keyboard focus ring from outside the mount');
   composer.dispatchEvent(new CompositionEvent('compositionstart', {bubbles:true, composed:true}));
   await key('Message Refract', {ctrlKey:true, isComposing:true});
   check(app.active_streams() === 0, 'Enter during IME composition cannot submit');

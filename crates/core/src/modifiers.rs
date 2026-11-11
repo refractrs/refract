@@ -104,6 +104,18 @@ macro_rules! element_modifiers {
             $apply(self, move |e| e.disabled = value)
         }
 
+        /// Customize the keyboard ring and its quieter pointer-editing variant.
+        /// The indicator follows this element's corner radius without changing layout.
+        $visibility fn focus_ring(self, ring: $crate::FocusRing) -> $output {
+            $apply(self, move |e| e.style.focus_ring = Some(ring))
+        }
+
+        /// Highlight this element while it or a descendant has focus.
+        /// Use `focus_ring(FocusRing::none())` on an inner field to delegate its cue.
+        $visibility fn focus_within(self, ring: $crate::FocusRing) -> $output {
+            $apply(self, move |e| e.style.focus_within = Some(ring))
+        }
+
         /// Include/exclude this element in keyboard tab navigation.
         $visibility fn focusable(self, value: bool) -> $output {
             $apply(self, move |e| e.focusable = Some(value))
