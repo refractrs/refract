@@ -19,7 +19,8 @@ type MountId = ElementId;
 pub struct UpdateStats {
     /// Mounted descriptions evaluated, including primitive views.
     pub evaluated: usize,
-    /// Mounts traversed, including ancestors whose own bodies were skipped.
+    /// Mounts reconciled after clean-subtree bailouts, including ancestors whose
+    /// own bodies were skipped. Excludes child matching and memo equality checks.
     pub visited: usize,
     pub created: usize,
     pub removed: usize,
@@ -241,7 +242,10 @@ struct Mounted {
     handler: Option<Handler>,
     children: Rc<Vec<MountId>>,
 
-    slots: HashMap<String, Rc<dyn Any>>,
+    // Traversing an ancestor for a dirty descendant must not copy every state
+    // slot. Body evaluation tracks declarations in its private context; existing
+    // slots keep the same names, types, and shared values throughout a mount.
+    slots: Rc<HashMap<String, Rc<dyn Any>>>,
     effects: HashMap<String, Effect>,
     provider: Option<Entry>,
     memo: Option<crate::Memo>,
@@ -552,6 +556,20 @@ impl App {
                 return Ok(id);
             }
         }
+        let memo = view.memo_props();
+        let reuse_memo = memo.as_ref().zip(old).is_some_and(|(new, id)| {
+            let previous = &self.mounts[&id];
+            previous.memo.as_ref().is_some_and(|old| new.same(old))
+                && environment.same_scope(&previous.environment)
+        });
+        // Equal memo inputs retain the accepted subtree. When neither this body
+        // nor a descendant is dirty, there is no candidate mount or subscription
+        // work to stage. A changed provider scope must still reach descendants.
+        if let Some(id) = old.filter(|_| reuse_memo) {
+            if !self.dirty.contains(&id) && !self.mounts[&id].subtree.is_dirty(&self.runtime) {
+                return Ok(id);
+            }
+        }
         tx.stats.visited += 1;
         let previous = old.map(|id| self.mounts[&id].clone());
         let id = if let Some(id) = old {
@@ -575,7 +593,7 @@ impl App {
                 element: None,
                 handler: None,
                 children: Rc::new(vec![]),
-                slots: HashMap::new(),
+                slots: Rc::default(),
                 effects: HashMap::new(),
                 provider: None,
                 memo: None,
@@ -586,12 +604,6 @@ impl App {
         if previous.is_none() {
             tx.stats.created += 1;
         }
-        let memo = view.memo_props();
-        let reuse_memo = memo
-            .as_ref()
-            .zip(mount.memo.as_ref())
-            .is_some_and(|(new, old)| new.same(old))
-            && environment.same_scope(&mount.environment);
         mount.memo = memo;
         mount.view = view.clone();
         mount.environment = environment.clone();
@@ -628,7 +640,12 @@ impl App {
             });
             let (description, slots, effects) =
                 result.map_err(|e| ViewError::new(format!("view {}: {e}", id.0)))?;
-            mount.slots = slots;
+            // Existing declarations were validated above, and remember() reuses
+            // their Rc values. Keep the accepted map rather than allocating an
+            // identical map on every body evaluation (including empty primitives).
+            if previous.is_none() && !slots.is_empty() {
+                mount.slots = Rc::new(slots);
+            }
             mount.effects = effects;
             tx.subscriptions.push((mount.body.clone(), Some(reads)));
             let (descriptions, child_env) = match description {
