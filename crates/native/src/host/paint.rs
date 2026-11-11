@@ -96,6 +96,9 @@ impl Host {
             self.needs_layout = false;
         }
         self.resolve_scroll_layout()?;
+        if std::mem::take(&mut self.reveal_focus) {
+            self.reveal_focused_control()?;
+        }
         let mut frame = Frame {
             commands: vec![],
             background,

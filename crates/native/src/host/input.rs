@@ -55,16 +55,9 @@ impl Host {
 
     pub fn focus_next(&mut self, backwards: bool) {
         self.keyboard_focus = true;
-        let items: Vec<_> = self
-            .paint_order
-            .iter()
-            .copied()
-            .filter(|id| {
-                self.entries.get(id).is_some_and(|entry| {
-                    entry.element.is_focusable()
-                })
-            })
-            .collect();
+        self.cancel_scroll();
+        let items: Vec<_> = self.element_order().into_iter()
+            .filter(|id| self.entries[id].element.is_focusable()).collect();
         let next = if items.is_empty() {
             None
         } else {
@@ -81,6 +74,7 @@ impl Host {
             )
         };
         self.set_focus(next);
+        self.reveal_focus = next.is_some();
     }
 }
 
@@ -103,6 +97,7 @@ impl Host {
     /// Pointer focus keeps editing feedback without the keyboard navigation ring.
     pub fn focus_pointer(&mut self, target: Option<ElementId>) {
         self.keyboard_focus = false;
+        self.reveal_focus = false;
         self.set_focus(target);
     }
 

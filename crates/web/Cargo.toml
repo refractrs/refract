@@ -47,3 +47,8 @@ crate-type = ["cdylib"]
 name = "layout_fixture"
 path = "tests/browser/layout_fixture.rs"
 crate-type = ["cdylib"]
+
+[[example]]
+name = "focus_fixture"
+path = "tests/browser/focus_fixture.rs"
+crate-type = ["cdylib"]

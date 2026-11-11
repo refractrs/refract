@@ -1,0 +1,41 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Focus recovery checks</title>
+<style>body{font:16px system-ui;padding:32px}#host{width:320px}pre{white-space:pre-wrap}</style>
+<div id="host"></div><pre id="results">Running…</pre>
+<script type="module">
+import init, {start_focus_fixture} from './focus_fixture.js';
+const results = document.querySelector('#results'), checks = [];
+function check(value, label) {
+  if (!value) throw Error(label);
+  checks.push(`PASS: ${label}`);
+}
+async function settle() { await new Promise(resolve => setTimeout(resolve, 30)); }
+let app;
+try {
+  await init();
+  app = start_focus_fixture(document.querySelector('#host'));
+  const root = document.querySelector('#host').shadowRoot;
+  const find = label => root.querySelector(`[aria-label="${label}"]`);
+  find('b').focus(); await settle();
+  find('remove-b').click(); await settle();
+  check(root.activeElement === find('c'), 'removal moves focus to the next surviving control');
+  const c = find('c').getBoundingClientRect(), viewport = find('c').parentElement.parentElement.getBoundingClientRect();
+  check(c.top >= viewport.top && c.bottom <= viewport.bottom, 'recovered focus scrolls into view');
+  find('disable-c').click(); await settle();
+  check(root.activeElement === find('a'), 'disabling the last control falls back to the previous control');
+  find('skip-a').click(); await settle();
+  check(root.activeElement === null, 'excluding the final tab stop clears focus');
+  check(find('log').textContent.includes('c:true;c:false;a:true;a:false;'), 'recovery dispatches focus transitions after commit');
+  find('reset').click(); await settle();
+  check(root.activeElement === null, 'unrelated updates do not grab focus');
+  find('c').focus(); await settle();
+  find('clear').click(); await settle();
+  check(root.activeElement === null, 'removing all focusable controls clears focus');
+  check(!app.last_error(), 'focus callbacks do not cause reentrant commit errors');
+  results.textContent = checks.join('\n') + '\nALL CHECKS PASSED';
+} catch (error) {
+  results.textContent = checks.join('\n') + '\nFAIL: ' + error.stack;
+  console.error(error);
+}
+</script>

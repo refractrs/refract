@@ -185,3 +185,19 @@ fn capture_requests_identify_the_current_pointer_and_handler_owner() {
             .capture
     );
 }
+
+#[test]
+fn disabled_controls_report_focus_loss_but_reject_input_and_focus_gain() {
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let events = seen.clone();
+    let mut app = App::new(text("disabled").disabled(true)
+        .on_focus_change(move |_, focused| events.borrow_mut().push(focused))
+        .on_press(|_| panic!("disabled activation")));
+    let mut host = TestHost::default();
+    host.flush(&mut app).unwrap();
+    let id = app.elements()[0].0;
+    assert!(app.dispatch(id, Event::Focus(false)));
+    assert!(!app.dispatch(id, Event::Focus(true)));
+    assert!(!app.dispatch(id, Event::Press));
+    assert_eq!(*seen.borrow(), vec![false]);
+}
