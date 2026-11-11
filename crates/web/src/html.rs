@@ -67,7 +67,11 @@ pub(crate) fn attributes(id: ElementId, e: &Element) -> BTreeMap<&'static str, S
     if e.style.fill_height {
         attrs.insert("data-fill-height", String::new());
     }
-    if e.focusable.is_some() || e.interaction.is_some() || e.kind == ElementKind::TextInput {
+    if e.focus_target
+        || e.focusable.is_some()
+        || e.interaction.is_some()
+        || e.kind == ElementKind::TextInput
+    {
         attrs.insert("tabindex", if e.is_focusable() { "0" } else { "-1" }.into());
     }
     if e.interaction == Some(Interaction::Activate) {

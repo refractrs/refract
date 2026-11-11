@@ -2,7 +2,6 @@
 //! (CSS pixels on the web), with positive x/right and y/down coordinates.
 
 use crate::{ActionContext, Axis, Description, Element, ElementKind, Event, Handler, Layout, View};
-use std::rc::Rc;
 
 /// A scroll position or displacement in logical pixels; positive values point right and down.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -125,6 +124,7 @@ impl crate::modifiers::ElementBuilder for ScrollView {
 impl ScrollView {
     crate::modifiers::element_modifiers!(pub Self, crate::modifiers::configure);
     crate::modifiers::event_modifiers!(pub Self, crate::modifiers::configure_handler);
+    crate::modifiers::focus_modifiers!(pub Self, crate::modifiers::configure_focus);
 
     /// Choose the scrolling direction. Defaults to `Axis::Vertical`.
     pub fn axis(mut self, axis: Axis) -> Self {
@@ -158,7 +158,8 @@ impl ScrollView {
     ) -> Self {
         self.element.scroll.as_mut().unwrap().observe = true;
         let previous = self.handler.take();
-        self.handler = Some(Rc::new(move |cx, event| {
+        let focus = previous.as_ref().and_then(|h| h.focus.clone());
+        self.handler = Some(Handler::new(move |cx, event| {
             if let Some(previous) = &previous {
                 previous(cx, event);
             }
@@ -166,6 +167,9 @@ impl ScrollView {
                 action(cx, event);
             }
         }));
+        if let Some(handler) = &mut self.handler {
+            handler.focus = focus;
+        }
         self
     }
 }

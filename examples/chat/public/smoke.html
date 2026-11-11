@@ -69,6 +69,7 @@ try {
   check(find('Open A weekend away') && !find('Open Designing with intention'), 'search filters sidebar conversations');
   await press('New conversation');
   check(find('Search conversations').value === '' && root.textContent.includes('Where shall we begin?'), 'new chat clears search and shows prompt suggestions');
+  check(root.activeElement === find('Message Refract'), 'new conversation focuses its committed editor through shared state');
   await input('Message Refract', 'Explain Rust state');
   const composer = find('Message Refract');
   composer.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, composed:true}));

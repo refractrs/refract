@@ -28,6 +28,7 @@ impl NativeSurface {
     }
 
     pub fn sample(&self, rt: &mut Runtime, window: &Window) {
+        self.driver.publish_active(rt, window.has_focus());
         let size = window.inner_size();
         let scale = window.scale_factor();
         // Winit supplies finite dimensions and a positive scale factor.

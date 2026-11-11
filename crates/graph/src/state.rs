@@ -109,11 +109,16 @@ impl<T: 'static, U, F: Fn(&T) -> U> ReadBinding<U> for Projection<T, F> {
 
 type WriteBinding<T> = dyn Fn(&mut Runtime, T);
 
+/// Stable identity of a binding. State bindings share identity; separately
+/// constructed projections have distinct identities. Clones preserve it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BindingId(AttributeId);
+
 /// A clonable read/write interface to state or a projection of that state.
-///
-/// Creating or cloning a binding does not read the graph. Reading it within a
-/// capture subscribes to the underlying attributes.
+/// Creating or cloning a binding does not read the graph. Reads subscribe to
+/// the underlying attributes; clones retain the same binding identity.
 pub struct Binding<T> {
+    identity: BindingId,
     read: Read<T>,
     write: Rc<WriteBinding<T>>,
 }
@@ -121,6 +126,7 @@ pub struct Binding<T> {
 impl<T> Clone for Binding<T> {
     fn clone(&self) -> Self {
         Self {
+            identity: self.identity,
             read: self.read.clone(),
             write: self.write.clone(),
         }
@@ -136,11 +142,16 @@ impl<T> Deref for Binding<T> {
 }
 
 impl<T: 'static> Binding<T> {
+    pub fn identity(&self) -> BindingId {
+        self.identity
+    }
+
     fn from_state(state: State<T>) -> Self
     where
         T: Clone,
     {
         Self {
+            identity: BindingId(state.id()),
             read: state.read_only(),
             write: Rc::new(move |rt, value| state.set(rt, value)),
         }
@@ -206,6 +217,7 @@ impl<T: 'static> Binding<T> {
     ) -> Binding<U> {
         let w = self.clone();
         Binding {
+            identity: BindingId(AttributeId::new()),
             read: Read {
                 read: Rc::new(Projection {
                     source: self.read_only(),

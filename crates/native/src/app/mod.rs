@@ -180,23 +180,50 @@ impl NativeApp {
         if let Some(window) = &self.window {
             self.surface.sample(self.app.runtime_mut(), window);
         }
+        self.app.observe_focus(self.host.focus);
         for (id, event) in self.host.take_input_events() {
-            self.app.dispatch(id, event);
+            if !matches!(event, refract_core::Event::Focus(_)) {
+                self.app.dispatch(id, event);
+            }
         }
         self.needs_frame |= self.host.poll_images()?;
         if let Some(scheduler) = &self.scheduler {
             self.app.mutate(|rt| scheduler.drain(rt, Instant::now()));
         }
         self.app.runtime_mut().drain_messages();
-        if let Some(pending) = self.app.prepare()? {
-            let stats = pending.update.stats;
-            self.needs_frame |= self.host.apply(&pending.update)?;
-            // Commit even an empty patch batch: callbacks and effects can change
-            // without a visible property change. Presentation is a later phase.
-            self.app.commit(pending)?;
-            if self.options.diagnostics {
-                eprintln!("refract native commit={} evaluated={} visited={} patches={} created={} removed={}",
-                    self.app.revision(), stats.evaluated, stats.visited, stats.patches, stats.created, stats.removed);
+        for iteration in 0..32 {
+            let committed = if let Some(pending) = self.app.prepare()? {
+                let stats = pending.update.stats;
+                self.needs_frame |= self.host.apply(&pending.update)?;
+                self.app.commit(pending)?;
+                if self.options.diagnostics {
+                    eprintln!("refract native commit={} evaluated={} visited={} patches={} created={} removed={}",
+                        self.app.revision(), stats.evaluated, stats.visited, stats.patches, stats.created, stats.removed);
+                }
+                true
+            } else {
+                false
+            };
+            let request = self.app.take_focus_request()?;
+            if let Some(target) = request {
+                self.host.request_focus(target);
+                self.needs_frame = true;
+            }
+            if committed || request.is_some() {
+                self.app.confirm_focus(self.host.focus);
+                // Core publishes the complete transition; discard legacy host pairs.
+                for (id, event) in self.host.take_input_events() {
+                    if !matches!(event, refract_core::Event::Focus(_)) {
+                        self.app.dispatch(id, event);
+                    }
+                }
+            } else {
+                break;
+            }
+            if iteration == 31 {
+                return Err(crate::NativeError::Host(
+                    "focus effects did not settle".into(),
+                ));
             }
         }
         if let Some(window) = &self.window {
@@ -524,10 +551,12 @@ impl ApplicationHandler<()> for NativeApp {
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             WindowEvent::Focused(true) => {
                 self.window_focused = true;
+                self.host.window_active = true;
                 self.needs_frame = true;
             }
             WindowEvent::Focused(false) => {
                 self.window_focused = false;
+                self.host.window_active = false;
                 self.needs_frame = true;
                 self.host.cancel_scroll();
                 self.host.close_menu();
@@ -593,7 +622,12 @@ impl ApplicationHandler<()> for NativeApp {
                     return;
                 }
                 match event.logical_key {
-                    Key::Named(NamedKey::Tab) => {
+                    Key::Named(NamedKey::Tab)
+                        if !self.modifiers.control_key()
+                            && !self.modifiers.super_key()
+                            && !self.modifiers.alt_key()
+                            && !self.host.editor_composing() =>
+                    {
                         self.host.focus_next(self.modifiers.shift_key());
                         self.needs_frame = true;
                     }

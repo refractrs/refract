@@ -4,7 +4,6 @@ use crate::{
     view::Described, ActionContext, Binding, Description, Element, ElementKind, Event, Handler,
     Style, View, ViewContext, ViewError,
 };
-use std::rc::Rc;
 
 /// A bound text control. These builders set native control properties directly.
 pub struct Field {
@@ -25,6 +24,7 @@ impl crate::modifiers::ElementBuilder for Field {
 impl Field {
     crate::modifiers::element_modifiers!(pub Self, crate::modifiers::configure);
     crate::modifiers::event_modifiers!(pub Self, crate::modifiers::configure_handler);
+    crate::modifiers::focus_modifiers!(pub Self, crate::modifiers::configure_focus);
     crate::modifiers::text_modifiers!(pub Self, crate::modifiers::configure);
 
     /// Allow multiple lines. Defaults to false.
@@ -47,7 +47,7 @@ impl Field {
     pub fn on_submit(mut self, action: impl Fn(&mut ActionContext<'_>) + 'static) -> Self {
         crate::modifiers::append_handler(
             &mut self.handler,
-            Rc::new(move |cx, event| {
+            Handler::new(move |cx, event| {
                 if matches!(event, Event::Submit) {
                     action(cx);
                 }
@@ -60,7 +60,7 @@ impl Field {
     pub fn on_input(mut self, action: impl Fn(&mut ActionContext<'_>, &str) + 'static) -> Self {
         crate::modifiers::append_handler(
             &mut self.handler,
-            Rc::new(move |cx, event| {
+            Handler::new(move |cx, event| {
                 if let Event::Input(value) = event {
                     action(cx, value);
                 }
@@ -86,7 +86,8 @@ impl View for Field {
         // trigger another graph invalidation.
         let value = self.binding.clone();
         let callbacks = self.handler.clone();
-        let handler: Handler = Rc::new(move |cx, e| {
+        let focus = callbacks.as_ref().and_then(|h| h.focus.clone());
+        let mut handler = Handler::new(move |cx, e| {
             if let Event::Input(v) = e {
                 value.set_if_changed(cx.runtime(), v.clone())
             }
@@ -94,6 +95,7 @@ impl View for Field {
                 callbacks(cx, e);
             }
         });
+        handler.focus = focus;
         Ok(Described(Description::Element(
             Box::new(element),
             Vec::new(),

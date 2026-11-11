@@ -113,6 +113,9 @@ impl SurfaceRequest {
 
 /// One application's host context. Reading one field does not subscribe to others.
 pub struct Surface {
+    /// Whether the host window/document currently receives input. Logical focus
+    /// is retained while inactive.
+    pub is_active: Read<bool>,
     pub viewport: Read<Option<Viewport>>,
     pub title: Read<String>,
     pub location: Read<Option<Url>>,
@@ -174,6 +177,7 @@ impl Surface {
 
 /// Adapter-owned writer for a surface in the same runtime. Close it before disposal.
 pub struct SurfaceDriver {
+    window_active: State<bool>,
     surface: Rc<Surface>,
     viewport: State<Option<Viewport>>,
     title: State<String>,
@@ -190,6 +194,7 @@ impl SurfaceDriver {
         capabilities: SurfaceCapabilities,
     ) -> Self {
         let rt = app.runtime_mut();
+        let window_active = State::new(rt, true);
         let viewport = State::new(rt, None);
         let title = State::new(rt, title);
         let location = State::new(rt, location);
@@ -201,6 +206,7 @@ impl SurfaceDriver {
         });
         rt.accept(&observer, dependencies);
         let surface = Rc::new(Surface {
+            is_active: window_active.read_only(),
             viewport: viewport.read_only(),
             title: title.read_only(),
             location: location.read_only(),
@@ -210,6 +216,7 @@ impl SurfaceDriver {
         });
         app.set_environment_object(surface.clone());
         Self {
+            window_active,
             surface,
             viewport,
             title,
@@ -220,6 +227,13 @@ impl SurfaceDriver {
 
     pub fn surface(&self) -> Rc<Surface> {
         self.surface.clone()
+    }
+
+    /// Window activation is independent of the retained element focus target.
+    pub fn publish_active(&self, rt: &mut Runtime, active: bool) {
+        if self.surface.active.get() {
+            self.window_active.set_if_changed(rt, active);
+        }
     }
 
     pub fn publish_viewport(

@@ -83,7 +83,6 @@ struct Dom {
     calls: u64,
     adopting: bool,
     hydrated: bool,
-    focus_events: Vec<(ElementId, bool)>,
 }
 
 /// Own the JS callback until its root listener has been detached.
@@ -110,6 +109,7 @@ type Mutation = Box<dyn FnOnce(&mut Runtime)>;
 enum Queued {
     Mutation(Option<ScopeToken>, Mutation),
     Event(ElementId, UiEvent),
+    Focus(Option<ElementId>),
 }
 
 /// Shared mount state. Browser callbacks hold weak references to avoid cycles.
@@ -399,7 +399,6 @@ fn mount_inner(
             calls: 0,
             adopting,
             hydrated: false,
-            focus_events: Vec::new(),
         }),
         listeners: RefCell::new(vec![]),
         captures: RefCell::new(HashMap::new()),
@@ -443,7 +442,16 @@ fn mount_inner(
     // Root-only key listeners miss navigation from elsewhere in the document.
     let weak = Rc::downgrade(&inner);
     let callback = Closure::new(move |event: web_sys::Event| {
-        if event.dyn_ref::<web_sys::KeyboardEvent>().is_some_and(|key| key.key() == "Tab") {
+        if event
+            .dyn_ref::<web_sys::KeyboardEvent>()
+            .is_some_and(|key| {
+                key.key() == "Tab"
+                    && !key.ctrl_key()
+                    && !key.meta_key()
+                    && !key.alt_key()
+                    && !key.is_composing()
+            })
+        {
             if let Some(inner) = weak.upgrade() {
                 let _ = inner.dom.borrow().root.set_attribute("data-refract-input", "keyboard");
             }
@@ -600,6 +608,7 @@ fn flush(inner: &Rc<Inner>) -> Result<(), JsValue> {
             Some(Queued::Event(id, event)) => {
                 app.dispatch(id, event);
             }
+            Some(Queued::Focus(target)) => app.observe_focus(target),
             None => break,
         }
     }
@@ -612,6 +621,7 @@ fn flush(inner: &Rc<Inner>) -> Result<(), JsValue> {
     let pending = app
         .prepare()
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let committed = pending.is_some();
     if let Some(pending) = pending {
         inner.dom.borrow().validate(&pending.update)?;
 
@@ -659,13 +669,17 @@ fn flush(inner: &Rc<Inner>) -> Result<(), JsValue> {
         }
     }
 
-    // Focus events fired during DOM mutation cannot borrow the registry. Deliver
-    // recovery transitions after commit, when callbacks can target the new tree.
-    let focus_events = std::mem::take(&mut inner.dom.borrow_mut().focus_events);
-    if !focus_events.is_empty() {
-        inner.queue.borrow_mut().extend(focus_events.into_iter()
-            .map(|(id, focused)| Queued::Event(id, UiEvent::Focus(focused))));
-        schedule(inner);
+    let request = app
+        .take_focus_request()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    if let Some(target) = request {
+        // Keep the DOM borrow during the native call to suppress reentrant pairs.
+        // Confirm the actual result once the call returns.
+        inner.dom.borrow_mut().request_focus(target)?;
+    }
+    if committed || request.is_some() {
+        let focused = inner.dom.borrow().focused_id();
+        app.confirm_focus(focused);
     }
 
     if let Some(surface) = inner.surface.borrow().as_ref() {
@@ -984,6 +998,31 @@ impl Dom {
         Ok(())
     }
 
+    fn owned_id(&self, node: &web_sys::Element) -> Option<ElementId> {
+        let id = ElementId(node.get_attribute("data-refract-id")?.parse().ok()?);
+        self.entries
+            .get(&id)
+            .filter(|entry| entry.node.is_same_node(Some(node)))
+            .map(|_| id)
+    }
+
+    fn focused_id(&self) -> Option<ElementId> {
+        self.active_element()
+            .as_ref()
+            .and_then(|node| self.owned_id(node))
+    }
+
+    fn request_focus(&mut self, target: Option<ElementId>) -> Result<(), JsValue> {
+        if let Some(id) = target {
+            if let Some(entry) = self.entries.get(&id).filter(|e| !e.element.disabled) {
+                entry.node.focus()?;
+            }
+        } else if let Some(id) = self.focused_id() {
+            self.entries[&id].node.blur()?;
+        }
+        Ok(())
+    }
+
     fn active_element(&self) -> Option<web_sys::Element> {
         self.root.get_root_node().dyn_into::<web_sys::ShadowRoot>().ok()
             .and_then(|root| root.active_element())
@@ -1090,15 +1129,12 @@ impl Dom {
             if let Some(element) = active.as_ref().and_then(|node| node.dyn_ref::<HtmlElement>()) {
                 let _ = element.blur();
             }
-            self.focus_events.push((previous, false));
+            let _ = previous;
             if let Some(target) = candidates.into_iter().find(|id| {
                 self.entries.get(id).is_some_and(|entry| entry.element.is_focusable())
             }) {
                 let node = &self.entries[&target].node;
                 node.focus()?;
-                if self.active_element().as_ref() == Some(node.as_ref()) {
-                    self.focus_events.push((target, true));
-                }
             }
         } else if let Some(active) = active {
             // Moving a retained node may blur it. Restore only that same node;
@@ -1201,13 +1237,18 @@ fn apply_properties(entry: &mut Entry, new: &Element, initial: bool) -> Result<u
         calls += 1;
     }
 
-    if initial || new.focusable != old.focusable || new.disabled != old.disabled {
-        if new.focusable.is_some()
+    if initial
+        || new.focusable != old.focusable
+        || new.disabled != old.disabled
+        || new.focus_target != old.focus_target
+    {
+        if new.focus_target
+            || new.focusable.is_some()
             || new.interaction == Some(Interaction::Activate)
             || new.kind == ElementKind::TextInput
         {
             node.set_tab_index(if new.is_focusable() { 0 } else { -1 });
-        } else if old.focusable.is_some() {
+        } else if old.focus_target || old.focusable.is_some() {
             node.remove_attribute("tabindex")?;
         }
         if new.disabled {

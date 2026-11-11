@@ -26,8 +26,11 @@ impl NativeApp {
             }
         }
         self.host.finish_pointer(pointer);
+        self.app.observe_focus(self.host.focus);
         for (id, event) in self.host.take_input_events() {
-            self.app.dispatch(id, event);
+            if !matches!(event, Event::Focus(_)) {
+                self.app.dispatch(id, event);
+            }
         }
         prevented
     }

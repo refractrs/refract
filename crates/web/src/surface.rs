@@ -50,7 +50,14 @@ pub(super) struct SurfaceObserver {
     _lease: DocumentLease,
 }
 
-const EVENTS: &[&str] = &["resize", "popstate", "hashchange", "refract-location"];
+const EVENTS: &[&str] = &[
+    "resize",
+    "popstate",
+    "hashchange",
+    "refract-location",
+    "focus",
+    "blur",
+];
 
 pub(super) fn request(inner: &Rc<Inner>) {
     inner.surface_dirty.set(true);
@@ -155,6 +162,13 @@ impl SurfaceObserver {
 
     pub fn sample(&self, inner: &Inner, rt: &mut Runtime) -> Result<(), JsValue> {
         self.watch_resolution()?;
+        let active = inner.dom.borrow().document.has_focus()?;
+        inner.surface_driver.publish_active(rt, active);
+        inner
+            .dom
+            .borrow()
+            .root
+            .set_attribute("data-refract-active", if active { "true" } else { "false" })?;
         let (width, height) = match self.size.get() {
             Some(size) => size,
             None => {
