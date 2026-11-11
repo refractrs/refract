@@ -5,6 +5,10 @@ use crate::model::Conversation;
 pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
     #[environment_object]
     let chat: Rc<Conversation>;
+    #[environment_object]
+    let model: Rc<ChatModel>;
+    let within = cx.state("focus-within", || false);
+    let active = cx.read(&within);
     #[action(chat)]
     let submit = |action| chat.send(action.runtime());
     v_stack()
@@ -15,6 +19,10 @@ pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
                 .gap(8.0)
                 .child(
                     field(chat.draft.binding())
+                        .focused_value(
+                            model.focus.binding(),
+                            crate::model::ChatFocus::Composer(chat.id),
+                        )
                         .multiline(true)
                         .label("Message Refract")
                         .placeholder("What's on your mind?")
@@ -24,7 +32,7 @@ pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
                             fill_width: true,
                             font_size: Some(14.0),
                             line_height: Some(23.0),
-                            background: Some(Color::WHITE),
+                            background: Some(Color(0, 0, 0, 0)),
                             foreground: Some(INK),
                             border: Some(Border::all(0.0, Color::WHITE)),
                             focus_ring: Some(FocusRing::none()),
@@ -39,7 +47,14 @@ pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
                         .child(send_control()),
                 )
                 .padding(16.0)
-                .background(Color::WHITE)
+                .background(if active {
+                    Color::rgb(247, 250, 255)
+                } else {
+                    Color::WHITE
+                })
+                .on_focus_within_change(move |cx, active| {
+                    within.set_if_changed(cx.runtime(), active);
+                })
                 .border(Border::all(1.0, LINE))
                 .radius(14.0)
                 .focus_within(FocusRing::new(ACCENT, 2.0, 2.0))

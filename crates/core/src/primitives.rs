@@ -17,6 +17,7 @@ macro_rules! element_builder {
         impl $name {
             crate::modifiers::element_modifiers!(pub Self, crate::modifiers::configure);
             crate::modifiers::event_modifiers!(pub Self, crate::modifiers::configure_handler);
+    crate::modifiers::focus_modifiers!(pub Self, crate::modifiers::configure_focus);
 
             /// Add pointer/keyboard activation, preserving this builder.
             /// Browser activation targets suppress user text selection.

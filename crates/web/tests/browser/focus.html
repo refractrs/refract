@@ -2,9 +2,9 @@
 <meta charset="utf-8">
 <title>Focus recovery checks</title>
 <style>body{font:16px system-ui;padding:32px}#host{width:320px}pre{white-space:pre-wrap}</style>
-<div id="host"></div><pre id="results">Running…</pre>
+<div id="host"></div><div id="bindings"></div><pre id="results">Running…</pre>
 <script type="module">
-import init, {start_focus_fixture} from './focus_fixture.js';
+import init, {start_focus_fixture, start_binding_fixture} from './focus_fixture.js';
 const results = document.querySelector('#results'), checks = [];
 function check(value, label) {
   if (!value) throw Error(label);
@@ -33,6 +33,29 @@ try {
   find('clear').click(); await settle();
   check(root.activeElement === null, 'removing all focusable controls clears focus');
   check(!app.last_error(), 'focus callbacks do not cause reentrant commit errors');
+  const bindingApp = start_binding_fixture(document.querySelector('#bindings'));
+  const bindings = document.querySelector('#bindings').shadowRoot;
+  const bound = label => bindings.querySelector(`[aria-label="${label}"]`);
+  const editor = bound('editor');
+  bound('focus-editor').click(); await settle();
+  check(bindings.activeElement === editor, 'binding requests focus on the committed editor');
+  check(bound('selection').textContent === 'Some(1)', 'confirmed editor focus is shared state');
+  bound('focus-custom').click(); await settle();
+  check(bindings.activeElement === bound('custom'), 'a non-control accepts programmatic focus');
+  check(bound('custom').tabIndex === -1, 'binding alone does not add a tab stop');
+  check(bound('within-log').textContent === 'true;', 'nested observation stays true between siblings');
+  check(bound('editor') === editor, 'focus styling preserves editor identity');
+  bound('focus-invalid').click(); await settle();
+  check(bound('selection').textContent === 'Some(2)', 'invalid request reconciles to the actual target');
+  bound('blur').click(); await settle();
+  check(bindings.activeElement === null, 'clearing the selection blurs its owner');
+  check(bound('within-log').textContent === 'true;false;', 'nested observation clears on exit');
+  editor.focus(); await settle();
+  check(bound('selection').textContent === 'Some(1)', 'host focus changes update the binding');
+  bound('disable-custom').click(); await settle();
+  bound('focus-custom').click(); await settle();
+  check(bindings.activeElement === editor && bound('selection').textContent === 'Some(1)', 'disabled requests retain and acknowledge actual focus');
+  check(!bindingApp.last_error(), 'binding changes settle without reentrant commit errors');
   results.textContent = checks.join('\n') + '\nALL CHECKS PASSED';
 } catch (error) {
   results.textContent = checks.join('\n') + '\nFAIL: ' + error.stack;

@@ -194,6 +194,25 @@ mod tests {
     }
 
     #[test]
+    fn tab_continues_from_a_programmatic_target_outside_the_tab_order() {
+        let mut app = App::new(
+            v_stack()
+                .child(text("first").label("first").focusable(true))
+                .child(text("custom").label("custom").focusable(false))
+                .child(text("last").label("last").focusable(true)),
+        );
+        let mut host = Host::new().unwrap();
+        flush(&mut app, &mut host);
+        let custom = named(&host, "custom");
+        host.request_focus(Some(custom));
+        host.focus_next(false);
+        assert_eq!(host.focus, Some(named(&host, "last")));
+        host.request_focus(Some(custom));
+        host.focus_next(true);
+        assert_eq!(host.focus, Some(named(&host, "first")));
+    }
+
+    #[test]
     fn reverse_tab_reveals_previous_control_but_manual_scrolling_stays_put() {
         let mut app = App::new(
             scroll_view(

@@ -273,7 +273,7 @@ impl Host {
                     height: (rect.height - top - layout.border.bottom - layout.padding.bottom)
                         .max(0.0),
                 },
-                self.focus == Some(id),
+                self.window_active && self.focus == Some(id),
                 &mut self.text,
                 frame,
             );
@@ -356,8 +356,12 @@ impl Host {
         }
         // Paint after descendants and outside our own clip, while retaining
         // ancestor clipping and group opacity. The stroke occupies its outer box.
-        if let Some(ring) = ring.filter(|ring| ring.width > 0.0) {
-            let ring = if self.keyboard_focus { ring } else { ring.pointer() };
+        if let Some(ring) = ring.filter(|ring| self.window_active && ring.width > 0.0) {
+            let ring = if self.keyboard_focus {
+                ring
+            } else {
+                ring.pointer()
+            };
             let outset = ring.offset + ring.width;
             frame.commands.push(DrawCommand::Stroke {
                 rect: Rect { x: rect.x - outset, y: rect.y - outset,

@@ -12,6 +12,7 @@ mod element;
 mod environment;
 mod events;
 mod field;
+mod focus;
 mod image;
 mod modifiers;
 mod primitives;

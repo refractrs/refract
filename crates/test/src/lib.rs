@@ -9,6 +9,7 @@ pub struct TestHost {
     pub updates: Vec<Update>,
     pub surface: Option<SurfaceDriver>,
     pub history: MemoryHistory,
+    pub focused: Option<ElementId>,
 }
 impl TestHost {
     pub fn apply(&mut self, update: &Update) -> Result<(), ViewError> {
@@ -91,7 +92,7 @@ impl TestHost {
         }
     }
 
-    /// Drain one message batch, then settle committed surface effects and their observations.
+    /// Drain one message batch, then settle committed host effects and their observations.
     /// Returns whether any view update committed; host-only requests may also have executed.
     pub fn flush(&mut self, app: &mut App) -> Result<bool, ViewError> {
         app.runtime_mut().drain_messages();
@@ -122,11 +123,23 @@ impl TestHost {
                     request.complete(app.runtime_mut(), result);
                 }
             }
-            if self.surface.is_none() || (!committed && !applied) {
+            let request = app.take_focus_request()?;
+            if let Some(target) = request {
+                if target.is_none_or(|id| self.elements.get(&id).is_some_and(|e| !e.disabled)) {
+                    self.focused = target;
+                }
+            }
+            if committed || request.is_some() {
+                self.focused = self
+                    .focused
+                    .filter(|id| self.elements.get(id).is_some_and(|e| !e.disabled));
+                app.confirm_focus(self.focused);
+            }
+            if !committed && !applied && request.is_none() {
                 return Ok(changed);
             }
         }
-        Err(ViewError::new("surface effects did not settle"))
+        Err(ViewError::new("host effects did not settle"))
     }
     pub fn text(&self) -> String {
         fn walk(host: &TestHost, parent: Option<ElementId>, out: &mut Vec<String>) {

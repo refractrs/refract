@@ -181,6 +181,8 @@ pub enum Event {
     Key(KeyEvent),
     Pointer(PointerEvent),
     Focus(bool),
+    /// Targeted notification: this element or a descendant owns focus.
+    FocusWithin(bool),
     Hover(bool),
     Scroll(ScrollEvent),
 }

@@ -35,7 +35,9 @@ impl Host {
                 return false;
             };
             (matches!(e.element.interaction, Some(Interaction::Activate))
-                || e.element.kind == ElementKind::TextInput || e.element.focusable.is_some())
+                || e.element.kind == ElementKind::TextInput
+                || e.element.focusable.is_some()
+                || e.element.focus_target)
                 && !e.element.disabled
                 && e.rect.contains(point)
                 && e.clip.contains(point)
@@ -56,23 +58,23 @@ impl Host {
     pub fn focus_next(&mut self, backwards: bool) {
         self.keyboard_focus = true;
         self.cancel_scroll();
-        let items: Vec<_> = self.element_order().into_iter()
-            .filter(|id| self.entries[id].element.is_focusable()).collect();
-        let next = if items.is_empty() {
-            None
-        } else {
-            let index = self
-                .focus
-                .and_then(|id| items.iter().position(|candidate| *candidate == id));
-            Some(
-                items[match (index, backwards) {
-                    (Some(0) | None, true) => items.len() - 1,
-                    (Some(i), true) => i - 1,
-                    (Some(i), false) => (i + 1) % items.len(),
-                    (None, false) => 0,
-                }],
-            )
-        };
+        let mut order = self.element_order();
+        if backwards {
+            order.reverse();
+        }
+        // A programmatically focused element may not be a tab stop. Continue
+        // from its tree position instead of restarting at the window boundary.
+        let start = self
+            .focus
+            .and_then(|id| order.iter().position(|candidate| *candidate == id))
+            .map_or(0, |index| index + 1);
+        let next = order
+            .iter()
+            .cycle()
+            .skip(start)
+            .take(order.len())
+            .copied()
+            .find(|id| self.entries[id].element.is_focusable());
         self.set_focus(next);
         self.reveal_focus = next.is_some();
     }
@@ -99,6 +101,16 @@ impl Host {
         self.keyboard_focus = false;
         self.reveal_focus = false;
         self.set_focus(target);
+    }
+
+    /// Apply a committed request without changing the user's input modality.
+    pub fn request_focus(&mut self, target: Option<ElementId>) {
+        if target.is_some_and(|id| self.entries.get(&id).is_none_or(|e| e.element.disabled)) {
+            return;
+        }
+        self.cancel_scroll();
+        self.set_focus(target);
+        self.reveal_focus = target.is_some();
     }
 
     pub fn set_focus(&mut self, target: Option<ElementId>) {

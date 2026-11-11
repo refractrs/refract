@@ -35,6 +35,7 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
         )
         .child(
             field(model.query.binding())
+                .focused_value(model.focus.binding(), crate::model::ChatFocus::Search)
                 .label("Search conversations")
                 .placeholder("Search conversations…")
                 .style(refract::Style {
@@ -58,6 +59,7 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
                         .foreground(MUTED),
                 )
                 .child(conversation_list())
+                .padding(6.0)
                 .scrollable()
                 .grow(1.0)
                 .min_height(0.0),

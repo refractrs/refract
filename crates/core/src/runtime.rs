@@ -14,6 +14,9 @@ pub struct ElementId(pub u64);
 
 type MountId = ElementId;
 
+#[path = "focus_runtime.rs"]
+mod focus_runtime;
+
 /// Work performed while preparing a single update.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct UpdateStats {
@@ -288,6 +291,7 @@ pub struct Pending {
     removed: HashSet<MountId>,
     root: MountId,
     subscriptions: Vec<(Observer, Option<Dependencies>)>,
+    focus_bindings: BTreeMap<ElementId, crate::focus::FocusBinding>,
 }
 
 impl Pending {
@@ -336,6 +340,7 @@ pub struct App {
     revision: u64,
     replace_root: bool,
     last_stats: UpdateStats,
+    focus: crate::focus::Focus,
 }
 
 impl App {
@@ -355,6 +360,7 @@ impl App {
             revision: 0,
             replace_root: true,
             last_stats: UpdateStats::default(),
+            focus: Default::default(),
         }
     }
 
@@ -418,8 +424,10 @@ impl App {
         };
         // Disabling a focused control still ends its focus session. Suppress
         // user input on disabled controls, but let observers clear focus state.
-        let focus_lost = matches!(event, Event::Focus(false));
-        if !target.owner.get() || (!focus_lost && target.element.as_ref().is_some_and(|e| e.disabled)) {
+        let focus_lost = matches!(event, Event::Focus(false) | Event::FocusWithin(false));
+        if !target.owner.get()
+            || (!focus_lost && target.element.as_ref().is_some_and(|e| e.disabled))
+        {
             return response;
         }
         let mut route = Vec::new();
@@ -518,6 +526,14 @@ impl App {
                 return Err(error);
             }
         };
+        let focus_bindings = match self.prepare_focus(&tx) {
+            Ok(bindings) => bindings,
+            Err(error) => {
+                drop(tx);
+                self.runtime.collect();
+                return Err(error);
+            }
+        };
         tx.stats.patches = patches.len();
         Ok(Some(Pending {
             app_identity: self.identity.clone(),
@@ -533,6 +549,7 @@ impl App {
             removed: tx.removed,
             root,
             subscriptions: tx.subscriptions,
+            focus_bindings,
         }))
     }
 
@@ -955,6 +972,7 @@ impl App {
                 self.runtime.mark_clean(&observer)
             };
         }
+        self.commit_focus(pending.focus_bindings);
         self.root = Some(pending.root);
         self.revision = pending.update.revision;
         self.last_stats = pending.update.stats;
@@ -999,6 +1017,7 @@ impl App {
                 effect.stop();
             }
         }
+        self.clear_focus_bindings();
         self.mounts.clear();
         self.observer_mounts.clear();
         self.dirty.clear();

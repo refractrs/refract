@@ -47,6 +47,9 @@ pub struct Element {
     pub disabled: bool,
     /// Override keyboard tab participation; fields and activatable elements default to true.
     pub focusable: Option<bool>,
+    /// Host capability for a bound focus target; does not add a tab stop.
+    #[doc(hidden)]
+    pub focus_target: bool,
     pub label: Option<String>,
     pub role: Option<String>,
     pub level: Option<u8>,
@@ -67,6 +70,7 @@ impl Element {
             checked: None,
             disabled: false,
             focusable: None,
+            focus_target: false,
             label: None,
             role: None,
             level: None,
@@ -119,7 +123,27 @@ impl Element {
 }
 
 /// A retained callback invoked with the mounted view's environment.
-pub type Handler = Rc<dyn Fn(&mut ActionContext<'_>, &Event)>;
+#[derive(Clone)]
+pub struct Handler {
+    callback: Rc<dyn Fn(&mut ActionContext<'_>, &Event)>,
+    pub(crate) focus: Option<crate::focus::FocusBinding>,
+}
+
+impl Handler {
+    pub fn new(callback: impl Fn(&mut ActionContext<'_>, &Event) + 'static) -> Self {
+        Self {
+            callback: Rc::new(callback),
+            focus: None,
+        }
+    }
+}
+
+impl std::ops::Deref for Handler {
+    type Target = dyn Fn(&mut ActionContext<'_>, &Event);
+    fn deref(&self) -> &Self::Target {
+        &*self.callback
+    }
+}
 
 /// Both concrete builders and general view modifiers use the same activation policy.
 pub(crate) fn add_press_handler(
@@ -129,15 +153,14 @@ pub(crate) fn add_press_handler(
 ) {
     element.interaction = Some(Interaction::Activate);
     element.role.get_or_insert_with(|| "button".into());
-    let previous = handler.take();
-    *handler = Some(Rc::new(move |cx, event| {
-        if let Some(previous) = &previous {
-            previous(cx, event);
-        }
-        if matches!(event, Event::Press) {
-            action(cx);
-        }
-    }));
+    crate::modifiers::append_handler(
+        handler,
+        Handler::new(move |cx, event| {
+            if matches!(event, Event::Press) {
+                action(cx);
+            }
+        }),
+    );
 }
 
 /// Access to graph mutation and inherited values during event dispatch.

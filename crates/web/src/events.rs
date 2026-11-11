@@ -49,6 +49,7 @@ pub(super) fn send(inner: &Rc<Inner>, id: ElementId, event: UiEvent) -> EventRes
             Some(Queued::Event(id, event)) => {
                 app.dispatch(id, event);
             }
+            Some(Queued::Focus(target)) => app.observe_focus(target),
             None => break,
         }
     }
@@ -123,7 +124,28 @@ pub(super) fn dispatch(inner: &Rc<Inner>, native: &web_sys::Event) -> bool {
         return name == "keyup" || response.default_prevented;
     }
     if matches!(name.as_str(), "focusin" | "focusout") {
-        send(inner, id, UiEvent::Focus(name == "focusin"));
+        let target = if name == "focusin" {
+            Some(id)
+        } else {
+            let related = native
+                .dyn_ref::<web_sys::FocusEvent>()
+                .and_then(|e| e.related_target())
+                .and_then(|node| node.dyn_into::<web_sys::Element>().ok());
+            let dom = inner.dom.borrow();
+            // OS/window deactivation retains the logical target.
+            if related.is_none() && !dom.document.has_focus().unwrap_or(true) {
+                return true;
+            }
+            related.as_ref().and_then(|node| dom.owned_id(node))
+        };
+        if let Ok(mut app) = inner.app.try_borrow_mut() {
+            if let Some(app) = app.as_mut() {
+                app.observe_focus(target);
+            }
+        } else {
+            inner.queue.borrow_mut().push_back(Queued::Focus(target));
+            schedule(inner);
+        }
         return true;
     }
     if name.starts_with("pointer") || name == "lostpointercapture" {

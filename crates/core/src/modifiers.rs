@@ -132,22 +132,28 @@ pub(crate) use element_modifiers;
 macro_rules! event_modifiers {
     ($visibility:vis $output:ty, $apply:path) => {
         $visibility fn on_key(self, action: impl Fn(&mut $crate::ActionContext<'_>, &$crate::KeyEvent) + 'static) -> $output {
-            $apply(self, std::rc::Rc::new(move |cx, event| {
+            $apply(self, $crate::Handler::new(move |cx, event| {
                 if let $crate::Event::Key(event) = event { action(cx, event); }
             }))
         }
         $visibility fn on_pointer(self, action: impl Fn(&mut $crate::ActionContext<'_>, &$crate::PointerEvent) + 'static) -> $output {
-            $apply(self, std::rc::Rc::new(move |cx, event| {
+            $apply(self, $crate::Handler::new(move |cx, event| {
                 if let $crate::Event::Pointer(event) = event { action(cx, event); }
             }))
         }
         $visibility fn on_hover(self, action: impl Fn(&mut $crate::ActionContext<'_>, bool) + 'static) -> $output {
-            $apply(self, std::rc::Rc::new(move |cx, event| {
+            $apply(self, $crate::Handler::new(move |cx, event| {
                 if let $crate::Event::Hover(inside) = event { action(cx, *inside); }
             }))
         }
+        /// Observe confirmed focus entering or leaving this entire subtree.
+        $visibility fn on_focus_within_change(self, action: impl Fn(&mut $crate::ActionContext<'_>, bool) + 'static) -> $output {
+            $apply(self, $crate::Handler::new(move |cx, event| {
+                if let $crate::Event::FocusWithin(focused) = event { action(cx, *focused); }
+            }))
+        }
         $visibility fn on_focus_change(self, action: impl Fn(&mut $crate::ActionContext<'_>, bool) + 'static) -> $output {
-            $apply(self, std::rc::Rc::new(move |cx, event| {
+            $apply(self, $crate::Handler::new(move |cx, event| {
                 if let $crate::Event::Focus(focused) = event { action(cx, *focused); }
             }))
         }
@@ -155,14 +161,62 @@ macro_rules! event_modifiers {
 }
 pub(crate) use event_modifiers;
 
+macro_rules! focus_modifiers {
+    ($visibility:vis $output:ty, $apply:path) => {
+        /// Bind direct focus. Writes request focus after commit; host transitions
+        /// update the binding. This does not add the element to the tab order.
+        $visibility fn focused(self, binding: $crate::Binding<bool>) -> $output {
+            $apply(self, $crate::focus::FocusBinding::boolean(binding))
+        }
+        /// Associate this element with one value in a shared focus selection.
+        $visibility fn focused_value<T: Clone + PartialEq + 'static>(self, binding: $crate::Binding<Option<T>>, value: T) -> $output {
+            $apply(self, $crate::focus::FocusBinding::value(binding, value))
+        }
+    };
+}
+pub(crate) use focus_modifiers;
+
+pub(crate) fn configure_focus<T: ElementBuilder>(
+    mut view: T,
+    focus: crate::focus::FocusBinding,
+) -> T {
+    view.element_mut().focus_target = true;
+    view.handler_mut()
+        .get_or_insert_with(|| crate::Handler::new(|_, _| {}))
+        .focus = Some(focus);
+    view
+}
+
+fn modify_focus(view: impl View, focus: crate::focus::FocusBinding) -> Modified {
+    let (mut element, children, mut handler) = match view.describe() {
+        Some(Description::Element(element, children, handler)) => (element, children, handler),
+        _ => (
+            Box::new(Element::new(ElementKind::Box)),
+            vec![view.into_any()],
+            None,
+        ),
+    };
+    element.focus_target = true;
+    handler
+        .get_or_insert_with(|| crate::Handler::new(|_, _| {}))
+        .focus = Some(focus);
+    Modified(Description::Element(element, children, handler))
+}
+
 pub(crate) fn append_handler(slot: &mut Option<crate::Handler>, action: crate::Handler) {
     let previous = slot.take();
-    *slot = Some(Rc::new(move |cx, event| {
+    let focus = action
+        .focus
+        .clone()
+        .or_else(|| previous.as_ref().and_then(|h| h.focus.clone()));
+    let mut combined = crate::Handler::new(move |cx, event| {
         if let Some(previous) = &previous {
             previous(cx, event);
         }
         action(cx, event);
-    }));
+    });
+    combined.focus = focus;
+    *slot = Some(combined);
 }
 
 pub(crate) fn configure_handler<T: ElementBuilder>(mut view: T, action: crate::Handler) -> T {
@@ -331,6 +385,7 @@ impl View for MemoView {
 pub trait ViewExt: View + Sized {
     element_modifiers!(Modified, modify_outer);
     event_modifiers!(Modified, modify_handler);
+    focus_modifiers!(Modified, modify_focus);
 
     /// Add an action for pointer or keyboard activation to the current element.
     /// Text, images, and boxes are activated directly, without changing their kind.

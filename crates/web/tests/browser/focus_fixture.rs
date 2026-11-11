@@ -60,3 +60,56 @@ pub fn start_focus_fixture(host: web_sys::Element) -> Result<FocusFixture, JsVal
     });
     refract_web::mount(host, app, MountOptions::default()).map(FocusFixture)
 }
+
+#[wasm_bindgen]
+pub fn start_binding_fixture(host: web_sys::Element) -> Result<FocusFixture, JsValue> {
+    let app = view_fn(|cx| {
+        let focus = cx.state("focus", || None::<u8>);
+        let draft = cx.state("draft", String::new);
+        let within = cx.state("within", || false);
+        let log = cx.state("log", String::new);
+        let disabled = cx.state("disabled", || false);
+        let active = cx.read(&within);
+        let observed = focus.clone();
+        let enter_log = log.clone();
+        let group = v_stack()
+            .label("group")
+            .background(if active { Color::WHITE } else { Color::BLACK })
+            .on_focus_within_change(move |cx, active| {
+                within.set_if_changed(cx.runtime(), active);
+                enter_log.update(cx.runtime(), |log| log.push_str(&format!("{active};")));
+            })
+            .child(field(draft).label("editor").focused_value(focus.clone(), 1))
+            .child(
+                text("Custom target")
+                    .label("custom")
+                    .focused_value(focus.clone(), 2)
+                    .disabled(cx.read(&disabled)),
+            );
+        let mut root = v_stack().child(group);
+        for (label, value) in [
+            ("focus-editor", Some(1)),
+            ("focus-custom", Some(2)),
+            ("focus-invalid", Some(99)),
+            ("blur", None),
+        ] {
+            let focus = focus.clone();
+            root = root.child(
+                text(label)
+                    .label(label)
+                    .on_press(move |cx| focus.set(cx.runtime(), value))
+                    .focusable(false),
+            );
+        }
+        root = root.child(
+            text("disable-custom")
+                .label("disable-custom")
+                .on_press(move |cx| disabled.set(cx.runtime(), true))
+                .focusable(false),
+        );
+        Ok(root
+            .child(text(format!("{:?}", cx.read(&observed))).label("selection"))
+            .child(text(cx.read(&log)).label("within-log")))
+    });
+    refract_web::mount(host, app, MountOptions::default()).map(FocusFixture)
+}

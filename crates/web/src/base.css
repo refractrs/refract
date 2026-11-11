@@ -89,3 +89,9 @@
   max-width: 100%;
   object-fit: contain;
 }
+
+/* Retain logical focus while the document is inactive, but hide its emphasis. */
+.refract-root[data-refract-active="false"] .refract-node:focus,
+.refract-root[data-refract-active="false"] .refract-node:focus-within {
+  outline: none;
+}

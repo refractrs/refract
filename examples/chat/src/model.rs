@@ -170,7 +170,14 @@ struct SidebarPreference {
     open: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChatFocus {
+    Search,
+    Composer(ConversationId),
+}
+
 pub struct ChatModel {
+    pub focus: State<Option<ChatFocus>>,
     pub conversations: State<Vec<Rc<Conversation>>>,
     pub selected: State<ConversationId>,
     pub query: State<String>,
@@ -235,6 +242,7 @@ impl ChatModel {
         let second = Conversation::new(rt, ConversationId(2), "Designing with intention");
         let third = Conversation::new(rt, ConversationId(3), "A weekend away");
         Self {
+            focus: State::new(rt, None),
             conversations: State::new(rt, vec![first, second, third]),
             selected: State::new(rt, selected),
             query: State::new(rt, String::new()),
@@ -312,6 +320,8 @@ impl ChatModel {
 
     pub fn new_chat(&self, rt: &mut Runtime) {
         self.create_chat(rt, HistoryMode::Push);
+        self.focus
+            .set(rt, Some(ChatFocus::Composer(*self.selected.get(rt))));
     }
 
     fn create_chat(&self, rt: &mut Runtime, mode: HistoryMode) {
