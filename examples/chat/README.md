@@ -86,3 +86,11 @@ with `.focus_ring(FocusRing::none())`, and the container uses
 pixels. Its corners follow `.radius(...)`; it occupies no layout space. Pointer
 editing uses the same color at reduced opacity with at most a one-pixel outline
 and no gap. Ordinary typing preserves that quieter treatment.
+
+Native Tab and Shift+Tab reveal the focused control through nested scroll views.
+This runs on navigation, so manually scrolling away does not snap back on the
+next frame. If a focused control is removed, disabled, or excluded from tab
+navigation, both hosts try the next surviving tab stop in the previous tree,
+then search backward. With no remaining tab stop, focus clears. A disabled
+control still receives its final `on_focus_change(false)` notification; removed
+controls have no remaining handler to notify.

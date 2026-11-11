@@ -1,6 +1,7 @@
 //! Retained native elements. Patches update this tree, not the application's views.
 
 mod input;
+mod focus;
 mod events;
 mod menu;
 mod paint;
@@ -73,6 +74,7 @@ pub(crate) struct Host {
     paint_order: Vec<ElementId>,
     pub focus: Option<ElementId>,
     keyboard_focus: bool,
+    reveal_focus: bool,
     hover: Option<ElementId>,
     pressed: Option<ElementId>,
     scrolling: scroll::ScrollState,
@@ -109,6 +111,7 @@ impl Host {
             paint_order: vec![],
             focus: None,
             keyboard_focus: false,
+            reveal_focus: false,
             hover: None,
             pressed: None,
             scrolling: scroll::ScrollState::default(),
@@ -201,6 +204,14 @@ impl Host {
 
     pub fn apply(&mut self, update: &Update) -> Result<bool> {
         self.validate(update)?;
+        // Capture the old order before a disabled or removed control loses its
+        // position. Recovery only considers controls that already existed.
+        let recovery = self.focus.filter(|focused| update.patches.iter().any(|patch| match patch {
+            Patch::Remove(id) => id == focused,
+            Patch::Update(id, element) => id == focused && (element.disabled
+                || (self.entries[id].element.is_focusable() && !element.is_focusable())),
+            _ => false,
+        })).map(|focused| self.focus_recovery_order(focused));
         let mut refresh = HashSet::new();
         for patch in &update.patches {
             match patch {
@@ -294,6 +305,13 @@ impl Host {
         self.input.capture.retain(|_, id| self.entries.get(id).is_some_and(|e| !e.element.disabled));
         if self.focus.is_some_and(|id| self.entries.get(&id).is_none_or(|e| e.element.disabled)) {
             self.set_focus(None);
+        }
+        if let Some(candidates) = recovery {
+            let target = candidates.into_iter().find(|id| {
+                self.entries.get(id).is_some_and(|entry| entry.element.is_focusable())
+            });
+            self.set_focus(target);
+            self.reveal_focus = target.is_some();
         }
         // Resolve inherited text only under affected roots. Eliminate redundant
         // descendants from the work set when an ancestor already needs refreshing.

@@ -404,7 +404,7 @@ impl App {
         self.runtime.batch(action)
     }
 
-    /// Dispatch to the current mounted handler; stale or disabled targets are ignored.
+    /// Dispatch to the mounted handler. Disabled targets only receive focus loss.
     pub fn dispatch(&mut self, id: ElementId, event: Event) -> bool {
         self.dispatch_event(id, event).handled
     }
@@ -416,7 +416,10 @@ impl App {
         let Some(target) = self.mounts.get(&id) else {
             return response;
         };
-        if !target.owner.get() || target.element.as_ref().is_some_and(|e| e.disabled) {
+        // Disabling a focused control still ends its focus session. Suppress
+        // user input on disabled controls, but let observers clear focus state.
+        let focus_lost = matches!(event, Event::Focus(false));
+        if !target.owner.get() || (!focus_lost && target.element.as_ref().is_some_and(|e| e.disabled)) {
             return response;
         }
         let mut route = Vec::new();
@@ -425,7 +428,7 @@ impl App {
             let Some(mount) = self.mounts.get(&current) else {
                 break;
             };
-            if mount.owner.get() && !mount.element.as_ref().is_some_and(|e| e.disabled) {
+            if mount.owner.get() && (focus_lost || !mount.element.as_ref().is_some_and(|e| e.disabled)) {
                 if let Some(handler) = &mount.handler {
                     route.push((current, handler.clone(), mount.environment.clone()));
                 }

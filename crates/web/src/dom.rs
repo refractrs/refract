@@ -83,6 +83,7 @@ struct Dom {
     calls: u64,
     adopting: bool,
     hydrated: bool,
+    focus_events: Vec<(ElementId, bool)>,
 }
 
 /// Own the JS callback until its root listener has been detached.
@@ -398,6 +399,7 @@ fn mount_inner(
             calls: 0,
             adopting,
             hydrated: false,
+            focus_events: Vec::new(),
         }),
         listeners: RefCell::new(vec![]),
         captures: RefCell::new(HashMap::new()),
@@ -655,6 +657,15 @@ fn flush(inner: &Rc<Inner>) -> Result<(), JsValue> {
                 return Err(error);
             }
         }
+    }
+
+    // Focus events fired during DOM mutation cannot borrow the registry. Deliver
+    // recovery transitions after commit, when callbacks can target the new tree.
+    let focus_events = std::mem::take(&mut inner.dom.borrow_mut().focus_events);
+    if !focus_events.is_empty() {
+        inner.queue.borrow_mut().extend(focus_events.into_iter()
+            .map(|(id, focused)| Queued::Event(id, UiEvent::Focus(focused))));
+        schedule(inner);
     }
 
     if let Some(surface) = inner.surface.borrow().as_ref() {
@@ -973,6 +984,12 @@ impl Dom {
         Ok(())
     }
 
+    fn active_element(&self) -> Option<web_sys::Element> {
+        self.root.get_root_node().dyn_into::<web_sys::ShadowRoot>().ok()
+            .and_then(|root| root.active_element())
+            .or_else(|| self.document.active_element())
+    }
+
     /// Apply a validated batch while retaining nodes and focus wherever possible.
     fn apply(&mut self, update: &Update) -> Result<(), JsValue> {
         if std::mem::take(&mut self.adopting) {
@@ -989,13 +1006,32 @@ impl Dom {
         }
         // Document.activeElement identifies the host when focus is in a shadow
         // tree, so consult that tree first to find the actual focused control.
-        let active = self
-            .root
-            .get_root_node()
-            .dyn_into::<web_sys::ShadowRoot>()
-            .ok()
-            .and_then(|r| r.active_element())
-            .or_else(|| self.document.active_element());
+        let active = self.active_element();
+
+        let active_id = active.as_ref().and_then(|node| {
+            let id = ElementId(node.get_attribute("data-refract-id")?.parse().ok()?);
+            self.entries.get(&id).filter(|entry| entry.node.is_same_node(Some(node))).map(|_| id)
+        });
+        let recover = active_id.filter(|focused| update.patches.iter().any(|patch| match patch {
+            Patch::Remove(id) => id == focused,
+            Patch::Update(id, element) => id == focused && (element.disabled
+                || (self.entries[id].element.is_focusable() && !element.is_focusable())),
+            _ => false,
+        }));
+        let candidates = if let Some(focused) = recover {
+            // DOM order is tab order for Refract's zero/-one tab indices.
+            let nodes = self.root.query_selector_all("[data-refract-id]")?;
+            let order: Vec<_> = (0..nodes.length()).filter_map(|i| {
+                let node = nodes.item(i)?.dyn_into::<HtmlElement>().ok()?;
+                let id = ElementId(node.get_attribute("data-refract-id")?.parse().ok()?);
+                self.entries.get(&id).filter(|entry| entry.node == node).map(|_| id)
+            }).collect();
+            order.iter().position(|id| *id == focused).map(|index| {
+                order[index + 1..].iter().chain(order[..index].iter().rev()).copied().collect::<Vec<_>>()
+            }).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
         for patch in &update.patches {
             match patch {
@@ -1050,20 +1086,26 @@ impl Dom {
             }
         }
 
-        // Moving retained nodes can blur them. Restore focus if the node survived.
-        if let Some(active) = active {
-            if self.root.contains(Some(&active)) {
-                let now = self
-                    .root
-                    .get_root_node()
-                    .dyn_into::<web_sys::ShadowRoot>()
-                    .ok()
-                    .and_then(|r| r.active_element())
-                    .or_else(|| self.document.active_element());
-                if now.as_ref() != Some(&active) {
-                    if let Some(element) = active.dyn_ref::<HtmlElement>() {
-                        let _ = element.focus();
-                    }
+        if let Some(previous) = recover {
+            if let Some(element) = active.as_ref().and_then(|node| node.dyn_ref::<HtmlElement>()) {
+                let _ = element.blur();
+            }
+            self.focus_events.push((previous, false));
+            if let Some(target) = candidates.into_iter().find(|id| {
+                self.entries.get(id).is_some_and(|entry| entry.element.is_focusable())
+            }) {
+                let node = &self.entries[&target].node;
+                node.focus()?;
+                if self.active_element().as_ref() == Some(node.as_ref()) {
+                    self.focus_events.push((target, true));
+                }
+            }
+        } else if let Some(active) = active {
+            // Moving a retained node may blur it. Restore only that same node;
+            // unrelated updates must never steal focus from another mount.
+            if self.root.contains(Some(&active)) && self.active_element().as_ref() != Some(&active) {
+                if let Some(element) = active.dyn_ref::<HtmlElement>() {
+                    let _ = element.focus();
                 }
             }
         }
