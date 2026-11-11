@@ -2,7 +2,7 @@
 
 use crate::{
     ActionContext, Alignment, AnyView, Description, Element, ElementKind, Empty, Handler, ImageFit,
-    ImageSource, Layout, View,
+    ImageSource, Layout, View, ViewMetadata,
 };
 
 macro_rules! element_builder {
@@ -44,6 +44,10 @@ macro_rules! leaf_builder {
         }
 
         impl View for $name {
+            fn metadata(&self) -> ViewMetadata {
+                ViewMetadata::element(&self.element)
+            }
+
             fn describe(&self) -> Option<Description> {
                 Some(Description::Element(
                     Box::new(self.element.clone()),
@@ -92,6 +96,10 @@ macro_rules! container_builder {
         }
 
         impl View for $name {
+            fn metadata(&self) -> ViewMetadata {
+                ViewMetadata::element(&self.element)
+            }
+
             fn describe(&self) -> Option<Description> {
                 Some(Description::Element(
                     Box::new(self.element.clone()),

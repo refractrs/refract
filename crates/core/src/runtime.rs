@@ -634,8 +634,11 @@ impl App {
                     return Err(error);
                 }
                 if previous.is_some()
-                    && cx.previous_slots.keys().collect::<HashSet<_>>()
-                        != cx.slots.keys().collect::<HashSet<_>>()
+                    && (cx.previous_slots.len() != cx.slots.len()
+                        || cx
+                            .previous_slots
+                            .keys()
+                            .any(|name| !cx.slots.contains_key(name)))
                 {
                     return Err(ViewError::new(
                         "mounted state declarations must be unconditional and stable",
@@ -696,14 +699,35 @@ impl App {
                     }
                 }
             }
+            // Unchanged sibling prefixes need no lookup table. Keep the keyed
+            // fallback for the suffix after an insertion, removal, or reorder.
+            let mut children = Vec::with_capacity(descriptions.len());
+            let mut descriptions = descriptions.into_iter().enumerate().peekable();
+            while let Some((index, child)) = descriptions.peek() {
+                let Some(&old) = mount.children.get(*index) else {
+                    break;
+                };
+                if identity(&self.mounts[&old].view, *index) != identity(child, *index) {
+                    break;
+                }
+                let (_, child) = descriptions.next().unwrap();
+                children.push(self.build(
+                    Some(old),
+                    Some(id),
+                    child,
+                    child_env.clone(),
+                    true,
+                    tx,
+                )?);
+            }
             let mut existing: HashMap<Identity, MountId> = mount
                 .children
                 .iter()
                 .enumerate()
+                .skip(children.len())
                 .map(|(index, id)| (identity(&self.mounts[id].view, index), *id))
                 .collect();
-            let mut children = Vec::with_capacity(descriptions.len());
-            for (index, child) in descriptions.into_iter().enumerate() {
+            for (index, child) in descriptions {
                 let old = existing.remove(&identity(&child, index));
                 children.push(self.build(old, Some(id), child, child_env.clone(), true, tx)?);
             }

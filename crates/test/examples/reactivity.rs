@@ -3,6 +3,7 @@
 //! Run: cargo run -p refract-test --example reactivity --release --offline
 //! Check behavior: cargo test -p refract-test --example reactivity --offline
 //! Scaling cases: cargo run -p refract-test --example reactivity --release --offline -- --scaling
+//! Construction cases: cargo run -p refract-test --example reactivity --release --offline -- --construction
 //! Timings cover mutation, prepare, and commit; exclude initial mount and TestHost::apply,
 //! which clones its entire element map. These are core microbenchmarks, not frame timings.
 //!
@@ -388,8 +389,85 @@ fn many_dependencies(width: usize) -> Fixture {
     .mounted()
 }
 
+#[derive(Clone, Copy, Debug)]
+enum Construction {
+    PrimitiveShort,
+    PrimitiveLong,
+    KeyedStable,
+    KeyedRotate,
+}
+
+fn construction(width: usize, strategy: Construction) -> Fixture {
+    let counts = Counts::default();
+    let source = Rc::new(std::cell::RefCell::new(None::<Binding<usize>>));
+    let content = "x".repeat(if matches!(strategy, Construction::PrimitiveLong) {
+        4096
+    } else {
+        8
+    });
+    let app = App::new(view_fn({
+        let source = source.clone();
+        let counts = counts.clone();
+        move |cx| {
+            let tick = cx.state("tick", || 0usize);
+            *source.borrow_mut() = Some(tick.clone());
+            let current = cx.read(&tick);
+            Ok(v_stack()
+                .child(text(current.to_string()))
+                .children((0..width).map(|index| {
+                    bump(&counts.constructors);
+                    match strategy {
+                        Construction::PrimitiveShort | Construction::PrimitiveLong => {
+                            text(content.clone()).into_any()
+                        }
+                        Construction::KeyedStable | Construction::KeyedRotate => {
+                            let index = if matches!(strategy, Construction::KeyedRotate) {
+                                (index + current) % width
+                            } else {
+                                index
+                            };
+                            let counts = counts.clone();
+                            view_fn(move |cx| {
+                                bump(&counts.bodies);
+                                let value = cx.state("value", || index);
+                                Ok(text(cx.read(&value).to_string()))
+                            })
+                            .memo(index)
+                            .key(index)
+                            .into_any()
+                        }
+                    }
+                })))
+        }
+    }));
+    Fixture {
+        app,
+        host: TestHost::default(),
+        counts,
+        write: Box::new(move |rt, value| source.borrow().as_ref().unwrap().set(rt, value)),
+    }
+    .mounted()
+}
+
 fn main() {
     println!("scenario,width,row_constructors,row_bodies,projections,evaluated,visited,patches,core_p50_us,core_p95_us");
+    if std::env::args().any(|arg| arg == "--construction") {
+        for width in [10, 100, 1000] {
+            for strategy in [
+                Construction::PrimitiveShort,
+                Construction::PrimitiveLong,
+                Construction::KeyedStable,
+                Construction::KeyedRotate,
+            ] {
+                measure(
+                    &format!("{strategy:?}"),
+                    width,
+                    construction(width, strategy),
+                );
+            }
+        }
+        return;
+    }
     if std::env::args().any(|arg| arg == "--scaling") {
         for depth in [16, 64, 256] {
             measure("DeepLeaf", depth, deep_tree(depth, 1));
@@ -434,6 +512,59 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reconstructed_keyed_rows_retain_their_state_and_order() {
+        for strategy in [Construction::KeyedStable, Construction::KeyedRotate] {
+            let mut fixture = construction(100, strategy);
+            let initial_ids: std::collections::HashSet<_> =
+                fixture.host.elements.keys().copied().collect();
+            for current in 1..=3 {
+                let sample = fixture.step(current);
+                assert_eq!(sample.constructors, 100);
+                assert_eq!(sample.bodies, 0);
+                assert_eq!(sample.stats.created, 0);
+                assert_eq!(sample.stats.removed, 0);
+                let actual: Vec<usize> = fixture
+                    .host
+                    .text()
+                    .split_whitespace()
+                    .map(|value| value.parse().unwrap())
+                    .collect();
+                let mut expected = vec![current];
+                expected.extend((0..100).map(|index| {
+                    if matches!(strategy, Construction::KeyedRotate) {
+                        (index + current) % 100
+                    } else {
+                        index
+                    }
+                }));
+                assert_eq!(actual, expected);
+                assert_eq!(
+                    fixture
+                        .host
+                        .elements
+                        .keys()
+                        .copied()
+                        .collect::<std::collections::HashSet<_>>(),
+                    initial_ids
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reconstructed_primitives_only_patch_the_changed_header() {
+        for strategy in [Construction::PrimitiveShort, Construction::PrimitiveLong] {
+            let mut fixture = construction(100, strategy);
+            let sample = fixture.step(1);
+            assert_eq!(sample.constructors, 100);
+            assert_eq!(sample.stats.patches, 1);
+            assert_eq!(sample.stats.created, 0);
+            assert_eq!(sample.stats.removed, 0);
+            assert_eq!(fixture.host.text().split_whitespace().next(), Some("1"));
+        }
+    }
 
     #[test]
     fn deep_updates_reach_every_dirty_leaf_without_running_ancestors() {

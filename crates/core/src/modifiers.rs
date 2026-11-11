@@ -146,7 +146,9 @@ pub(crate) use event_modifiers;
 pub(crate) fn append_handler(slot: &mut Option<crate::Handler>, action: crate::Handler) {
     let previous = slot.take();
     *slot = Some(Rc::new(move |cx, event| {
-        if let Some(previous) = &previous { previous(cx, event); }
+        if let Some(previous) = &previous {
+            previous(cx, event);
+        }
         action(cx, event);
     }));
 }
@@ -161,8 +163,11 @@ fn modify_handler(view: impl View, action: crate::Handler) -> Modified {
         append_handler(&mut handler, action);
         Modified(Description::Element(element, children, handler))
     } else {
-        Modified(Description::Element(Box::new(Element::new(ElementKind::Box)),
-            vec![view.into_any()], Some(action)))
+        Modified(Description::Element(
+            Box::new(Element::new(ElementKind::Box)),
+            vec![view.into_any()],
+            Some(action),
+        ))
     }
 }
 
@@ -231,6 +236,10 @@ pub struct KeyView {
 }
 
 impl View for KeyView {
+    fn metadata(&self) -> crate::ViewMetadata {
+        crate::ViewMetadata::default()
+    }
+
     fn describe(&self) -> Option<Description> {
         Some(Description::Group(vec![self.view.clone()]))
     }
@@ -245,6 +254,10 @@ impl View for KeyView {
 pub struct Modified(Description);
 
 impl View for Modified {
+    fn metadata(&self) -> crate::ViewMetadata {
+        self.0.metadata()
+    }
+
     fn describe(&self) -> Option<Description> {
         Some(self.0.clone())
     }
@@ -257,6 +270,10 @@ pub struct Provided {
 }
 
 impl View for Provided {
+    fn metadata(&self) -> crate::ViewMetadata {
+        crate::ViewMetadata::default()
+    }
+
     fn describe(&self) -> Option<Description> {
         Some(Description::Provider(
             self.provider.clone(),
@@ -288,6 +305,10 @@ pub struct MemoView {
 }
 
 impl View for MemoView {
+    fn metadata(&self) -> crate::ViewMetadata {
+        crate::ViewMetadata::memo(self.props.clone())
+    }
+
     fn describe(&self) -> Option<Description> {
         Some(Description::Memo(self.props.clone(), self.view.clone()))
     }
