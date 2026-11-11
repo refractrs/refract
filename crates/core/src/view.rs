@@ -16,6 +16,13 @@ pub trait View: 'static {
         None
     }
 
+    /// Host identity and memo information must agree with `describe`. Built-in views
+    /// can provide these without cloning their element or child descriptions.
+    #[doc(hidden)]
+    fn metadata(&self) -> ViewMetadata {
+        self.describe().map(|d| d.metadata()).unwrap_or_default()
+    }
+
     #[doc(hidden)]
     fn view_key(&self) -> Option<String> {
         None
@@ -26,6 +33,29 @@ pub trait View: 'static {
         Self: Sized,
     {
         AnyView::new(self)
+    }
+}
+
+#[doc(hidden)]
+#[derive(Default)]
+pub struct ViewMetadata {
+    element_identity: Option<ElementIdentity>,
+    memo: Option<Memo>,
+}
+
+impl ViewMetadata {
+    pub(crate) fn element(element: &Element) -> Self {
+        Self {
+            element_identity: Some(element.identity()),
+            memo: None,
+        }
+    }
+
+    pub(crate) fn memo(memo: Memo) -> Self {
+        Self {
+            element_identity: None,
+            memo: Some(memo),
+        }
     }
 }
 
@@ -57,17 +87,11 @@ impl<V: View> Erased for V {
     }
 
     fn element_identity(&self) -> Option<ElementIdentity> {
-        match self.describe() {
-            Some(Description::Element(e, _, _)) => Some(e.identity()),
-            _ => None,
-        }
+        View::metadata(self).element_identity
     }
 
     fn memo(&self) -> Option<Memo> {
-        match self.describe() {
-            Some(Description::Memo(m, _)) => Some(m),
-            _ => None,
-        }
+        View::metadata(self).memo
     }
 }
 
@@ -122,11 +146,25 @@ pub enum Description {
     Memo(Memo, AnyView),
 }
 
+impl Description {
+    pub(crate) fn metadata(&self) -> ViewMetadata {
+        match self {
+            Self::Element(element, _, _) => ViewMetadata::element(element),
+            Self::Memo(memo, _) => ViewMetadata::memo(memo.clone()),
+            _ => ViewMetadata::default(),
+        }
+    }
+}
+
 pub(crate) struct Described(pub(crate) Description);
 
 impl View for Described {
     fn describe(&self) -> Option<Description> {
         Some(self.0.clone())
+    }
+
+    fn metadata(&self) -> ViewMetadata {
+        self.0.metadata()
     }
 }
 
@@ -136,6 +174,10 @@ pub struct Empty;
 impl View for Empty {
     fn describe(&self) -> Option<Description> {
         Some(Description::Group(vec![]))
+    }
+
+    fn metadata(&self) -> ViewMetadata {
+        ViewMetadata::default()
     }
 }
 
