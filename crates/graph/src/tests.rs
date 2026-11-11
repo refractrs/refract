@@ -281,3 +281,134 @@ fn panicking_borrowed_read_leaves_storage_and_tracking_usable() {
     binding.set(&mut rt, String::new());
     assert!(observer.is_dirty(&rt));
 }
+
+#[test]
+fn wide_captures_and_observer_sets_deduplicate_without_losing_edges() {
+    let mut rt = Runtime::new();
+    let states: Vec<_> = (0..128).map(|_| State::new(&mut rt, 0)).collect();
+    let observer = rt.observer();
+    let (_, deps) = rt.capture(|rt| {
+        for _ in 0..3 {
+            for state in &states {
+                state.get(rt);
+            }
+        }
+    });
+    assert_eq!(
+        deps.sources,
+        states.iter().map(State::id).collect::<Vec<_>>()
+    );
+    rt.accept(&observer, deps.clone());
+    assert_eq!(rt.stats().edges, states.len());
+    for index in [0, 31, 32, 127] {
+        states[index].set(&mut rt, 1);
+        assert!(observer.is_dirty(&rt));
+        rt.accept(&observer, deps.clone());
+    }
+
+    let children: Vec<_> = (0..128).map(|_| rt.observer()).collect();
+    let mut deps = Dependencies::default();
+    for _ in 0..3 {
+        for child in &children {
+            deps.include(child);
+        }
+    }
+    rt.accept(&observer, deps);
+    assert_eq!(rt.stats().edges, children.len());
+    let child = &children[127];
+    let (_, deps) = rt.capture(|rt| *states[127].get(rt));
+    rt.accept(child, deps);
+    states[127].set(&mut rt, 2);
+    assert!(observer.is_dirty(&rt));
+}
+
+#[test]
+fn wide_equal_derived_results_still_replace_conditional_dependencies() {
+    let mut rt = Runtime::new();
+    let choose = State::new(&mut rt, true);
+    let a: Vec<_> = (0..256).map(|_| State::new(&mut rt, 0)).collect();
+    let b: Vec<_> = (0..256).map(|_| State::new(&mut rt, 0)).collect();
+    let value = Derived::distinct(&mut rt, {
+        let choose = choose.clone();
+        let a = a.clone();
+        let b = b.clone();
+        move |rt| {
+            let selected = if *choose.get(rt) { &a } else { &b };
+            selected.iter().map(|state| *state.get(rt)).sum::<i32>()
+        }
+    });
+    let observer = rt.observer();
+    let (_, deps) = rt.capture(|rt| *value.get(rt));
+    rt.accept(&observer, deps);
+    choose.set(&mut rt, false);
+    assert!(!observer.is_dirty(&rt));
+    let computations = rt.stats().computations;
+    a[63].set(&mut rt, 9);
+    assert_eq!(rt.stats().computations, computations);
+    b[63].set(&mut rt, 7);
+    assert!(observer.is_dirty(&rt));
+    assert_eq!(*value.get(&rt), 7);
+}
+
+#[test]
+fn nested_capture_success_and_unwind_preserve_the_outer_read_set() {
+    let mut rt = Runtime::new();
+    let a = State::new(&mut rt, 0);
+    let b = State::new(&mut rt, 0);
+    let c = State::new(&mut rt, 0);
+    let outer = rt.observer();
+    let inner = rt.observer();
+    let (inner_reads, outer_reads) = rt.capture(|rt| {
+        a.get(rt);
+        let (_, reads) = rt.capture(|rt| *b.get(rt));
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            rt.capture(|rt| {
+                b.get(rt);
+                panic!("discard nested capture");
+            });
+        }));
+        assert!(panic.is_err());
+        c.get(rt);
+        reads
+    });
+    rt.accept(&outer, outer_reads.clone());
+    rt.accept(&inner, inner_reads);
+    assert_eq!(rt.stats().edges, 3);
+    b.set(&mut rt, 1);
+    assert!(inner.is_dirty(&rt));
+    assert!(!outer.is_dirty(&rt));
+    a.set(&mut rt, 1);
+    assert!(outer.is_dirty(&rt));
+    rt.accept(&outer, outer_reads);
+    c.set(&mut rt, 1);
+    assert!(outer.is_dirty(&rt));
+}
+
+#[test]
+fn unchanged_dependency_fast_path_still_rejects_invalid_replacements() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    let mut rt = Runtime::new();
+    let state = State::new(&mut rt, 0);
+    let observer = rt.observer();
+    let (_, original) = rt.capture(|rt| *state.get(rt));
+    rt.accept(&observer, original.clone());
+    rt.accept(&observer, original.clone());
+
+    let mut foreign_rt = Runtime::new();
+    let foreign = State::new(&mut foreign_rt, 0);
+    let (_, foreign_reads) = foreign_rt.capture(|rt| *foreign.get(rt));
+    assert!(catch_unwind(AssertUnwindSafe(|| rt.accept(&observer, foreign_reads))).is_err());
+    let mut self_reads = Dependencies::default();
+    self_reads.include(&observer);
+    assert!(catch_unwind(AssertUnwindSafe(|| rt.accept(&observer, self_reads))).is_err());
+    state.set(&mut rt, 1);
+    assert!(
+        observer.is_dirty(&rt),
+        "failed replacements must retain accepted edges"
+    );
+
+    drop(state);
+    rt.collect();
+    assert_eq!(rt.stats().edges, 0);
+    assert!(catch_unwind(AssertUnwindSafe(|| rt.accept(&observer, original))).is_err());
+}

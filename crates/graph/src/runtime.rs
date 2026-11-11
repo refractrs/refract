@@ -146,9 +146,7 @@ impl Runtime {
     pub(crate) fn read<T: 'static>(&self, id: AttributeId) -> &T {
         let value = self.read_untracked(id);
         if let Some(reads) = self.tracking.borrow_mut().last_mut() {
-            if !reads.0.contains(&id) {
-                reads.0.push(id);
-            }
+            reads.insert(id);
         }
         value
     }
@@ -177,19 +175,27 @@ impl Runtime {
     pub fn capture<R>(&self, f: impl FnOnce(&Self) -> R) -> (R, Dependencies) {
         self.tracking.borrow_mut().push(Dependencies::default());
 
-        struct Pop<'a>(&'a RefCell<Vec<Dependencies>>);
+        struct Pop<'a> {
+            tracking: &'a RefCell<Vec<Dependencies>>,
+            active: bool,
+        }
 
         impl Drop for Pop<'_> {
             fn drop(&mut self) {
-                self.0.borrow_mut().pop();
+                if self.active {
+                    self.tracking.borrow_mut().pop();
+                }
             }
         }
 
         // Restore the capture stack even if the closure unwinds.
-        let guard = Pop(&self.tracking);
+        let mut guard = Pop {
+            tracking: &self.tracking,
+            active: true,
+        };
         let value = f(self);
-        let reads = self.tracking.borrow().last().unwrap().clone();
-        drop(guard);
+        let reads = self.tracking.borrow_mut().pop().unwrap();
+        guard.active = false;
         (value, reads)
     }
 
@@ -227,17 +233,25 @@ impl Runtime {
     }
 
     pub(crate) fn replace_dependencies(&mut self, target: AttributeId, dependencies: Dependencies) {
+        // Accepted edges are already valid, and collection removes retired
+        // sources from this list. An unchanged read set needs no revalidation.
+        if self
+            .attributes
+            .get(&target)
+            .expect("foreign observer")
+            .sources
+            == dependencies.sources
+        {
+            return;
+        }
         // Validate before removing existing edges so invalid input cannot leave
         // a partially replaced subscription.
-        for source in &dependencies.0 {
+        for source in &dependencies.sources {
             assert!(self.attributes.contains_key(source), "foreign dependency");
             assert_ne!(*source, target, "self dependency");
         }
         let attr = self.attributes.get_mut(&target).expect("foreign observer");
-        if attr.sources == dependencies.0 {
-            return;
-        }
-        let previous = std::mem::replace(&mut attr.sources, dependencies.0);
+        let previous = std::mem::replace(&mut attr.sources, dependencies.sources);
         for source in previous {
             if let Some(attr) = self.attributes.get_mut(&source) {
                 attr.readers.remove(&target);

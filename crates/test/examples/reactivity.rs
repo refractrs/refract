@@ -2,6 +2,7 @@
 //!
 //! Run: cargo run -p refract-test --example reactivity --release --offline
 //! Check behavior: cargo test -p refract-test --example reactivity --offline
+//! Scaling cases: cargo run -p refract-test --example reactivity --release --offline -- --scaling
 //! Timings cover mutation, prepare, and commit; exclude initial mount and TestHost::apply,
 //! which clones its entire element map. These are core microbenchmarks, not frame timings.
 //!
@@ -18,6 +19,10 @@
 //!
 //! Counters describe work, not complexity proofs: visited excludes memo checks
 //! and child matching. A wide parent still does O(width) matching with MemoEach.
+//!
+//! --scaling adds deep wrapper chains (the width column is their depth), one
+//! body reading many independent attributes, and wider memoized sibling sets.
+//! DeepSharedAncestors updates eight leaves under the same wrapper chain.
 
 use refract_core::{prelude::*, App, UpdateStats};
 use refract_test::TestHost;
@@ -321,8 +326,81 @@ fn collection(width: usize, strategy: Selection) -> Fixture {
     .mounted()
 }
 
+fn deep_tree(depth: usize, leaves: usize) -> Fixture {
+    let counts = Counts::default();
+    let source = Rc::new(std::cell::RefCell::new(None::<Binding<usize>>));
+    let app = App::new(view_fn({
+        let source = source.clone();
+        let counts = counts.clone();
+        move |cx| {
+            let value = cx.state("value", || 0usize);
+            *source.borrow_mut() = Some(value.clone());
+            let mut branch = v_stack()
+                .children((0..leaves).map(|_| {
+                    let value = value.clone();
+                    let counts = counts.clone();
+                    view_fn(move |cx| {
+                        bump(&counts.bodies);
+                        Ok(text(cx.read(&value).to_string()))
+                    })
+                }))
+                .into_any();
+            for _ in 0..depth {
+                let child = branch;
+                branch = view_fn(move |_| Ok(child.clone())).into_any();
+            }
+            Ok(branch)
+        }
+    }));
+    Fixture {
+        app,
+        host: TestHost::default(),
+        counts,
+        write: Box::new(move |rt, value| source.borrow().as_ref().unwrap().set(rt, value)),
+    }
+    .mounted()
+}
+
+fn many_dependencies(width: usize) -> Fixture {
+    let counts = Counts::default();
+    let source = Rc::new(std::cell::RefCell::new(None::<State<usize>>));
+    let app = App::new(view_fn({
+        let counts = counts.clone();
+        let source = source.clone();
+        move |cx| {
+            let values = cx.remember("values", |rt| {
+                (0..width)
+                    .map(|_| State::new(rt, 0usize))
+                    .collect::<Vec<_>>()
+            });
+            *source.borrow_mut() = Some(values[0].clone());
+            bump(&counts.bodies);
+            let sum: usize = values.iter().map(|value| *cx.read_state_ref(value)).sum();
+            Ok(text(sum.to_string()))
+        }
+    }));
+    Fixture {
+        app,
+        host: TestHost::default(),
+        counts,
+        write: Box::new(move |rt, value| source.borrow().as_ref().unwrap().set(rt, value)),
+    }
+    .mounted()
+}
+
 fn main() {
     println!("scenario,width,row_constructors,row_bodies,projections,evaluated,visited,patches,core_p50_us,core_p95_us");
+    if std::env::args().any(|arg| arg == "--scaling") {
+        for depth in [16, 64, 256] {
+            measure("DeepLeaf", depth, deep_tree(depth, 1));
+            measure("DeepSharedAncestors", depth, deep_tree(depth, 8));
+        }
+        for width in [10, 100, 1000, 10000] {
+            measure("ManyDependencies", width, many_dependencies(width));
+            measure("WideMemo", width, siblings(width, Siblings::MemoEach));
+        }
+        return;
+    }
     for width in [10, 100, 1000] {
         for strategy in [
             Siblings::LeafRead,
@@ -356,6 +434,35 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deep_updates_reach_every_dirty_leaf_without_running_ancestors() {
+        for leaves in [1, 8] {
+            let mut fixture = deep_tree(64, leaves);
+            for value in 1..=3 {
+                let sample = fixture.step(value);
+                assert_eq!(sample.bodies, leaves);
+                assert_eq!(sample.stats.evaluated, leaves * 2);
+                assert_eq!(sample.stats.patches, leaves);
+                assert!(fixture
+                    .host
+                    .text()
+                    .split_whitespace()
+                    .all(|text| text == value.to_string()));
+            }
+        }
+    }
+
+    #[test]
+    fn wide_read_sets_keep_all_subscriptions() {
+        let mut fixture = many_dependencies(1000);
+        for value in 1..=3 {
+            let sample = fixture.step(value);
+            assert_eq!(sample.bodies, 1);
+            assert_eq!(sample.stats.patches, 1);
+            assert_eq!(fixture.host.text(), value.to_string());
+        }
+    }
 
     #[test]
     fn construction_and_evaluation_are_separate_costs() {
