@@ -4,12 +4,19 @@
 //! positioned glyphs, never Refract views or graph state. Replacing Vello therefore
 //! does not require changing reconciliation, layout, input, or application code.
 
+mod damage;
+pub use damage::{Damage, DamageTracker, PixelRect};
+
 #[cfg(feature = "vello")]
 mod vello;
+#[cfg(feature = "debug-damage")]
+mod vello_debug;
 #[cfg(feature = "vello")]
 mod vello_effects;
 #[cfg(feature = "vello")]
 mod vello_geometry;
+#[cfg(feature = "vello")]
+mod vello_painter;
 #[cfg(feature = "vello")]
 mod vello_scene;
 #[cfg(feature = "vello")]
@@ -18,6 +25,8 @@ mod vello_shadow;
 #[cfg(feature = "vello")]
 pub use self::vello::VelloRenderer;
 pub use parley::FontData;
+#[cfg(feature = "vello")]
+pub use vello_painter::{RenderMode, RenderStats};
 
 use crate::Result;
 use refract_core::{Border, Color, CornerRadii, Insets};
@@ -62,7 +71,7 @@ impl Rect {
 }
 
 /// A shaped glyph's position relative to its text block, including its baseline.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Glyph {
     pub id: u32,
     pub x: f32,
@@ -70,7 +79,7 @@ pub struct Glyph {
 }
 
 /// Immutable glyph data retained across frames. Font coordinates are OpenType F2Dot14.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GlyphRun {
     pub font: FontData,
     pub font_size: f32,
@@ -119,8 +128,14 @@ impl RasterImage {
     }
 }
 
+impl PartialEq for RasterImage {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
 /// Commands are in painter's order. Every pushed layer has one matching pop.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum DrawCommand {
     /// Isolated subtree: capture the backdrop before painting, optionally blur
     /// the completed subtree, then apply group opacity. Amounts are Gaussian
@@ -133,7 +148,8 @@ pub enum DrawCommand {
         opacity: f32,
     },
     /// Outer shadow behind the background; exclude the original rounded box's
-    /// interior even when its background is transparent. Blur is CSS radius.
+    /// interior even when its background is transparent. Blur is CSS radius;
+    /// shadow support ends at 1.5 times that radius beyond the offset box.
     BoxShadow {
         rect: Rect,
         radius: CornerRadii,
@@ -166,6 +182,7 @@ pub enum DrawCommand {
         radius: CornerRadii,
         border: Border,
     },
+    /// Inset stroke, contained in the border box (like `Border`).
     Stroke {
         rect: Rect,
         radius: CornerRadii,
@@ -192,8 +209,8 @@ pub enum DrawCommand {
     PopLayer,
 }
 
-/// One complete frame description. A GPU renderer may repaint the full surface;
-/// retained text resources and incremental model evaluation are independent of that.
+/// One complete frame description. Backends can use [`DamageTracker`] to retain
+/// pixels and repaint only changed regions, or render the complete frame.
 #[derive(Clone, Debug)]
 pub struct Frame {
     pub commands: Vec<DrawCommand>,
@@ -216,4 +233,17 @@ pub trait Renderer {
     /// Physical pixel dimensions, always nonzero.
     fn resize(&mut self, width: u32, height: u32) -> Result<()>;
     fn render(&mut self, frame: &Frame) -> Result<Presentation>;
+
+    /// Optional deadline for presentation-only work, such as expiring debug overlays.
+    #[cfg(feature = "debug-damage")]
+    fn redraw_deadline(&self) -> Option<std::time::Instant> {
+        None
+    }
+
+    /// Refresh retained pixels without rebuilding a frame. Called when the deadline
+    /// is due and the host has no scene changes. `None` falls back to normal rendering.
+    #[cfg(feature = "debug-damage")]
+    fn refresh(&mut self) -> Result<Option<Presentation>> {
+        Ok(None)
+    }
 }

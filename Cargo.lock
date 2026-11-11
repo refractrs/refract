@@ -2304,6 +2304,7 @@ dependencies = [
  "pollster",
  "refract",
  "refract-core",
+ "skrifa",
  "taffy",
  "thiserror 2.0.21",
  "ureq",

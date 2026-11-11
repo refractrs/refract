@@ -16,6 +16,8 @@ include = ["/src/**", "/tests/**", "/Cargo.toml", "/README.md", "/LICENSE*"]
 
 [features]
 default = ["vello"]
+# Opt-in damage visualization; no overlay code or scheduling in normal builds.
+debug-damage = ["vello"]
 vello = ["dep:vello", "dep:pollster", "dep:objc2-quartz-core", "dep:objc2-app-kit"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -23,6 +25,7 @@ refract-core.workspace = true
 winit = "0.30.13"
 vello = { version = "0.11.0", optional = true }
 parley = "0.12.0"
+skrifa = "0.44.0"
 arboard = { version = "3.6", default-features = false }
 taffy = "0.15.1"
 pollster = { version = "0.4", optional = true }
