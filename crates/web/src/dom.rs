@@ -83,6 +83,7 @@ struct Dom {
     calls: u64,
     adopting: bool,
     hydrated: bool,
+    presentation: refract_core::PresentationState,
 }
 
 /// Own the JS callback until its root listener has been detached.
@@ -130,6 +131,8 @@ struct Inner {
     disposed: Cell<bool>,
     error: RefCell<Option<String>>,
     microtasks: Cell<u8>,
+    animation_frame: Cell<Option<i32>>,
+    animation_callback: RefCell<Option<Closure<dyn FnMut(f64)>>>,
 }
 
 /// Own this handle for the mount's lifetime. Dropping it releases browser resources.
@@ -233,6 +236,10 @@ fn dispose(inner: &Inner) {
 
     // Stop incoming work before dropping callbacks and the application they use.
     inner.active.set(false);
+    if let Some(id) = inner.animation_frame.take() {
+        if let Some(window) = web_sys::window() { let _ = window.cancel_animation_frame(id); }
+    }
+    inner.animation_callback.borrow_mut().take();
     inner.queue.borrow_mut().clear();
     inner.listeners.borrow_mut().clear();
     inner.scroll.borrow_mut().take();
@@ -246,6 +253,7 @@ fn dispose(inner: &Inner) {
     dom.root.remove();
     dom.stylesheet.remove();
     dom.entries.clear();
+    dom.presentation.clear();
 }
 
 /// Mount a view in a browser element and apply its initial tree synchronously.
@@ -399,6 +407,7 @@ fn mount_inner(
             calls: 0,
             adopting,
             hydrated: false,
+            presentation: Default::default(),
         }),
         listeners: RefCell::new(vec![]),
         captures: RefCell::new(HashMap::new()),
@@ -409,6 +418,8 @@ fn mount_inner(
         disposed: Cell::new(false),
         error: RefCell::new(None),
         microtasks: Cell::new(0),
+        animation_frame: Cell::new(None),
+        animation_callback: RefCell::new(None),
     });
 
     // Graph writes request a flush without keeping the mount alive on their own.
@@ -545,6 +556,49 @@ fn mount_inner(
 }
 
 /// Coalesce pending writes into one flush; callbacks may outlive a disposed mount.
+fn animation_now() -> std::time::Duration {
+    std::time::Duration::from_secs_f64(web_sys::window().unwrap().performance().unwrap().now() / 1000.0)
+}
+
+fn request_animation(inner: &Rc<Inner>) -> Result<(), JsValue> {
+    if !inner.active.get() || inner.animation_frame.get().is_some() || !inner.dom.borrow().presentation.is_animating() { return Ok(()); }
+    if inner.animation_callback.borrow().is_none() {
+        let weak = Rc::downgrade(inner);
+        let callback = Closure::wrap(Box::new(move |timestamp: f64| {
+            let Some(inner) = weak.upgrade() else { return; };
+            inner.animation_frame.set(None);
+            if !inner.active.get() { return; }
+            let result = (|| -> Result<(), JsValue> {
+                let mut dom = inner.dom.borrow_mut();
+                let samples = dom.presentation.advance(std::time::Duration::from_secs_f64(timestamp / 1000.0));
+                for (id, element) in samples {
+                    if let Some(entry) = dom.entries.get_mut(&id) {
+                        let css = crate::style::css(&element);
+                        let style = entry.node.style();
+                        let mut calls = 0;
+                        for key in entry.styles.keys() { if !css.contains_key(key) { style.remove_property(key)?; calls += 1; } }
+                        for (key,value) in &css { if entry.styles.get(key) != Some(value) { style.set_property(key,value)?; calls += 1; } }
+                        entry.styles = css;
+                        dom.calls += calls;
+                    }
+                }
+                Ok(())
+            })();
+            if let Err(error) = result.and_then(|_| request_animation(&inner)) {
+                inner.active.set(false);
+                *inner.error.borrow_mut() = Some(format!("{error:?}"));
+                web_sys::console::error_1(&error);
+            }
+            scroll::request(&inner);
+        }) as Box<dyn FnMut(f64)>);
+        *inner.animation_callback.borrow_mut() = Some(callback);
+    }
+    let callback = inner.animation_callback.borrow();
+    let id = web_sys::window().unwrap().request_animation_frame(callback.as_ref().unwrap().as_ref().unchecked_ref())?;
+    inner.animation_frame.set(Some(id));
+    Ok(())
+}
+
 fn schedule(inner: &Rc<Inner>) {
     if !inner.active.get() || inner.scheduled.replace(true) {
         return;
@@ -685,6 +739,7 @@ fn flush(inner: &Rc<Inner>) -> Result<(), JsValue> {
     if let Some(surface) = inner.surface.borrow().as_ref() {
         surface.apply(inner, app.runtime_mut());
     }
+    request_animation(inner)?;
     Ok(())
 }
 
@@ -1031,6 +1086,8 @@ impl Dom {
 
     /// Apply a validated batch while retaining nodes and focus wherever possible.
     fn apply(&mut self, update: &Update) -> Result<(), JsValue> {
+        let now = animation_now();
+        self.presentation.apply(update, now);
         if std::mem::take(&mut self.adopting) {
             let adopted = self.adopt(update)?;
             self.root.remove_attribute("data-refract-prerender")?;
@@ -1094,8 +1151,10 @@ impl Dom {
                     self.entries.insert(*id, entry);
                 }
                 Patch::Update(id, element) => {
-                    self.calls +=
-                        apply_properties(self.entries.get_mut(id).unwrap(), element, false)?;
+                    let displayed = self.presentation.element(*id, now).unwrap_or_else(|| element.clone());
+                    let entry = self.entries.get_mut(id).unwrap();
+                    self.calls += apply_properties(entry, &displayed, false)?;
+                    entry.element = element.clone();
                 }
                 Patch::Children(parent, list) => {
                     let parent = parent
