@@ -1,6 +1,7 @@
 //! Mounted state, incremental reconciliation, and host commit coordination.
 
 use crate::{element::ElementIdentity, environment::Entry, *};
+use crate::transaction::AnimationContext;
 use std::{
     any::{Any, TypeId},
     cell::{Cell, RefCell},
@@ -48,6 +49,8 @@ pub struct Update {
     pub revision: u64,
     pub patches: Vec<Patch>,
     pub stats: UpdateStats,
+    /// Animation intent for changed or removed host elements in this update.
+    pub animations: BTreeMap<ElementId, Transaction>,
 }
 
 /// Effect teardown, consumed once when the effect is replaced or unmounted.
@@ -252,6 +255,7 @@ struct Mounted {
     effects: HashMap<String, Effect>,
     provider: Option<Entry>,
     memo: Option<crate::Memo>,
+    animation_scope: Option<AnimationScope>,
 
     // Body reads and descendant dirtiness are tracked separately. A dirty
     // descendant does not require re-evaluating this mount's own body.
@@ -307,6 +311,7 @@ struct Preparation {
     removed: HashSet<MountId>,
     subscriptions: Vec<(Observer, Option<Dependencies>)>,
     stats: UpdateStats,
+    animations: BTreeMap<ElementId, Transaction>,
 }
 
 impl Preparation {
@@ -316,6 +321,7 @@ impl Preparation {
             removed: HashSet::new(),
             subscriptions: vec![],
             stats: UpdateStats::default(),
+            animations: BTreeMap::new(),
         }
     }
 }
@@ -504,12 +510,12 @@ impl App {
         });
         if self.root != old_root {
             if let Some(root) = self.root {
-                self.remove_tree(root, &mut tx);
+                self.remove_tree(root, &AnimationContext::default(), &mut tx);
             }
         }
         let env = self.environment.clone();
         let view = self.view.clone();
-        let result = self.build(old_root, None, view, env, self.replace_root, &mut tx);
+        let result = self.build(old_root, None, view, env, self.replace_root, AnimationContext::default(), &mut tx);
         let root = match result {
             Ok(root) => root,
             Err(error) => {
@@ -544,6 +550,7 @@ impl App {
                 revision: self.revision + 1,
                 patches,
                 stats: tx.stats,
+                animations: tx.animations,
             },
             changed: tx.changed,
             removed: tx.removed,
@@ -558,10 +565,11 @@ impl App {
         tx.changed.get(&id).unwrap_or_else(|| &self.mounts[&id])
     }
 
-    fn remove_tree(&self, id: MountId, tx: &mut Preparation) {
+    fn remove_tree(&self, id: MountId, context: &AnimationContext, tx: &mut Preparation) {
         if tx.removed.insert(id) {
+            tx.animations.insert(id, context.resolved());
             for child in self.mounts[&id].children.iter() {
-                self.remove_tree(*child, tx);
+                self.remove_tree(*child, context, tx);
             }
             tx.stats.removed += 1;
         }
@@ -574,6 +582,7 @@ impl App {
         view: AnyView,
         environment: Environment,
         force: bool,
+        mut animation_context: AnimationContext,
         tx: &mut Preparation,
     ) -> Result<MountId, ViewError> {
         if let Some(id) = old {
@@ -622,6 +631,7 @@ impl App {
                 effects: HashMap::new(),
                 provider: None,
                 memo: None,
+                animation_scope: None,
                 body: self.runtime.observer(),
                 subtree: self.runtime.observer(),
                 owner: Rc::new(Cell::new(false)),
@@ -632,6 +642,12 @@ impl App {
         mount.memo = memo;
         mount.view = view.clone();
         mount.environment = environment.clone();
+        if let Some(cause) = self.runtime.observer_context(&mount.body) {
+            if cause.epoch > animation_context.epoch {
+                animation_context.epoch = cause.epoch;
+                animation_context.transaction = cause.get::<Transaction>().copied().unwrap_or_default();
+            }
+        }
 
         // Memo can skip new parent descriptions, but never a dirty body observer.
         let evaluate =
@@ -693,6 +709,13 @@ impl App {
                     mount.provider = None;
                     (vec![child], environment.clone())
                 }
+                Description::Transaction(scope, child) => {
+                    mount.animation_scope = Some(scope);
+                    mount.element = None;
+                    mount.handler = None;
+                    mount.provider = None;
+                    (vec![child], environment.clone())
+                }
                 Description::Group(children) => {
                     mount.element = None;
                     mount.handler = None;
@@ -708,6 +731,14 @@ impl App {
                     (vec![child], scope)
                 }
             };
+
+            if let Some(scope) = &mount.animation_scope {
+                let active = match &scope.value {
+                    None => true,
+                    Some(value) => previous.as_ref().and_then(|m| m.animation_scope.as_ref()).and_then(|s| s.value.as_ref()).is_some_and(|old| !value.same(old)),
+                };
+                if active { animation_context.overrides.push(scope.modify.clone()); }
+            }
 
             // Match siblings by key (or position), type, and host identity.
             // Unmatched old identities are retired only if this candidate commits.
@@ -737,6 +768,7 @@ impl App {
                     child,
                     child_env.clone(),
                     true,
+                    animation_context.clone(),
                     tx,
                 )?);
             }
@@ -749,13 +781,16 @@ impl App {
                 .collect();
             for (index, child) in descriptions {
                 let old = existing.remove(&identity(&child, index));
-                children.push(self.build(old, Some(id), child, child_env.clone(), true, tx)?);
+                children.push(self.build(old, Some(id), child, child_env.clone(), true, animation_context.clone(), tx)?);
             }
             for removed in existing.into_values() {
-                self.remove_tree(removed, tx);
+                self.remove_tree(removed, &animation_context, tx);
             }
             mount.children = Rc::new(children);
         } else {
+            if let Some(scope) = &mount.animation_scope {
+                if scope.value.is_none() { animation_context.overrides.push(scope.modify.clone()); }
+            }
             // Keep this body and its child descriptions; visit only dirty paths.
             let dirty = self.dirty_children.get(&id).cloned().unwrap_or_default();
             for child in dirty {
@@ -766,6 +801,7 @@ impl App {
                     m.view.clone(),
                     m.environment.clone(),
                     false,
+                    animation_context.clone(),
                     tx,
                 )?;
             }
@@ -784,6 +820,7 @@ impl App {
             None
         };
         tx.subscriptions.push((mount.subtree.clone(), dependencies));
+        if mount.element.is_some() { tx.animations.insert(id, animation_context.resolved()); }
         tx.changed.insert(id, Rc::new(mount));
         Ok(id)
     }

@@ -536,6 +536,7 @@ fn invalid_batch_is_rejected_before_mutation() {
     let before = host.stats();
     let element = app.elements()[0].1.clone();
     let malformed = Update {
+        animations: Default::default(),
         base_revision: before.revision,
         revision: before.revision + 1,
         patches: vec![

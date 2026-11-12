@@ -144,6 +144,7 @@ pub enum Description {
     Group(Vec<AnyView>),
     Provider(Provider, AnyView),
     Memo(Memo, AnyView),
+    Transaction(crate::AnimationScope, AnyView),
 }
 
 impl Description {
