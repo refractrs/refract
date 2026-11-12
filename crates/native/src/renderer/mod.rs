@@ -137,6 +137,10 @@ impl PartialEq for RasterImage {
 /// Commands are in painter's order. Every pushed layer has one matching pop.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DrawCommand {
+    /// Presentation transform around a subtree; pair with PopLayer.
+    PushTransform(refract_core::Affine2d),
+    /// Group opacity bounded only by the current viewport and ancestor clips.
+    PushOpacity(f32),
     /// Isolated subtree: capture the backdrop before painting, optionally blur
     /// the completed subtree, then apply group opacity. Amounts are Gaussian
     /// standard deviations in logical pixels. Pair with `PopLayer`.

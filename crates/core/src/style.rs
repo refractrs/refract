@@ -452,6 +452,7 @@ pub enum Layout {
 /// Optional values leave the corresponding choice to the adapter when absent.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Style {
+    pub transform: crate::Transform,
     pub layout: Layout,
     pub padding: Insets,
     pub gap: f32,
@@ -508,6 +509,7 @@ pub struct Style {
 impl Style {
     /// Reject invalid geometry and opacity before patches reach a host adapter.
     pub fn validate(&self) -> Result<(), ViewError> {
+        self.transform.validate()?;
         if [self.blur, self.backdrop_blur]
             .into_iter()
             .flatten()

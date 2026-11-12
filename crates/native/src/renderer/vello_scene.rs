@@ -66,10 +66,25 @@ impl Encoder<'_> {
         backdrop: &Backdrop,
         extent: Rect,
     ) -> Result<()> {
-        let scale = Affine::scale(self.scale_factor);
+        self.encode_at(commands, scene, backdrop, extent, Affine::IDENTITY)
+    }
+
+    fn encode_at(&mut self, commands: &mut std::slice::Iter<'_, DrawCommand>, scene: &mut Scene,
+        backdrop: &Backdrop, extent: Rect, transform: Affine) -> Result<()> {
+        let scale = Affine::scale(self.scale_factor) * transform;
         while let Some(command) = commands.next() {
             match command {
                 DrawCommand::PopLayer => return Ok(()),
+                DrawCommand::PushTransform(matrix) => {
+                    self.encode_at(commands, scene, backdrop, extent, transform * Affine::new(matrix.0))?;
+                }
+                DrawCommand::PushOpacity(opacity) => {
+                    let mut content = Scene::new();
+                    self.encode_at(commands, &mut content, &Backdrop::default(), extent, transform)?;
+                    scene.push_layer(Fill::NonZero, BlendMode::default(), *opacity, Affine::IDENTITY, &extent);
+                    scene.append(&content, None);
+                    scene.pop_layer();
+                }
                 DrawCommand::PushEffects {
                     rect,
                     radius,
@@ -112,7 +127,7 @@ impl Encoder<'_> {
                         }
                     }
                     // Filters and backdrop filters establish a new backdrop root.
-                    self.encode(commands, &mut content, &Backdrop::default(), input_extent)?;
+                    self.encode_at(commands, &mut content, &Backdrop::default(), input_extent, transform)?;
                     if sigma > 0.0 {
                         content = self.effects.blur(
                             self.renderer,
@@ -151,12 +166,19 @@ impl Encoder<'_> {
                         prefix.clips += 1;
                     }
                     let mut content = Scene::new();
-                    self.encode(commands, &mut content, &prefix, extent)?;
+                    self.encode_at(commands, &mut content, &prefix, extent, transform)?;
                     push_clip(scene, command, scale, opacity);
                     scene.append(&content, None);
                     scene.pop_layer();
                 }
-                _ => self.primitive(scene, command),
+                _ => {
+                    if transform == Affine::IDENTITY { self.primitive(scene, command); }
+                    else {
+                        let mut primitive = Scene::new();
+                        self.primitive(&mut primitive, command);
+                        scene.append(&primitive, Some(Affine::scale(self.scale_factor) * transform * Affine::scale(1.0 / self.scale_factor)));
+                    }
+                }
             }
         }
         Ok(())

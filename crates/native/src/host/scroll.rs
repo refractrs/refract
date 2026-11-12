@@ -114,9 +114,7 @@ impl Host {
     /// try its ancestors, never a covered sibling underneath it.
     fn scroll_target(&self, point: Point, delta: Point) -> Option<ElementId> {
         let mut target = self.paint_order.iter().rev().copied().find(|id| {
-            self.entries
-                .get(id)
-                .is_some_and(|e| e.rect.contains(point) && e.clip.contains(point))
+            self.entries.contains_key(id) && self.point_inside(*id, point)
         });
         while let Some(id) = target {
             let entry = self.entries.get(&id)?;
@@ -269,9 +267,7 @@ impl Host {
     /// visible surface's ancestry rather than showing covered sibling scrollbars.
     pub fn reveal_scrollbars_at(&mut self, point: Point) -> bool {
         let mut target = self.paint_order.iter().rev().copied().find(|id| {
-            self.entries
-                .get(id)
-                .is_some_and(|entry| entry.rect.contains(point) && entry.clip.contains(point))
+            self.entries.contains_key(id) && self.point_inside(*id, point)
         });
         while let Some(id) = target {
             if self.scrolling.reveal(id, Instant::now()) {
@@ -283,16 +279,15 @@ impl Host {
     }
 
     fn bar_contains(&self, bar: &Scrollbar, point: Point) -> bool {
-        if !self.entries.contains_key(&bar.target)
-            || !bar.track.contains(point)
-            || !bar.clip.contains(point)
+        let Some(local) = self.local_point(bar.target, point) else { return false; };
+        if !self.point_inside(bar.target, point)
+            || !bar.track.contains(local)
+            || !bar.clip.contains(local)
         {
             return false;
         }
         let mut top = self.paint_order.iter().rev().copied().find(|id| {
-            self.entries
-                .get(id)
-                .is_some_and(|e| e.rect.contains(point) && e.clip.contains(point))
+            self.entries.contains_key(id) && self.point_inside(*id, point)
         });
         while let Some(id) = top {
             if id == bar.target {
@@ -324,7 +319,8 @@ impl Host {
         else {
             return false;
         };
-        let p = if bar.vertical { point.y } else { point.x };
+        let Some(local) = self.local_point(bar.target, point) else { return false; };
+        let p = if bar.vertical { local.y } else { local.x };
         let start = if bar.vertical {
             bar.thumb.y
         } else {
@@ -335,7 +331,7 @@ impl Host {
         } else {
             bar.thumb.width
         };
-        let grab = if bar.thumb.contains(point) {
+        let grab = if bar.thumb.contains(local) {
             p - start
         } else {
             length / 2.0
@@ -372,14 +368,15 @@ impl Host {
             self.scrolling.drag = None;
             return false;
         };
+        let Some(local) = self.local_point(bar.target, point) else { return false; };
         let Some(entry) = self.entries.get_mut(&bar.target) else {
             self.scrolling.drag = None;
             return false;
         };
         let (p, start, travel) = if bar.vertical {
-            (point.y, bar.track.y, bar.track.height - bar.thumb.height)
+            (local.y, bar.track.y, bar.track.height - bar.thumb.height)
         } else {
-            (point.x, bar.track.x, bar.track.width - bar.thumb.width)
+            (local.x, bar.track.x, bar.track.width - bar.thumb.width)
         };
         let offset = ((p - start - drag.grab) / travel.max(1.0)).clamp(0.0, 1.0) * bar.max;
         let Some((_, _, mut current, _)) = entry.scroll_geometry() else {

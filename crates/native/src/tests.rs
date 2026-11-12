@@ -1615,3 +1615,21 @@ fn focus_within_delegates_the_editor_ring_without_layout_changes() {
     host.set_focus(None);
     assert!(!frame(&mut host).commands.iter().any(|c| matches!(c, DrawCommand::Stroke { .. })));
 }
+
+#[test]
+fn presentation_transforms_move_hit_targets_without_relayout() {
+    let content = |x| view().width(80.0).height(40.0).on_press(|_| {}).label("moving")
+        .offset(x, 30.0).scale_effect(1.2).rotation_effect(20.0);
+    let mut app = App::new(content(100.0));
+    let mut host = Host::new().unwrap(); flush(&mut app, &mut host);
+    let first = frame(&mut host);
+    let id = app.elements().into_iter().find(|(_,e)|e.label.as_deref()==Some("moving")).unwrap().0;
+    assert_eq!(host.hit_test(Point { x: 400.0, y: 380.0 }), Some(id));
+    assert_eq!(host.hit_test(Point { x: 10.0, y: 10.0 }), None);
+    assert!(first.commands.iter().any(|c| matches!(c, DrawCommand::PushTransform(_))));
+    let layouts = host.stats().layout_passes;
+    app.set_view(content(200.0)); flush(&mut app, &mut host); frame(&mut host);
+    assert_eq!(host.stats().layout_passes, layouts);
+    assert_eq!(host.hit_test(Point { x: 500.0, y: 380.0 }), Some(id));
+    assert_eq!(host.hit_test(Point { x: 400.0, y: 380.0 }), None);
+}

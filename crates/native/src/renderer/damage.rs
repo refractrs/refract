@@ -95,7 +95,7 @@ impl DamageTracker {
         if frame
             .commands
             .iter()
-            .any(|c| matches!(c, DrawCommand::PushEffects { .. }))
+            .any(|c| matches!(c, DrawCommand::PushEffects { .. } | DrawCommand::PushTransform(_)))
         {
             return Damage::Full;
         }
@@ -166,7 +166,7 @@ fn changed_commands<'a>(old: &'a [DrawCommand], new: &'a [DrawCommand]) -> Vec<&
 fn is_layer(command: &DrawCommand) -> bool {
     matches!(
         command,
-        DrawCommand::PushLayer { .. }
+        DrawCommand::PushTransform(_) | DrawCommand::PushOpacity(_) | DrawCommand::PushLayer { .. }
             | DrawCommand::PushInsetLayer { .. }
             | DrawCommand::PushEffects { .. }
             | DrawCommand::PopLayer
