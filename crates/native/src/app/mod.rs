@@ -653,6 +653,8 @@ impl ApplicationHandler<()> for NativeApp {
         }
         let now = Instant::now();
         let scrollbar = self.host.scrollbar_deadline().filter(|_| !self.occluded);
+        let animation = self.host.animation_deadline().filter(|_| !self.occluded);
+        self.needs_frame |= animation.is_some_and(|deadline| deadline <= now);
         #[cfg(feature = "debug-damage")]
         let renderer = self
             .renderer
@@ -689,6 +691,7 @@ impl ApplicationHandler<()> for NativeApp {
             .into_iter()
             .chain(retry)
             .chain(scrollbar.filter(|deadline| *deadline > now))
+            .chain(animation.filter(|deadline| *deadline > now))
             .min();
         #[cfg(feature = "debug-damage")]
         let deadline = deadline

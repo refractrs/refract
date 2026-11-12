@@ -30,7 +30,7 @@ impl Host {
         )
     }
 
-    pub(super) fn frame_at(
+    pub(crate) fn frame_at(
         &mut self,
         width: f32,
         height: f32,
@@ -38,6 +38,7 @@ impl Host {
         background: Color,
         now: std::time::Instant,
     ) -> Result<Frame> {
+        self.advance_animations(now)?;
         let resized = self.viewport != (width, height);
         if resized {
             self.viewport = (width, height);
