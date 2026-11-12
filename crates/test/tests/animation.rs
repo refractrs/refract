@@ -265,3 +265,14 @@ fn disabled_transaction_boundary_also_suppresses_exit() {
     host.flush(&mut app).unwrap();
     assert!(!host.presentation.is_animating());
 }
+
+#[test]
+fn spring_overshoot_preserves_dimension_constraints() {
+    let mut app=App::new(view().min_width(0.0).max_width(100.0));let mut host=TestHost::default();host.flush(&mut app).unwrap();
+    let (id,mut element)=app.elements()[0].clone();element.style.min_width=Some(100.0);
+    let mut update=host.updates[0].clone();update.base_revision=1;update.revision=2;update.patches=vec![Patch::Update(id,element)];
+    update.animations.insert(id,Transaction {animation:Some(Animation::spring_with(Duration::from_millis(500),0.3)),disables_animations:false});
+    host.apply(&update).unwrap();
+    for _ in 0..240 {for (_,e) in host.advance_time(Duration::from_millis(16)) {e.validate().unwrap();}}
+    assert!(!host.presentation.is_animating());
+}
