@@ -8,6 +8,8 @@
 //! Commit publishes subscriptions and runs effect setup and cleanup. Layout,
 //! native input behavior, and rendering remain the adapter's responsibility.
 
+mod animation;
+pub use animation::*;
 mod element;
 mod environment;
 mod events;
