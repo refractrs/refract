@@ -383,6 +383,26 @@ impl View for MemoView {
 /// Composition, interaction, identity, provider, and style modifiers on every view.
 /// Concrete element builders also expose inherent modifiers that preserve their types. This trait supplies the fallback for other views.
 pub trait ViewExt: View + Sized {
+    /// Override this subtree's transaction when `value` changes after mounting.
+    /// All animatable properties changed in the subtree by that update participate.
+    fn animation<T: PartialEq + 'static>(self, animation: impl Into<Option<crate::Animation>>, value: T) -> crate::TransactionView {
+        let animation = animation.into();
+        let value = Rc::new(value);
+        let compare = value.clone();
+        crate::TransactionView {
+            child: self.into_any(),
+            scope: crate::AnimationScope {
+                value: Some(Memo { value, equal: Rc::new(move |other| other.downcast_ref::<T>().is_some_and(|v| v == compare.as_ref())) }),
+                modify: Rc::new(move |tx| { if !tx.disables_animations { tx.animation = animation; } }),
+            },
+        }
+    }
+
+    /// Change this subtree's update transaction. The closure must be pure.
+    fn transaction(self, modify: impl Fn(&mut crate::Transaction) + 'static) -> crate::TransactionView {
+        crate::TransactionView { child: self.into_any(), scope: crate::AnimationScope { value: None, modify: Rc::new(modify) } }
+    }
+
     element_modifiers!(Modified, modify_outer);
     event_modifiers!(Modified, modify_handler);
     focus_modifiers!(Modified, modify_focus);
