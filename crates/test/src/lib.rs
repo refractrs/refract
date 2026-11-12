@@ -3,6 +3,8 @@ use refract_core::*;
 use std::collections::HashMap;
 #[derive(Default)]
 pub struct TestHost {
+    pub presentation: PresentationState,
+    pub time: std::time::Duration,
     pub elements: HashMap<ElementId, Element>,
     pub children: HashMap<Option<ElementId>, Vec<ElementId>>,
     pub revision: u64,
@@ -47,6 +49,7 @@ impl TestHost {
                 }
             }
         }
+        self.presentation.apply(update, self.time);
         self.elements = elements;
         self.children = children;
         self.revision = update.revision;
@@ -141,6 +144,16 @@ impl TestHost {
         }
         Err(ViewError::new("host effects did not settle"))
     }
+    /// Advance visual time without evaluating views, effects, or graph observers.
+    pub fn advance_time(&mut self, elapsed: std::time::Duration) -> Vec<(ElementId, Element)> {
+        self.time += elapsed;
+        self.presentation.advance(self.time)
+    }
+
+    pub fn presented(&self, id: ElementId) -> Option<Element> {
+        self.presentation.element(id, self.time)
+    }
+
     pub fn text(&self) -> String {
         fn walk(host: &TestHost, parent: Option<ElementId>, out: &mut Vec<String>) {
             for id in host.children.get(&parent).into_iter().flatten() {
