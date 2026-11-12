@@ -73,6 +73,23 @@ jobs:
         run: >-
           cargo build --locked --target wasm32-unknown-unknown
           -p refract-web -p refract-counter -p refract-clock
-          -p refract-gallery -p refract-chat
+          -p refract-gallery -p refract-chat -p refract-animation
           --features refract-counter/browser-tests,refract-gallery/browser-tests
           --lib --examples
+
+      - name: Install browser test tools
+        run: |
+          cargo install wasm-bindgen-cli --version 0.2.130 --locked --root .tools
+          npm install --no-save --package-lock=false playwright@1.62.1
+          npx playwright install --with-deps chromium
+      - name: Run animation browser conformance
+        run: |
+          cargo build -p refract --features cli --locked
+          target/debug/refract dev -p refract-animation --port 4176 --offline > /tmp/refract-animation.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"; cat /tmp/refract-animation.log' EXIT
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent http://127.0.0.1:4176/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node .github/scripts/animation-smoke.mjs
