@@ -7,7 +7,10 @@ mod sidebar;
 
 use crate::model::ChatModel;
 use refract::prelude::*;
-use std::rc::Rc;
+use std::{rc::Rc, time::Duration};
+
+fn color_motion() -> Animation { Animation::ease_out(Duration::from_millis(140)) }
+fn entrance_motion() -> Animation { Animation::ease_out(Duration::from_millis(180)) }
 
 // Light-theme tokens from www/src/app/globals.css.
 pub const BACKGROUND: Color = Color::rgb(251, 252, 254);
