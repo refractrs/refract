@@ -1126,6 +1126,14 @@ impl Dom {
                 let nodes=clone.query_selector_all("[data-refract-id]")?;
                 for i in 0..nodes.length() { if let Some(node)=nodes.item(i).and_then(|n|n.dyn_into::<web_sys::Element>().ok()) {node.remove_attribute("data-refract-id")?;} }
                 let style=clone.style();
+                if !deep {
+                    // Ancestors preserve geometry and clipping, not their own paint.
+                    style.set_property("background", "none")?;
+                    style.set_property("border-color", "transparent")?;
+                    style.set_property("box-shadow", "none")?;
+                    style.set_property("outline", "none")?;
+                    style.set_property("backdrop-filter", "none")?;
+                }
                 style.set_property("position","absolute")?;
                 style.set_property("left",&format!("{}px",original.offset_left()))?;
                 style.set_property("top",&format!("{}px",original.offset_top()))?;
