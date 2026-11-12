@@ -47,12 +47,12 @@ try {
   fixture.style.width = '1100px';
   await until(() => !!find('Search conversations'));
   await press('Open A calmer kind of workspace');
-  const create = find('New conversation');
+  const create = find('New Conversation');
   const composerSurface = [...root.querySelectorAll('[data-refract-id]')].find(el => getComputedStyle(el).boxShadow !== 'none');
   const composerPaint = composerSurface && getComputedStyle(composerSurface);
   check(composerSurface?.contains(find('Message Refract')) && composerSurface.contains(find('Send message')) && composerPaint.boxShadow.includes('0px 4px 20px') && composerPaint.borderRadius === '14px', 'composer has a subtle rounded outer box shadow');
   const buttonPaint = getComputedStyle(create);
-  check(buttonPaint.backgroundImage.startsWith('linear-gradient(') && buttonPaint.backgroundImage.includes('160deg') && buttonPaint.backgroundOrigin === 'border-box' && buttonPaint.borderRadius === '9px', 'New conversation uses a rounded gradient background');
+  check(buttonPaint.backgroundImage.startsWith('linear-gradient(') && buttonPaint.backgroundImage.includes('160deg') && buttonPaint.backgroundOrigin === 'border-box' && buttonPaint.borderRadius === '9px', 'New Conversation uses a rounded gradient background');
   const outer = create.getBoundingClientRect(), inner = create.firstElementChild.getBoundingClientRect();
   check(getComputedStyle(create).display === 'flex' && Math.abs((outer.left+outer.right-inner.left-inner.right)/2) < 1, 'button content is centered like desktop');
   await press('Send message');
@@ -67,7 +67,7 @@ try {
   check(find('Message Refract').value === 'Saved draft', 'switching back restores the draft');
   await input('Search conversations', 'weekend');
   check(find('Open A weekend away') && !find('Open Designing with intention'), 'search filters sidebar conversations');
-  await press('New conversation');
+  await press('New Conversation');
   check(find('Search conversations').value === '' && root.textContent.includes('Where shall we begin?'), 'new chat clears search and shows prompt suggestions');
   check(root.activeElement === find('Message Refract'), 'new conversation focuses its committed editor through shared state');
   await input('Message Refract', 'Explain Rust state');
@@ -113,7 +113,7 @@ try {
   check(app.active_streams() === 1, 'switching chats does not cancel a background reply');
   await press('Find a change of scene');
   check(app.active_streams() === 2, 'different conversations can stream independently');
-  await press('Delete chat');
+  await press('Delete Chat');
   check(app.active_streams() === 1, 'deleting a conversation cancels only its own stream');
   app.dispose();
   check(app.active_streams() === 0 && !root.querySelector('[data-refract-id]'), 'disposing cancels all streams and removes mounted elements');
