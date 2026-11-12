@@ -11,6 +11,9 @@ use std::{rc::Rc, time::Duration};
 
 fn color_motion() -> Animation { Animation::ease_out(Duration::from_millis(140)) }
 fn entrance_motion() -> Animation { Animation::ease_out(Duration::from_millis(180)) }
+fn sidebar_motion() -> Animation { Animation::ease_in_out(Duration::from_millis(220)) }
+
+const SIDEBAR_WIDTH: f32 = 262.0;
 
 // Light-theme tokens from www/src/app/globals.css.
 pub const BACKGROUND: Color = Color::rgb(251, 252, 254);
@@ -35,27 +38,47 @@ pub(super) fn shell(cx: &mut ViewContext<'_>) -> impl View {
     let open = cx.read_derived(&model.sidebar_visible);
     let compact = cx.read_derived(&model.compact);
     h_stack()
-        .child(if open && !compact {
-            sidebar::sidebar(false).into_any()
-        } else {
-            Empty.into_any()
-        })
+        .child(
+            view()
+                .child(if open && !compact {
+                    sidebar::sidebar(false)
+                        .fill_height()
+                        .transition(Transition::offset(-SIDEBAR_WIDTH, 0.0))
+                        .into_any()
+                } else {
+                    Empty.into_any()
+                })
+                .width(if open && !compact { SIDEBAR_WIDTH } else { 0.0 })
+                .fill_height()
+                .clipped()
+                .animation(sidebar_motion(), open),
+        )
         .child(
             v_stack()
                 .child(header())
                 .child(crate::surface::navigation_status())
                 .child(if compact && open {
-                    sidebar::sidebar(true).grow(1.0).min_height(0.0).into_any()
+                    sidebar::sidebar(true)
+                        .grow(1.0)
+                        .min_height(0.0)
+                        .transition(
+                            Transition::opacity()
+                                .combined_with(Transition::offset(-16.0, 0.0)),
+                        )
+                        .key("compact-sidebar")
+                        .into_any()
                 } else {
                     conversation::selected()
                         .grow(1.0)
                         .min_height(0.0)
                         .fill_width()
+                        .key("conversation-pane")
                         .into_any()
                 })
                 .grow(1.0)
                 .min_width(0.0)
-                .fill_height(),
+                .fill_height()
+                .animation(sidebar_motion(), open),
         )
         .fill_width()
         .fill_height()

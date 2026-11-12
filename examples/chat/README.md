@@ -97,6 +97,8 @@ controls have no remaining handler to notify.
 
 ## Animation
 
+The wide sidebar slides in and out as its layout width expands or collapses over
+220ms. Compact windows use a short slide and fade for the sidebar panel.
 Conversation selection fades in over 140ms and clears the previous highlight
 immediately. Composer/send-control colors ease over 140ms. Switching
 conversations fades the new pane in over 120ms; new messages fade in with a four

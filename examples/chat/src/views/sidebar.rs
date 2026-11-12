@@ -108,7 +108,7 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
     if compact {
         content.fill_width()
     } else {
-        content.width(262.0)
+        content.width(SIDEBAR_WIDTH)
     }
 }
 
