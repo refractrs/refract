@@ -412,3 +412,71 @@ fn unchanged_dependency_fast_path_still_rejects_invalid_replacements() {
     assert_eq!(rt.stats().edges, 0);
     assert!(catch_unwind(AssertUnwindSafe(|| rt.accept(&observer, original))).is_err());
 }
+
+#[test]
+fn mutation_context_survives_batches_derived_values_and_repeated_dirtiness() {
+    let mut rt = Runtime::new();
+    let a = State::new(&mut rt, 0);
+    let b = State::new(&mut rt, 0);
+    let derived = Derived::new(&mut rt, {
+        let a = a.clone();
+        move |rt| *a.get(rt) * 2
+    });
+    let oa = rt.observer();
+    let ob = rt.observer();
+    let aggregate = rt.observer();
+    let (_, deps) = rt.capture(|rt| *derived.get(rt));
+    rt.accept(&oa, deps);
+    let (_, deps) = rt.capture(|rt| *b.get(rt));
+    rt.accept(&ob, deps);
+    let mut deps = Dependencies::default();
+    deps.include(&oa);
+    rt.accept(&aggregate, deps);
+    rt.batch(|rt| {
+        rt.with_mutation_context("animated", |rt| a.set(rt, 1));
+        b.set(rt, 1);
+    });
+    assert_eq!(
+        rt.observer_context(&oa).unwrap().get::<&str>(),
+        Some(&"animated")
+    );
+    assert_eq!(rt.observer_context(&ob).unwrap().get::<&str>(), None);
+    rt.take_dirty_observers();
+    assert_eq!(
+        rt.observer_context(&oa).unwrap().get::<&str>(),
+        Some(&"animated")
+    );
+    rt.with_mutation_context("replacement", |rt| a.set(rt, 2));
+    assert_eq!(
+        rt.observer_context(&aggregate).unwrap().get::<&str>(),
+        Some(&"replacement")
+    );
+    a.set(&mut rt, 3);
+    assert_eq!(rt.observer_context(&oa).unwrap().get::<&str>(), None);
+    rt.mark_clean(&oa);
+    assert!(rt.observer_context(&oa).is_none());
+}
+
+#[test]
+fn nested_mutation_context_restores_after_unwind() {
+    let mut rt = Runtime::new();
+    let a = State::new(&mut rt, 0);
+    let observer = rt.observer();
+    let (_, deps) = rt.capture(|rt| *a.get(rt));
+    rt.accept(&observer, deps);
+    rt.with_mutation_context("outer", |rt| {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            rt.with_mutation_context("inner", |rt| {
+                a.set(rt, 1);
+                panic!("test");
+            });
+        }));
+        a.set(rt, 2);
+    });
+    assert_eq!(
+        rt.observer_context(&observer).unwrap().get::<&str>(),
+        Some(&"outer")
+    );
+    a.set(&mut rt, 3);
+    assert_eq!(rt.observer_context(&observer).unwrap().get::<&str>(), None);
+}
