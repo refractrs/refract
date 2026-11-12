@@ -9,6 +9,10 @@ use std::{any::Any, rc::Rc};
 // One modifier definition serves concrete builders and the generic ViewExt fallback.
 macro_rules! element_modifiers {
     ($visibility:vis $output:ty, $apply:path) => {
+        /// Describe insertion/removal under an animated transaction. Initial mount is immediate.
+        $visibility fn transition(self, transition: $crate::Transition) -> $output {
+            $apply(self, move |e| e.transition = Some(transition))
+        }
         /// Translate presentation in logical pixels without changing layout.
         $visibility fn offset(self, x: f32, y: f32) -> $output {
             $apply(self, move |e| { e.style.transform.offset_x = x; e.style.transform.offset_y = y; })

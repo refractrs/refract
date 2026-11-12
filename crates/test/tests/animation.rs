@@ -171,3 +171,82 @@ fn opacity_reaches_absent_default_and_springs_stay_valid() {
     assert!(!host.presentation.is_animating());
     assert_eq!(host.presented(id).unwrap().style.opacity, None);
 }
+
+#[test]
+fn transitions_keep_only_visual_lifetime_and_reinsert_with_fresh_identity() {
+    use std::cell::Cell;
+    let saved = Rc::new(RefCell::new(None));
+    let stopped = Rc::new(Cell::new(0));
+    let mut app = App::new(view_fn({
+        let saved = saved.clone();
+        let stopped = stopped.clone();
+        move |cx| {
+            let visible = cx.state("visible", || true);
+            *saved.borrow_mut() = Some(visible.clone());
+            let stopped = stopped.clone();
+            Ok(v_stack().child(if cx.read(&visible) {
+                view_fn(move |cx| {
+                    let stopped = stopped.clone();
+                    cx.effect("lifetime", (), move |_| {
+                        let stopped = stopped.clone();
+                        Box::new(move || stopped.set(stopped.get() + 1))
+                    });
+                    Ok(text("notice")
+                        .on_press(|_| {})
+                        .transition(Transition::opacity()))
+                })
+                .key("notice")
+                .into_any()
+            } else {
+                Empty.into_any()
+            }))
+        }
+    }));
+    let mut host = TestHost::default();
+    host.flush(&mut app).unwrap();
+    let old = app
+        .elements()
+        .into_iter()
+        .find(|(_, e)| e.text == "notice")
+        .unwrap()
+        .0;
+    assert!(!host.presentation.is_animating());
+    let visible = saved.borrow().clone().unwrap();
+    with_animation(
+        app.runtime_mut(),
+        Animation::linear(Duration::from_secs(1)),
+        |rt| visible.set(rt, false),
+    );
+    drop(app.prepare().unwrap().unwrap());
+    assert_eq!(stopped.get(), 0);
+    assert!(!host.presentation.is_animating());
+    host.flush(&mut app).unwrap();
+    assert_eq!(stopped.get(), 1);
+    assert!(!app.dispatch(old, refract_core::Event::Press));
+    assert!(host.presentation.exit_effect(old, host.time).is_some());
+    host.advance_time(Duration::from_millis(500));
+    assert_eq!(
+        host.presentation
+            .exit_effect(old, host.time)
+            .unwrap()
+            .opacity,
+        0.5
+    );
+    with_animation(
+        app.runtime_mut(),
+        Animation::linear(Duration::from_secs(1)),
+        |rt| visible.set(rt, true),
+    );
+    host.flush(&mut app).unwrap();
+    let new = app
+        .elements()
+        .into_iter()
+        .find(|(_, e)| e.text == "notice")
+        .unwrap()
+        .0;
+    assert_ne!(old, new);
+    assert_eq!(host.presented(new).unwrap().style.opacity, Some(0.0));
+    host.advance_time(Duration::from_secs(2));
+    assert!(!host.presentation.is_animating());
+    assert_eq!(stopped.get(), 1);
+}

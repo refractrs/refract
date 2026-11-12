@@ -37,6 +37,7 @@ pub struct Element {
     pub kind: ElementKind,
     pub interaction: Option<Interaction>,
     pub style: Style,
+    pub transition: Option<crate::Transition>,
     pub scroll: Option<ScrollOptions>,
     pub text: String,
     pub value: String,
@@ -63,6 +64,7 @@ impl Element {
             kind,
             interaction: None,
             style: Style::default(),
+            transition: None,
             scroll: None,
             text: String::new(),
             value: String::new(),
@@ -97,6 +99,7 @@ impl Element {
 
     /// Validate portable styles and supported image URL schemes before host mutation.
     pub fn validate(&self) -> Result<(), ViewError> {
+        if let Some(transition) = self.transition { transition.validate()?; }
         self.style.validate()?;
         if self.multiline && self.kind != ElementKind::TextInput {
             return Err(ViewError::new("multiline requires a text input"));
