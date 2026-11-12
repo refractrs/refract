@@ -567,9 +567,13 @@ impl App {
 
     fn remove_tree(&self, id: MountId, context: &AnimationContext, tx: &mut Preparation) {
         if tx.removed.insert(id) {
+            let mut context = context.clone();
+            if let Some(scope) = &self.mounts[&id].animation_scope {
+                if scope.value.is_none() { context.overrides.push(scope.modify.clone()); }
+            }
             tx.animations.insert(id, context.resolved());
             for child in self.mounts[&id].children.iter() {
-                self.remove_tree(*child, context, tx);
+                self.remove_tree(*child, &context, tx);
             }
             tx.stats.removed += 1;
         }

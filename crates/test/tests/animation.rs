@@ -250,3 +250,18 @@ fn transitions_keep_only_visual_lifetime_and_reinsert_with_fresh_identity() {
     assert!(!host.presentation.is_animating());
     assert_eq!(stopped.get(), 1);
 }
+
+#[test]
+fn disabled_transaction_boundary_also_suppresses_exit() {
+    let saved=Rc::new(RefCell::new(None));
+    let mut app=App::new(view_fn({let saved=saved.clone();move |cx| {
+        let visible=cx.state("visible",||true);*saved.borrow_mut()=Some(visible.clone());
+        Ok(v_stack().child(if cx.read(&visible) {
+            text("quiet").transition(Transition::opacity()).transaction(|tx|tx.disables_animations=true).into_any()
+        } else {Empty.into_any()}))
+    }}));
+    let mut host=TestHost::default();host.flush(&mut app).unwrap();
+    with_animation(app.runtime_mut(),Animation::spring(),|rt|saved.borrow().as_ref().unwrap().set(rt,false));
+    host.flush(&mut app).unwrap();
+    assert!(!host.presentation.is_animating());
+}
