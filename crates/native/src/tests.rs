@@ -1654,3 +1654,23 @@ fn animation_frames_sleep_when_settled_and_do_not_relayout_paint_changes() {
     host.frame_at(600.0,700.0,2.0,Color::WHITE,start+Duration::from_secs(1)).unwrap();
     assert!(host.animation_deadline().is_none());
 }
+
+#[test]
+fn exiting_snapshot_is_visible_but_no_longer_interactive() {
+    let saved=Rc::new(RefCell::new(None));
+    let mut app=App::new(view_fn({let saved=saved.clone();move |cx| {
+        let visible=cx.state("visible",||true);*saved.borrow_mut()=Some(visible.clone());
+        Ok(v_stack().child(if cx.read(&visible) {text("outgoing").on_press(|_|{}).transition(Transition::opacity()).into_any()} else {Empty.into_any()}))
+    }}));
+    let mut host=Host::new().unwrap();flush(&mut app,&mut host);frame(&mut host);
+    let start=Instant::now();
+    with_animation(app.runtime_mut(),Animation::linear(Duration::from_secs(1)),|rt|saved.borrow().as_ref().unwrap().set(rt,false));
+    let p=app.prepare().unwrap().unwrap();host.apply_at(&p.update,start).unwrap();app.commit(p).unwrap();
+    let middle=host.frame_at(600.0,700.0,2.0,Color::WHITE,start+Duration::from_millis(500)).unwrap();
+    assert!(middle.commands.iter().any(|c|matches!(c,DrawCommand::Glyphs{..})));
+    assert!(middle.commands.iter().any(|c|matches!(c,DrawCommand::PushOpacity(x) if (*x-0.5).abs()<0.001)));
+    assert_eq!(host.hit_test(Point{x:300.0,y:350.0}),None);
+    let end=host.frame_at(600.0,700.0,2.0,Color::WHITE,start+Duration::from_secs(2)).unwrap();
+    assert!(!end.commands.iter().any(|c|matches!(c,DrawCommand::Glyphs{..})));
+    assert!(host.animation_deadline().is_none());
+}

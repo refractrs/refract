@@ -30,26 +30,98 @@ impl Track {
 pub struct PresentationState {
     targets: HashMap<ElementId, Element>,
     tracks: HashMap<ElementId, BTreeMap<u16, Track>>,
+    parents: HashMap<ElementId, Option<ElementId>>,
+    exits: HashMap<ElementId, (crate::TransitionEffect, Track)>,
 }
 
 impl PresentationState {
     pub fn is_animating(&self) -> bool {
-        !self.tracks.is_empty()
+        !self.tracks.is_empty() || !self.exits.is_empty()
     }
     pub fn clear(&mut self) {
         self.targets.clear();
         self.tracks.clear();
+        self.parents.clear();
+        self.exits.clear();
     }
 
     /// Apply an already validated host update. Call in the same uninterrupted
     /// prepare/apply/commit sequence as the host. Speculative preparation never
     /// calls this method. Hosts may clone this state to stage fallible application.
     pub fn apply(&mut self, update: &Update, now: Duration) {
+        let removed: HashSet<_> = update
+            .patches
+            .iter()
+            .filter_map(|p| {
+                if let Patch::Remove(id) = p {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let candidates: HashSet<_> = removed
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.targets.get(id).is_some_and(|e| e.transition.is_some())
+                    && update
+                        .animations
+                        .get(id)
+                        .is_some_and(|tx| tx.animation.is_some() && !tx.disables_animations)
+            })
+            .collect();
+        for id in &candidates {
+            let mut parent = self.parents.get(id).copied().flatten();
+            let mut nested = false;
+            while let Some(p) = parent {
+                if candidates.contains(&p) {
+                    nested = true;
+                    break;
+                }
+                parent = self.parents.get(&p).copied().flatten();
+            }
+            if !nested {
+                let effect = self.targets[id].transition.unwrap().removal;
+                if effect != crate::TransitionEffect::default() {
+                    self.exits.insert(
+                        *id,
+                        (
+                            effect,
+                            Track {
+                                from: 0.0,
+                                to: 1.0,
+                                velocity: 0.0,
+                                start: now,
+                                animation: update.animations[id].animation.unwrap(),
+                            },
+                        ),
+                    );
+                }
+            }
+        }
         for patch in &update.patches {
             match patch {
                 Patch::Create(id, element) => {
                     self.targets.insert(*id, element.clone());
                     self.tracks.remove(id);
+                    if update.base_revision > 0 {
+                        if let (Some(transition), Some(animation)) = (
+                            element.transition,
+                            update.animations.get(id).and_then(|tx| {
+                                if tx.disables_animations {
+                                    None
+                                } else {
+                                    tx.animation
+                                }
+                            }),
+                        ) {
+                            let mut initial = element.clone();
+                            transition.insertion.apply(&mut initial.style);
+                            self.targets.insert(*id, initial);
+                            self.retarget(*id, element, Some(animation), now);
+                        }
+                    }
                 }
                 Patch::Update(id, element) => {
                     let animation = update.animations.get(id).and_then(|tx| {
@@ -64,8 +136,13 @@ impl PresentationState {
                 Patch::Remove(id) => {
                     self.targets.remove(id);
                     self.tracks.remove(id);
+                    self.parents.remove(id);
                 }
-                Patch::Children(..) => {}
+                Patch::Children(parent, children) => {
+                    for id in children {
+                        self.parents.insert(*id, *parent);
+                    }
+                }
             }
         }
     }
@@ -138,6 +215,8 @@ impl PresentationState {
     /// Samples active elements, including their final exact target once. Settled
     /// tracks retire here, so idle hosts need no polling or perpetual frame loop.
     pub fn advance(&mut self, now: Duration) -> Vec<(ElementId, Element)> {
+        self.exits
+            .retain(|_, (_, track)| !track.sample(now).finished);
         let ids: Vec<_> = self.tracks.keys().copied().collect();
         let mut result = Vec::with_capacity(ids.len());
         for id in ids {
@@ -153,6 +232,15 @@ impl PresentationState {
             }
         }
         result
+    }
+
+    /// Outgoing visuals are sampled independently of logical element ownership.
+    pub fn exit_effect(&self, id: ElementId, now: Duration) -> Option<crate::TransitionEffect> {
+        let (effect, track) = self.exits.get(&id)?;
+        Some(effect.at(track.sample(now).value as f32))
+    }
+    pub fn exit_ids(&self) -> impl Iterator<Item = ElementId> + '_ {
+        self.exits.keys().copied()
     }
 
     pub fn active_ids(&self) -> HashSet<ElementId> {

@@ -42,6 +42,7 @@ struct RetainedElement {
     text: SharedText,
     rect: Rect,
     transform: refract_core::Affine2d,
+    paint_range: std::ops::Range<usize>,
     clip: Rect,
     scroll: Point,
     scroll_max: Point,
@@ -61,6 +62,12 @@ pub struct HostStats {
     /// Calls to Taffy; its internal caches can skip unchanged nodes within a pass.
     pub layout_passes: u64,
     pub patches_applied: u64,
+}
+
+struct ExitVisual {
+    commands: Vec<crate::renderer::DrawCommand>,
+    rect: Rect,
+    transform: refract_core::Affine2d,
 }
 
 pub(crate) struct Host {
@@ -86,6 +93,8 @@ pub(crate) struct Host {
     presentation: refract_core::PresentationState,
     animation_origin: std::time::Instant,
     next_animation_frame: Option<std::time::Instant>,
+    last_commands: Vec<crate::renderer::DrawCommand>,
+    exits: std::collections::BTreeMap<ElementId, ExitVisual>,
 }
 
 impl Host {
@@ -127,6 +136,8 @@ impl Host {
             presentation: Default::default(),
             animation_origin: std::time::Instant::now(),
             next_animation_frame: None,
+            last_commands: Vec::new(),
+            exits: Default::default(),
         })
     }
 
@@ -219,6 +230,7 @@ impl Host {
         self.validate(update)?;
         let time = now.saturating_duration_since(self.animation_origin);
         self.presentation.apply(update, time);
+        self.capture_exits();
         self.next_animation_frame = self.presentation.is_animating().then_some(now);
         // Capture the old order before a disabled or removed control loses its
         // position. Recovery only considers controls that already existed.
@@ -231,7 +243,9 @@ impl Host {
         let mut refresh = HashSet::new();
         for patch in &update.patches {
             match patch {
-                Patch::Create(id, element) => {
+                Patch::Create(id, target) => {
+                    let displayed = self.presentation.element(*id,time).unwrap_or_else(||target.clone());
+                    let element = &displayed;
                     let image = element
                         .source
                         .as_ref()
@@ -251,6 +265,7 @@ impl Host {
                             text,
                             rect: Rect::default(),
                             transform: Default::default(),
+                            paint_range: 0..0,
                             clip: Rect::default(),
                             scroll: Point::default(),
                             scroll_max: Point::default(),
@@ -362,6 +377,45 @@ impl Host {
 
     /// Image completion changes host resources, not application state. Only
     /// current users of a completed resource need measurement/paint invalidation.
+    fn capture_exits(&mut self) {
+        use crate::renderer::DrawCommand;
+        for id in self.presentation.exit_ids() {
+            if self.exits.contains_key(&id) { continue; }
+            let Some(entry)=self.entries.get(&id) else { continue; };
+            let range=entry.paint_range.clone();
+            if range.is_empty() || range.end > self.last_commands.len() { continue; }
+            let mut ancestors=Vec::new();
+            for command in &self.last_commands[..range.start] {
+                match command {
+                    DrawCommand::PushTransform(_) | DrawCommand::PushOpacity(_) | DrawCommand::PushLayer{..} | DrawCommand::PushInsetLayer{..} | DrawCommand::PushEffects{..} => ancestors.push(command.clone()),
+                    DrawCommand::PopLayer => { ancestors.pop(); },
+                    _=>{}
+                }
+            }
+            let depth=ancestors.len();
+            ancestors.extend_from_slice(&self.last_commands[range]);
+            ancestors.extend(std::iter::repeat_n(DrawCommand::PopLayer,depth));
+            self.exits.insert(id,ExitVisual { commands:ancestors, rect:entry.rect, transform:entry.transform });
+        }
+    }
+
+    pub(super) fn paint_exits(&mut self, frame: &mut crate::renderer::Frame, now: std::time::Instant) {
+        use crate::renderer::DrawCommand;
+        let time=now.saturating_duration_since(self.animation_origin);
+        self.exits.retain(|id,_| self.presentation.exit_effect(*id,time).is_some());
+        for (id,visual) in &self.exits {
+            let effect=self.presentation.exit_effect(*id,time).unwrap();
+            let r=visual.rect;
+            let delta=effect.transform().matrix(r.x,r.y,r.width,r.height);
+            let delta=visual.transform.then(delta).then(visual.transform.inverse().unwrap_or_default());
+            frame.commands.push(DrawCommand::PushOpacity(effect.opacity));
+            frame.commands.push(DrawCommand::PushTransform(delta));
+            frame.commands.extend_from_slice(&visual.commands);
+            frame.commands.push(DrawCommand::PopLayer);
+            frame.commands.push(DrawCommand::PopLayer);
+        }
+    }
+
     pub fn animation_deadline(&self) -> Option<std::time::Instant> {
         self.next_animation_frame
     }

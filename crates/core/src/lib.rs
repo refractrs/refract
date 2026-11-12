@@ -8,6 +8,8 @@
 //! Commit publishes subscriptions and runs effect setup and cleanup. Layout,
 //! native input behavior, and rendering remain the adapter's responsibility.
 
+mod transition;
+pub use transition::*;
 mod presentation;
 pub use presentation::PresentationState;
 mod animation;
@@ -70,7 +72,7 @@ impl std::error::Error for ViewError {}
 
 /// Common types and constructors for writing views.
 pub mod prelude {
-    pub use crate::{with_animation, with_transaction, Animation, Transaction, Transform, UnitPoint};
+    pub use crate::{with_animation, with_transaction, Animation, Transaction, Transform, Transition, UnitPoint};
     pub use crate::events::{
         EventPoint, Key, KeyEvent, KeyState, Modifiers, PointerButton, PointerButtons,
         PointerEvent, PointerKind, PointerPhase,

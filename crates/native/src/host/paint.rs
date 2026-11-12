@@ -117,6 +117,8 @@ impl Host {
             self.paint(id, Point::default(), clip, refract_core::Affine2d::IDENTITY, &mut frame)?;
         }
         self.scrolling.end_frame();
+        self.last_commands = frame.commands.clone();
+        self.paint_exits(&mut frame, now);
         self.paint_menu(&mut frame);
         Ok(frame)
     }
@@ -129,6 +131,7 @@ impl Host {
         parent_transform: refract_core::Affine2d,
         frame: &mut Frame,
     ) -> Result<()> {
+        let paint_start=frame.commands.len();
         let focus_within = self.has_focus_within(id);
         let entry = self.entries.get_mut(&id).unwrap();
         let layout = self.tree.layout(entry.node)?;
@@ -385,6 +388,7 @@ impl Host {
             frame.commands.push(DrawCommand::PopLayer);
         }
         if transformed { frame.commands.push(DrawCommand::PopLayer); }
+        self.entries.get_mut(&id).unwrap().paint_range=paint_start..frame.commands.len();
         Ok(())
     }
 }

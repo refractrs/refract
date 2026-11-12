@@ -69,11 +69,19 @@ struct Entry {
     composing: bool,
     // Keep model writes separate from the browser's provisional IME text.
     pending_value: Option<String>,
-    image_url: Option<crate::image::ImageUrl>,
+    image_url: Option<Rc<crate::image::ImageUrl>>,
     scroll_tracker: refract_core::ScrollTracker,
 }
 
 /// Host registry and revision used to validate and apply core patches.
+struct ExitDom {
+    container: HtmlElement,
+    node: HtmlElement,
+    transform: String,
+    opacity: f32,
+    _images: Vec<Rc<crate::image::ImageUrl>>,
+}
+
 struct Dom {
     document: Document,
     root: HtmlElement,
@@ -84,6 +92,7 @@ struct Dom {
     adopting: bool,
     hydrated: bool,
     presentation: refract_core::PresentationState,
+    exits: HashMap<ElementId, ExitDom>,
 }
 
 /// Own the JS callback until its root listener has been detached.
@@ -254,6 +263,7 @@ fn dispose(inner: &Inner) {
     dom.stylesheet.remove();
     dom.entries.clear();
     dom.presentation.clear();
+    dom.exits.clear();
 }
 
 /// Mount a view in a browser element and apply its initial tree synchronously.
@@ -408,6 +418,7 @@ fn mount_inner(
             adopting,
             hydrated: false,
             presentation: Default::default(),
+            exits: HashMap::new(),
         }),
         listeners: RefCell::new(vec![]),
         captures: RefCell::new(HashMap::new()),
@@ -582,6 +593,7 @@ fn request_animation(inner: &Rc<Inner>) -> Result<(), JsValue> {
                         dom.calls += calls;
                     }
                 }
+                dom.animate_exits(std::time::Duration::from_secs_f64(timestamp / 1000.0))?;
                 Ok(())
             })();
             if let Err(error) = result.and_then(|_| request_animation(&inner)) {
@@ -1084,10 +1096,77 @@ impl Dom {
             .or_else(|| self.document.active_element())
     }
 
+    fn capture_exits(&mut self) -> Result<(), JsValue> {
+        let ids: Vec<_> = self.presentation.exit_ids().filter(|id| !self.exits.contains_key(id)).collect();
+        for id in ids {
+            let Some(entry)=self.entries.get(&id) else {continue;};
+            let images=self.entries.values().filter(|e| entry.node.contains(Some(&e.node))).filter_map(|e|e.image_url.clone()).collect();
+            let mut path=vec![entry.node.clone()];
+            let mut parent=entry.node.parent_element();
+            while let Some(node)=parent {
+                if node.is_same_node(Some(self.root.as_ref())) {break;}
+                parent=node.parent_element();
+                path.push(node.dyn_into::<HtmlElement>()?);
+            }
+            path.reverse();
+            let container:HtmlElement=self.document.create_element("div")?.dyn_into()?;
+            container.set_attribute("data-refract-exit", "")?;
+            container.set_attribute("aria-hidden", "true")?;
+            container.set_attribute("inert", "")?;
+            let style=container.style();
+            for (key,value) in [("position","absolute"),("left","0"),("top","0"),("pointer-events","none")] {style.set_property(key,value)?;}
+            style.set_property("width",&format!("{}px",self.root.client_width()))?;
+            style.set_property("height",&format!("{}px",self.root.client_height()))?;
+            let mut parent=container.clone(); let mut target=None;
+            let mut scrolls=Vec::new();
+            for (index, original) in path.iter().enumerate() {
+                let deep=index+1==path.len();
+                let clone:HtmlElement=original.clone_node_with_deep(deep)?.dyn_into()?;
+                clone.remove_attribute("data-refract-id")?;
+                let nodes=clone.query_selector_all("[data-refract-id]")?;
+                for i in 0..nodes.length() { if let Some(node)=nodes.item(i).and_then(|n|n.dyn_into::<web_sys::Element>().ok()) {node.remove_attribute("data-refract-id")?;} }
+                let style=clone.style();
+                style.set_property("position","absolute")?;
+                style.set_property("left",&format!("{}px",original.offset_left()))?;
+                style.set_property("top",&format!("{}px",original.offset_top()))?;
+                style.set_property_with_priority("width",&format!("{}px",original.offset_width()),"important")?;
+                style.set_property_with_priority("height",&format!("{}px",original.offset_height()),"important")?;
+                style.set_property("max-width","none")?; style.set_property("max-height","none")?;
+                style.set_property("min-width","0")?; style.set_property("min-height","0")?;
+                style.set_property("pointer-events","none")?;
+                parent.append_child(&clone)?;
+                scrolls.push((clone.clone(),original.scroll_left(),original.scroll_top()));
+                if deep {target=Some(clone.clone());}
+                parent=clone;
+            }
+            self.root.append_child(&container)?;
+            for (node,x,y) in scrolls {node.set_scroll_left(x);node.set_scroll_top(y);}
+            let node=target.unwrap();
+            let transform=node.style().get_property_value("transform")?;
+            let opacity=node.style().get_property_value("opacity")?.parse().unwrap_or(1.0);
+            self.exits.insert(id,ExitDom{container,node,transform,opacity,_images:images});
+        }
+        Ok(())
+    }
+
+    fn animate_exits(&mut self, now: std::time::Duration) -> Result<(),JsValue> {
+        let ids:Vec<_>=self.exits.keys().copied().collect();
+        for id in ids {
+            if let Some(effect)=self.presentation.exit_effect(id,now) {
+                let exit=&self.exits[&id]; let style=exit.node.style();
+                style.set_property("opacity",&(exit.opacity*effect.opacity).to_string())?;
+                style.set_property("transform",&format!("translate({}px, {}px) scale({}) {}",effect.offset_x,effect.offset_y,effect.scale,exit.transform))?;
+                self.calls+=2;
+            } else if let Some(exit)=self.exits.remove(&id) {exit.container.remove();self.calls+=1;}
+        }
+        Ok(())
+    }
+
     /// Apply a validated batch while retaining nodes and focus wherever possible.
     fn apply(&mut self, update: &Update) -> Result<(), JsValue> {
         let now = animation_now();
         self.presentation.apply(update, now);
+        self.capture_exits()?;
         if std::mem::take(&mut self.adopting) {
             let adopted = self.adopt(update)?;
             self.root.remove_attribute("data-refract-prerender")?;
@@ -1146,7 +1225,9 @@ impl Dom {
                         image_url: None,
                         scroll_tracker: Default::default(),
                     };
-                    self.calls += apply_properties(&mut entry, element, true)?;
+                    let displayed=self.presentation.element(*id,now).unwrap_or_else(||element.clone());
+                    self.calls += apply_properties(&mut entry, &displayed, true)?;
+                    entry.element=element.clone();
                     self.calls += 1;
                     self.entries.insert(*id, entry);
                 }
@@ -1253,7 +1334,7 @@ fn apply_properties(entry: &mut Entry, new: &Element, initial: bool) -> Result<u
         let image_url = new
             .source
             .as_ref()
-            .map(crate::image::ImageUrl::new)
+            .map(|source| crate::image::ImageUrl::new(source).map(Rc::new))
             .transpose()?;
         if let Some(url) = &image_url {
             node.set_attribute("src", url.as_str())?;
