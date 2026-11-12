@@ -13,7 +13,11 @@ pub(super) fn selected(cx: &mut ViewContext<'_>) -> impl View {
         .expect("model keeps a selected conversation");
     // A key changes the pane's identity on selection. Drafts live in the model,
     // while host-owned selection/scroll belongs to the mounted conversation.
-    pane().environment_object(chat).key(selected.0.to_string())
+    pane()
+        .transition(Transition::asymmetric(Transition::opacity(), Transition::identity()))
+        .environment_object(chat)
+        .key(selected.0.to_string())
+        .animation(Animation::ease_out(Duration::from_millis(120)), selected)
 }
 
 fn pane() -> impl View {
@@ -68,6 +72,7 @@ fn transcript(cx: &mut ViewContext<'_>) -> impl View {
     #[environment_object]
     let chat: Rc<Conversation>;
     let messages = cx.read_state(&chat.messages);
+    let message_count = messages.len();
     let contents = if messages.is_empty() {
         welcome().into_any()
     } else {
@@ -75,7 +80,12 @@ fn transcript(cx: &mut ViewContext<'_>) -> impl View {
             .gap(30.0)
             .children(messages.into_iter().map(|message| {
                 let key = message.id.0.to_string();
-                message::message(message).key(key)
+                message::message(message)
+                    .transition(Transition::asymmetric(
+                        Transition::opacity().combined_with(Transition::offset(0.0, 4.0)),
+                        Transition::identity(),
+                    ))
+                    .key(key)
             }))
             .into_any()
     };
@@ -90,6 +100,7 @@ fn transcript(cx: &mut ViewContext<'_>) -> impl View {
                 .fill_width(),
         )
         .fill_width()
+        .animation(entrance_motion(), message_count)
 }
 
 #[view]

@@ -60,7 +60,8 @@ pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
                 .focus_within(FocusRing::new(ACCENT, 2.0, 2.0))
                 .shadow(BoxShadow::new(0.0, 4.0, 20.0, Color(24, 40, 63, 18)))
                 .max_width(740.0)
-                .fill_width(),
+                .fill_width()
+                .animation(color_motion(), active),
         )
         .child(
             text("Scripted replies · Chats stay in this session · ⌘ / Ctrl + Enter to send")
@@ -105,4 +106,5 @@ fn send_control(cx: &mut ViewContext<'_>) -> impl View {
         .background(if busy || enabled { ACCENT } else { SIDE })
         .foreground(if busy || enabled { Color::WHITE } else { MUTED })
         .radius(8.0)
+        .animation(color_motion(), (busy, enabled))
 }

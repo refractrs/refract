@@ -88,6 +88,8 @@ try {
   await key('Message Refract', {ctrlKey:true});
   check(app.active_streams() === 1 && composer.value === '', 'Ctrl+Enter sends and clears the draft');
   check(composer === find('Message Refract') && root.activeElement === composer, 'submission retains editor identity and focus');
+  // Let the 180ms entrance finish before measuring token-only DOM work.
+  await delay(220);
   const ids = [...root.querySelectorAll('[data-refract-id]')].map(e => e.dataset.refractId).join(',');
   const changes = [];
   const observer = new MutationObserver(records => changes.push(...records));
