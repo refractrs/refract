@@ -10,6 +10,8 @@
 
 mod animation;
 pub use animation::*;
+mod transform;
+pub use transform::*;
 mod transaction;
 pub use transaction::{with_animation, with_transaction, AnimationScope, Transaction, TransactionView};
 mod element;
@@ -66,7 +68,7 @@ impl std::error::Error for ViewError {}
 
 /// Common types and constructors for writing views.
 pub mod prelude {
-    pub use crate::{with_animation, with_transaction, Animation, Transaction};
+    pub use crate::{with_animation, with_transaction, Animation, Transaction, Transform, UnitPoint};
     pub use crate::events::{
         EventPoint, Key, KeyEvent, KeyState, Modifiers, PointerButton, PointerButtons,
         PointerEvent, PointerKind, PointerPhase,

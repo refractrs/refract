@@ -9,6 +9,19 @@ use std::{any::Any, rc::Rc};
 // One modifier definition serves concrete builders and the generic ViewExt fallback.
 macro_rules! element_modifiers {
     ($visibility:vis $output:ty, $apply:path) => {
+        /// Translate presentation in logical pixels without changing layout.
+        $visibility fn offset(self, x: f32, y: f32) -> $output {
+            $apply(self, move |e| { e.style.transform.offset_x = x; e.style.transform.offset_y = y; })
+        }
+        $visibility fn scale_effect(self, scale: f32) -> $output {
+            $apply(self, move |e| { e.style.transform.scale_x = scale; e.style.transform.scale_y = scale; })
+        }
+        $visibility fn rotation_effect(self, degrees: f32) -> $output {
+            $apply(self, move |e| e.style.transform.rotation = degrees)
+        }
+        $visibility fn transform_anchor(self, anchor: $crate::UnitPoint) -> $output {
+            $apply(self, move |e| e.style.transform.anchor = anchor)
+        }
         $visibility fn width(self, value: f32) -> $output {
             $apply(self, move |e| e.style.width = Some(value))
         }

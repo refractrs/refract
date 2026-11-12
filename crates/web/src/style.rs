@@ -6,6 +6,11 @@ use std::collections::BTreeMap;
 pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
     let s = &e.style;
     let mut out = BTreeMap::new();
+    let t = s.transform;
+    if t != Transform::default() {
+        out.insert("transform", format!("translate({}px, {}px) rotate({}deg) scale({}, {})", t.offset_x, t.offset_y, t.rotation, t.scale_x, t.scale_y));
+        out.insert("transform-origin", format!("{}% {}%", t.anchor.x * 100.0, t.anchor.y * 100.0));
+    }
     // Set both sets on every node: CSS variables inherit, focus styles do not.
     for (ring, color, width, offset, pointer_color, pointer_width) in [
         (s.focus_ring.unwrap_or_default(), "--refract-focus-color", "--refract-focus-width",

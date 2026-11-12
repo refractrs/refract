@@ -113,7 +113,7 @@ impl Host {
             height,
         };
         for id in self.roots.clone() {
-            self.paint(id, Point::default(), clip, &mut frame)?;
+            self.paint(id, Point::default(), clip, refract_core::Affine2d::IDENTITY, &mut frame)?;
         }
         self.scrolling.end_frame();
         self.paint_menu(&mut frame);
@@ -125,6 +125,7 @@ impl Host {
         id: ElementId,
         origin: Point,
         inherited_clip: Rect,
+        parent_transform: refract_core::Affine2d,
         frame: &mut Frame,
     ) -> Result<()> {
         let focus_within = self.has_focus_within(id);
@@ -138,6 +139,11 @@ impl Host {
         };
         entry.rect = rect;
         let s = &entry.element.style;
+        let local_transform = s.transform.matrix(rect.x, rect.y, rect.width, rect.height);
+        let transformed = local_transform != refract_core::Affine2d::IDENTITY;
+        let world_transform = parent_transform.then(local_transform);
+        entry.transform = world_transform;
+        if transformed { frame.commands.push(DrawCommand::PushTransform(local_transform)); }
         let clipped = s.clipped || matches!(s.layout, Layout::Scroll(_));
         entry.clip = if clipped {
             inherited_clip.intersect(rect)
@@ -159,11 +165,9 @@ impl Host {
                 opacity: s.opacity.unwrap_or(1.0),
             });
         } else if let Some(opacity) = s.opacity {
-            frame.commands.push(DrawCommand::PushLayer {
-                clip: inherited_clip,
-                radius: 0.0.into(),
-                opacity,
-            });
+            if world_transform == refract_core::Affine2d::IDENTITY {
+                frame.commands.push(DrawCommand::PushLayer { clip: inherited_clip, radius: 0.0.into(), opacity });
+            } else { frame.commands.push(DrawCommand::PushOpacity(opacity)); }
         }
         if let Some(shadow) = s.shadow {
             frame.commands.push(DrawCommand::BoxShadow {
@@ -341,7 +345,7 @@ impl Host {
         };
         let radius = s.radius;
         for child in children {
-            self.paint(child, origin, clip, frame)?;
+            self.paint(child, origin, clip, world_transform, frame)?;
         }
         if let Some((radius, alpha)) = feedback {
             frame.commands.push(DrawCommand::Fill {
@@ -379,6 +383,7 @@ impl Host {
         if has_opacity {
             frame.commands.push(DrawCommand::PopLayer);
         }
+        if transformed { frame.commands.push(DrawCommand::PopLayer); }
         Ok(())
     }
 }

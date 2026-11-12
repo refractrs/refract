@@ -39,9 +39,28 @@ impl Host {
                 || e.element.focusable.is_some()
                 || e.element.focus_target)
                 && !e.element.disabled
-                && e.rect.contains(point)
-                && e.clip.contains(point)
+                && self.point_inside(*id, point)
         })
+    }
+
+    pub(super) fn local_point(&self, id: ElementId, point: Point) -> Option<Point> {
+        let (x, y) = self.entries.get(&id)?.transform.inverse()?.point(point.x, point.y);
+        Some(Point { x, y })
+    }
+
+    pub(super) fn point_inside(&self, id: ElementId, point: Point) -> bool {
+        let Some(local) = self.local_point(id, point) else { return false; };
+        if !self.entries[&id].rect.contains(local) { return false; }
+        let mut cursor = Some(id);
+        while let Some(id) = cursor {
+            let e = &self.entries[&id];
+            if e.element.style.clipped || matches!(e.element.style.layout, refract_core::Layout::Scroll(_)) {
+                let Some(local) = self.local_point(id, point) else { return false; };
+                if !e.rect.contains(local) { return false; }
+            }
+            cursor = e.parent;
+        }
+        point.x >= 0.0 && point.y >= 0.0 && point.x < self.viewport.0 && point.y < self.viewport.1
     }
 
     pub fn activation(&self, id: ElementId) -> Option<refract_core::Event> {
@@ -133,6 +152,7 @@ impl Host {
     }
 
     pub fn editor_pointer(&mut self, point: Point, extend: bool) {
+        let Some(point) = self.focus.and_then(|id| self.local_point(id, point)) else { return; };
         if let Some(editor) = self
             .focus
             .and_then(|id| self.entries.get_mut(&id))
@@ -170,6 +190,11 @@ impl Host {
     }
 
     pub fn ime_area(&self) -> Option<crate::renderer::Rect> {
-        Some(self.entries.get(&self.focus?)?.editor.as_ref()?.ime_area())
+        let entry = self.entries.get(&self.focus?)?;
+        let r = entry.editor.as_ref()?.ime_area();
+        let corners = [(r.x,r.y),(r.x+r.width,r.y),(r.x,r.y+r.height),(r.x+r.width,r.y+r.height)].map(|(x,y)| entry.transform.point(x,y));
+        let x = corners.iter().map(|p|p.0).fold(f32::INFINITY,f32::min);
+        let y = corners.iter().map(|p|p.1).fold(f32::INFINITY,f32::min);
+        Some(crate::renderer::Rect { x, y, width: corners.iter().map(|p|p.0).fold(f32::NEG_INFINITY,f32::max)-x, height: corners.iter().map(|p|p.1).fold(f32::NEG_INFINITY,f32::max)-y })
     }
 }
