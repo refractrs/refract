@@ -22,7 +22,6 @@ pub(super) fn selected(cx: &mut ViewContext<'_>) -> impl View {
 
 fn pane() -> impl View {
     v_stack()
-        .child(title_bar())
         .child(
             transcript()
                 .scrollable()
@@ -36,35 +35,6 @@ fn pane() -> impl View {
         .fill_width()
         .fill_height()
         .min_height(0.0)
-}
-
-#[view]
-fn title_bar(cx: &mut ViewContext<'_>) -> impl View {
-    #[environment_object]
-    let model: Rc<ChatModel>;
-    #[environment_object]
-    let chat: Rc<Conversation>;
-    let title = cx.read_state(&chat.title);
-    #[action(model, chat)]
-    let delete = |action| model.delete(action.runtime(), chat.id);
-    h_stack()
-        .justify(Alignment::SpaceBetween)
-        .alignment(Alignment::Center)
-        .gap(12.0)
-        .child(text(title).font_size(12.0).foreground(MUTED).grow(1.0))
-        .child(
-            h_stack()
-                .alignment(Alignment::Center)
-                .justify(Alignment::Center)
-                .child(text("Delete chat").font_size(11.0).padding(6.0))
-                .on_press(delete)
-                .label("Delete chat")
-                .background(BACKGROUND)
-                .foreground(MUTED)
-                .radius(5.0),
-        )
-        .padding(Insets::symmetric(28.0, 4.0))
-        .fill_width()
 }
 
 #[view]

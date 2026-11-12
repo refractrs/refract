@@ -18,10 +18,10 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
                         .gap(12.0)
                         .alignment(Alignment::Center)
                         .child(text("+").font_size(21.0))
-                        .child(text("New conversation").font_size(13.0)),
+                        .child(text("New Conversation").font_size(13.0)),
                 )
                 .on_press(create)
-                .label("New conversation")
+                .label("New Conversation")
                 .fill_width()
                 .height(44.0)
                 .background(ACCENT)
@@ -67,12 +67,6 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
         .child(
             v_stack()
                 .gap(16.0)
-                .child(
-                    text("A little space to think.")
-                        .font_family(SANS)
-                        .font_size(17.0)
-                        .foreground(MUTED),
-                )
                 .child(
                     h_stack()
                         .gap(10.0)

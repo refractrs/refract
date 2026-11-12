@@ -164,7 +164,7 @@ fn stop_and_delete_reject_late_chunks_and_unmount_cleans_up() {
     host.press(&mut app, "Send message").unwrap();
     tick(&mut app, &mut host, &workers, 0);
     assert!(!host.text().contains("You asked: “one”"));
-    host.press(&mut app, "Delete chat").unwrap();
+    host.press(&mut app, "Delete Chat").unwrap();
     assert_eq!(workers.active.get(), 0);
     let text = host.text();
     tick(&mut app, &mut host, &workers, 1);
@@ -240,7 +240,7 @@ fn queued_chunks_are_ignored_on_delete_and_failures_release_the_composer() {
             complete: true,
         })
         .unwrap();
-    host.press(&mut app, "Delete chat").unwrap();
+    host.press(&mut app, "Delete Chat").unwrap();
     assert!(!host.text().contains("DELETED RESULT"));
     assert_eq!(workers.active.get(), 0);
     input(&mut app, &mut host, "Message Refract", "try again");
@@ -368,7 +368,7 @@ fn deep_links_preserve_prefixes_and_unknown_conversations_replace_the_current_en
     assert_eq!(url.path(), "/apps/chat/");
     assert_eq!(url.fragment(), Some("message"));
     assert_eq!(url.query(), Some("theme=dark&conversation=2"));
-    host.press(&mut app, "Delete chat").unwrap();
+    host.press(&mut app, "Delete Chat").unwrap();
     host.go(&mut app, -1);
     host.flush(&mut app).unwrap();
     assert_eq!(

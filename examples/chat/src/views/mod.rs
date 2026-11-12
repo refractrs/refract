@@ -86,25 +86,48 @@ pub(super) fn shell(cx: &mut ViewContext<'_>) -> impl View {
         .foreground(INK)
 }
 
-fn header() -> impl View {
+#[view]
+fn header(cx: &mut ViewContext<'_>) -> impl View {
+    #[environment_object]
+    let model: Rc<ChatModel>;
+    let selected = cx.read_state(&model.selected);
+    let chat = cx.read_state(&model.conversations)
+        .into_iter()
+        .find(|chat| chat.id == selected)
+        .expect("model keeps a selected conversation");
+    let title = cx.read_state(&chat.title);
+    #[action(model, chat)]
+    let delete = |action| model.delete(action.runtime(), chat.id);
     h_stack()
         .alignment(Alignment::Center)
         .justify(Alignment::SpaceBetween)
+        .gap(12.0)
         .child(
             h_stack()
                 .gap(14.0)
                 .alignment(Alignment::Center)
                 .child(toggle_sidebar())
-                .child(text("Chat").font_size(14.0).font_weight(600)),
+                .child(
+                    text(title)
+                        .font_size(14.0)
+                        .font_weight(600)
+                        .truncate()
+                        .grow(1.0)
+                        .min_width(0.0),
+                )
+                .grow(1.0)
+                .min_width(0.0),
         )
         .child(
-            text("●  LOCAL DEMO")
-                .font_family(MONO)
-                .font_size(10.0)
-                .foreground(ACCENT)
-                .padding(Insets::symmetric(11.0, 7.0))
-                .background(PALE)
-                .radius(20.0),
+            h_stack()
+                .alignment(Alignment::Center)
+                .justify(Alignment::Center)
+                .child(text("Delete Chat").font_size(11.0).padding(6.0))
+                .on_press(delete)
+                .label("Delete Chat")
+                .background(BACKGROUND)
+                .foreground(MUTED)
+                .radius(5.0),
         )
         .padding(Insets::symmetric(28.0, 18.0))
         .fill_width()
@@ -119,7 +142,19 @@ fn toggle_sidebar(cx: &mut ViewContext<'_>) -> impl View {
     h_stack()
         .alignment(Alignment::Center)
         .justify(Alignment::Center)
-        .child(text("☰").font_size(19.0))
+        .child(
+            h_stack()
+                .child(
+                    view()
+                        .width(5.0)
+                        .fill_height()
+                        .border(Border::default().right(1.5, MUTED)),
+                )
+                .width(18.0)
+                .height(16.0)
+                .border(Border::all(1.5, MUTED))
+                .radius(3.0),
+        )
         .on_press(toggle)
         .label("Toggle sidebar")
         .width(30.0)
