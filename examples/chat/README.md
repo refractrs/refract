@@ -97,7 +97,8 @@ controls have no remaining handler to notify.
 
 ## Animation
 
-Conversation selection and composer/send-control colors ease over 140ms. Switching
+Conversation selection fades in over 140ms and clears the previous highlight
+immediately. Composer/send-control colors ease over 140ms. Switching
 conversations fades the new pane in over 120ms; new messages fade in with a four
 pixel upward entrance over 180ms. These are value-scoped presentation animations.
 Typing and streamed tokens remain immediate, preserve editor/element identity,

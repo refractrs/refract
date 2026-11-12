@@ -169,5 +169,6 @@ fn conversation_row(cx: &mut ViewContext<'_>, chat: Rc<Conversation>) -> impl Vi
         .fill_width()
         .background(if selected { PALE } else { SIDE })
         .radius(7.0)
-        .animation(color_motion(), selected)
+        // Clear the old highlight immediately, including when insertion moves this row.
+        .animation(selected.then(color_motion), selected)
 }
