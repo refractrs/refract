@@ -351,3 +351,23 @@ fn gpu_blur_composites_subtrees_backdrops_clips_and_alpha() {
         "removing blur restores a sharp edge"
     );
 }
+
+#[test]
+#[ignore = "requires a GPU"]
+fn gpu_animation_transforms_preserve_clips_and_group_opacity() {
+    let mut gpu=Gpu::new();
+    let commands=vec![
+        DrawCommand::PushLayer{clip:rect(0.0,0.0,48.0,96.0),radius:0.0.into(),opacity:1.0},
+        DrawCommand::PushTransform(refract_core::Transform{offset_x:32.0,offset_y:16.0,..Default::default()}.matrix(0.0,0.0,32.0,32.0)),
+        DrawCommand::PushOpacity(0.5),
+        fill(rect(0.0,0.0,32.0,32.0),Paint::rgb(255,0,0)),
+        DrawCommand::PopLayer,DrawCommand::PopLayer,DrawCommand::PopLayer,
+    ];
+    for scale in [1,2] {
+        let data=gpu.pixels(&commands,scale as f64);
+        assert_eq!(pixel(&data,10,10,scale),&[0,0,0,0]);
+        let inside=pixel(&data,40,24,scale);
+        assert!(inside[0]>=245 && inside[3]>=126 && inside[3]<=129,"{inside:?}");
+        assert_eq!(pixel(&data,56,24,scale),&[0,0,0,0]);
+    }
+}

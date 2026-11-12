@@ -1,0 +1,43 @@
+import { createRequire } from 'node:module';
+import assert from 'node:assert/strict';
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const browser = await chromium.launch({headless:true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? {executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE} : {})});
+const page = await browser.newPage({viewport:{width:1000,height:800}});
+const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+try {
+  await page.goto(process.argv[2] || 'http://127.0.0.1:4176');
+  await page.waitForFunction(()=>!!window.animationApp);
+  const sample=()=>page.evaluate(()=>{
+    const root=document.querySelector('#app').shadowRoot;
+    const el=root.querySelector('[aria-label="Easing"]');
+    return {x:new DOMMatrix(getComputedStyle(el).transform).m41,revision:String(window.animationApp.revision()),calls:String(window.animationApp.dom_calls()),error:window.animationApp.last_error()};
+  });
+  assert.equal((await sample()).x,0);
+  await page.getByLabel('Reverse motion',{exact:true}).click();
+  await page.waitForTimeout(150);
+  const first=await sample();assert(first.x>0 && first.x<220,JSON.stringify(first));
+  await page.waitForTimeout(120);
+  const second=await sample();assert(second.x>first.x);assert.equal(second.revision,first.revision,'frames must not reconcile views');
+  await page.getByLabel('Reverse motion',{exact:true}).click();
+  const reversed=await sample();assert(Math.abs(reversed.x-second.x)<45,'retarget must not jump to a target');
+  await page.waitForTimeout(1800);
+  assert.equal((await sample()).x,0);
+  const idle=await sample();await page.waitForTimeout(120);assert.equal((await sample()).calls,idle.calls,'settled mount must sleep');
+  await page.getByLabel('Toggle notice',{exact:true}).click();
+  const exit=page.locator('[data-refract-exit]');await exit.waitFor({state:'attached'});
+  assert.equal(await exit.getAttribute('aria-hidden'),'true');assert.equal(await exit.getAttribute('inert'),'');
+  assert.equal(await exit.locator('[data-refract-id]').count(),0,'snapshot must not retain input identity');
+  await exit.waitFor({state:'detached'});
+  await page.getByLabel('Toggle notice',{exact:true}).click();
+  const notice=page.getByLabel('Animated notice',{exact:true});
+  await notice.waitFor();
+  const opacity=await notice.evaluate(el=>Number(getComputedStyle(el).opacity));assert(opacity<1,'insert must begin faded');
+  await page.waitForTimeout(500);assert.equal(await notice.evaluate(el=>Number(getComputedStyle(el).opacity)),1);
+  await page.getByLabel('Reverse motion',{exact:true}).click();
+  await page.evaluate(()=>window.animationApp.dispose());
+  const calls=await page.evaluate(()=>String(window.animationApp.dom_calls()));
+  await page.waitForTimeout(120);assert.equal(await page.evaluate(()=>String(window.animationApp.dom_calls())),calls,'dispose cancels frame work');
+  assert.deepEqual(errors,[]);assert.equal(first.error,undefined);
+  console.log('PASS: browser animation, interruption, idle scheduling, transitions, and disposal');
+} finally {await browser.close();}

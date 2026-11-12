@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 default-members = ["crates/*"]
-members = ["crates/*", "examples/counter", "examples/clock", "examples/gallery", "examples/chat"]
+members = ["crates/*", "examples/counter", "examples/clock", "examples/gallery", "examples/chat", "examples/animation"]
 
 [workspace.package]
 version = "0.1.5"
