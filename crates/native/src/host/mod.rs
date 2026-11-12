@@ -83,6 +83,9 @@ pub(crate) struct Host {
     menu: Option<menu::EditMenu>,
     stats: HostStats,
     input: events::InputState,
+    presentation: refract_core::PresentationState,
+    animation_origin: std::time::Instant,
+    next_animation_frame: Option<std::time::Instant>,
 }
 
 impl Host {
@@ -121,6 +124,9 @@ impl Host {
             menu: None,
             stats: HostStats::default(),
             input: events::InputState::default(),
+            presentation: Default::default(),
+            animation_origin: std::time::Instant::now(),
+            next_animation_frame: None,
         })
     }
 
@@ -206,7 +212,14 @@ impl Host {
     }
 
     pub fn apply(&mut self, update: &Update) -> Result<bool> {
+        self.apply_at(update, std::time::Instant::now())
+    }
+
+    pub(crate) fn apply_at(&mut self, update: &Update, now: std::time::Instant) -> Result<bool> {
         self.validate(update)?;
+        let time = now.saturating_duration_since(self.animation_origin);
+        self.presentation.apply(update, time);
+        self.next_animation_frame = self.presentation.is_animating().then_some(now);
         // Capture the old order before a disabled or removed control loses its
         // position. Recovery only considers controls that already existed.
         let recovery = self.focus.filter(|focused| update.patches.iter().any(|patch| match patch {
@@ -251,7 +264,9 @@ impl Host {
                     refresh.insert(*id);
                     self.needs_layout = true;
                 }
-                Patch::Update(id, element) => {
+                Patch::Update(id, target) => {
+                    let displayed = self.presentation.element(*id, time).unwrap_or_else(|| target.clone());
+                    let element = &displayed;
                     let entry = self.entries.get_mut(id).unwrap();
                     let next_style = layout::style(element);
                     if self.tree.style(entry.node)? != &next_style {
@@ -347,6 +362,31 @@ impl Host {
 
     /// Image completion changes host resources, not application state. Only
     /// current users of a completed resource need measurement/paint invalidation.
+    pub fn animation_deadline(&self) -> Option<std::time::Instant> {
+        self.next_animation_frame
+    }
+
+    pub(super) fn advance_animations(&mut self, now: std::time::Instant) -> Result<()> {
+        let samples = self.presentation.advance(now.saturating_duration_since(self.animation_origin));
+        let mut colors = Vec::new();
+        for (id, displayed) in samples {
+            let Some(entry) = self.entries.get_mut(&id) else { continue; };
+            let style = layout::style(&displayed);
+            if self.tree.style(entry.node)? != &style {
+                self.tree.set_style(entry.node, style)?;
+                self.needs_layout = true;
+            }
+            if entry.element.style.foreground != displayed.style.foreground { colors.push(id); }
+            entry.element.style = displayed.style;
+        }
+        for id in colors {
+            let inherited = self.entries[&id].parent.map(|p|self.entries[&p].typography.clone()).unwrap_or_default();
+            self.refresh_text(id, &inherited)?;
+        }
+        self.next_animation_frame = self.presentation.is_animating().then_some(now + std::time::Duration::from_millis(16));
+        Ok(())
+    }
+
     pub fn poll_images(&mut self) -> Result<bool> {
         let changed = self.images.poll();
         if changed.is_empty() {

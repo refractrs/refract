@@ -1633,3 +1633,24 @@ fn presentation_transforms_move_hit_targets_without_relayout() {
     assert_eq!(host.hit_test(Point { x: 500.0, y: 380.0 }), Some(id));
     assert_eq!(host.hit_test(Point { x: 400.0, y: 380.0 }), None);
 }
+
+#[test]
+fn animation_frames_sleep_when_settled_and_do_not_relayout_paint_changes() {
+    let saved=Rc::new(RefCell::new(None));
+    let mut app=App::new(view_fn({let saved=saved.clone(); move |cx| {
+        let value=cx.state("value",||false); *saved.borrow_mut()=Some(value.clone());
+        Ok(text("animated").opacity(if cx.read(&value) {0.0} else {1.0}))
+    }}));
+    let mut host=Host::new().unwrap(); flush(&mut app,&mut host); frame(&mut host);
+    let start=Instant::now();
+    with_animation(app.runtime_mut(),Animation::linear(Duration::from_secs(1)),|rt|saved.borrow().as_ref().unwrap().set(rt,true));
+    let p=app.prepare().unwrap().unwrap(); host.apply_at(&p.update,start).unwrap(); app.commit(p).unwrap();
+    let before=host.stats(); let revision=app.revision();
+    let middle=host.frame_at(600.0,700.0,2.0,Color::WHITE,start+Duration::from_millis(500)).unwrap();
+    assert!(middle.commands.iter().any(|c|matches!(c,DrawCommand::PushLayer{opacity,..} if (*opacity-0.5).abs()<0.001)));
+    assert_eq!(host.stats().layout_passes,before.layout_passes);
+    assert_eq!(host.stats().text_shapes,before.text_shapes);
+    assert_eq!(app.revision(),revision);
+    host.frame_at(600.0,700.0,2.0,Color::WHITE,start+Duration::from_secs(1)).unwrap();
+    assert!(host.animation_deadline().is_none());
+}
