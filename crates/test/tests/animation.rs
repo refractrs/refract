@@ -101,3 +101,73 @@ fn value_scope_is_staged_and_transaction_override_reaches_dirty_memo() {
         .values()
         .all(|tx| tx.animation.is_none()));
 }
+
+#[test]
+fn presentation_frames_retarget_without_graph_work_and_ignore_text_updates() {
+    let saved = Rc::new(RefCell::new(None));
+    let mut app = App::new(view_fn({
+        let saved = saved.clone();
+        move |cx| {
+            let value = cx.state("value", || 0.0f32);
+            let label = cx.state("label", || String::from("first"));
+            *saved.borrow_mut() = Some((value.clone(), label.clone()));
+            Ok(text(cx.read(&label)).offset(cx.read(&value), 0.0))
+        }
+    }));
+    let mut host = TestHost::default();
+    host.flush(&mut app).unwrap();
+    let id = app.elements()[0].0;
+    let (value, label) = saved.borrow().clone().unwrap();
+    let animation = Animation::linear(Duration::from_secs(1));
+    with_animation(app.runtime_mut(), animation, |rt| value.set(rt, 100.0));
+    host.flush(&mut app).unwrap();
+    let revision = app.revision();
+    let epoch = app.runtime().epoch();
+    host.advance_time(Duration::from_millis(400));
+    assert_eq!(host.presented(id).unwrap().style.transform.offset_x, 40.0);
+    assert_eq!(app.revision(), revision);
+    assert_eq!(app.runtime().epoch(), epoch);
+    label.set(app.runtime_mut(), String::from("streamed"));
+    host.flush(&mut app).unwrap();
+    host.advance_time(Duration::from_millis(100));
+    assert_eq!(host.presented(id).unwrap().style.transform.offset_x, 50.0);
+    with_animation(app.runtime_mut(), animation, |rt| value.set(rt, 0.0));
+    host.flush(&mut app).unwrap();
+    assert_eq!(host.presented(id).unwrap().style.transform.offset_x, 50.0);
+    host.advance_time(Duration::from_millis(500));
+    assert_eq!(host.presented(id).unwrap().style.transform.offset_x, 25.0);
+    value.set(app.runtime_mut(), 75.0);
+    host.flush(&mut app).unwrap();
+    assert_eq!(host.presented(id).unwrap().style.transform.offset_x, 75.0);
+    assert!(!host.presentation.is_animating());
+}
+
+#[test]
+fn opacity_reaches_absent_default_and_springs_stay_valid() {
+    let mut app = App::new(text("fade").opacity(0.0));
+    let mut host = TestHost::default();
+    host.flush(&mut app).unwrap();
+    let id = app.elements()[0].0;
+    // set_view replaces descriptions of the same type; a transaction scope supplies intent.
+    let mut update = host.updates[0].clone();
+    update.base_revision = 1;
+    update.revision = 2;
+    let mut element = app.elements()[0].1.clone();
+    element.style.opacity = None;
+    update.patches = vec![Patch::Update(id, element)];
+    update.animations.insert(
+        id,
+        Transaction {
+            animation: Some(Animation::spring()),
+            disables_animations: false,
+        },
+    );
+    host.apply(&update).unwrap();
+    for _ in 0..120 {
+        for (_, element) in host.advance_time(Duration::from_millis(16)) {
+            element.validate().unwrap();
+        }
+    }
+    assert!(!host.presentation.is_animating());
+    assert_eq!(host.presented(id).unwrap().style.opacity, None);
+}
