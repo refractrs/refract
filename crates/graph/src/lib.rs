@@ -28,7 +28,7 @@ pub use channel::{MessageSender, MessageSubscription, SendError};
 pub use derived::Derived;
 pub use handle::AttributeId;
 pub use observer::{Dependencies, Observer};
-pub use runtime::{GraphStats, Runtime};
+pub use runtime::{GraphStats, MutationContext, Runtime};
 pub use state::{Binding, BindingId, Read, State};
 
 #[cfg(test)]

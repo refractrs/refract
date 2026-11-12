@@ -26,6 +26,23 @@ struct Attribute {
     compute: Option<Computation>,
     observer: bool,
     dirty: bool,
+    cause: Option<MutationContext>,
+    notified_epoch: u64,
+}
+
+/// Opaque context of the latest mutation affecting an observer. The graph does
+/// not interpret this payload. An absent payload explicitly represents an
+/// ordinary mutation and supersedes an earlier contextual mutation.
+#[derive(Clone)]
+pub struct MutationContext {
+    pub epoch: u64,
+    value: Option<Rc<dyn Any>>,
+}
+
+impl MutationContext {
+    pub fn get<T: 'static>(&self) -> Option<&T> {
+        self.value.as_ref()?.downcast_ref()
+    }
 }
 
 /// Current graph size and cumulative propagation counters.
@@ -56,6 +73,7 @@ pub struct Runtime {
     queue: VecDeque<AttributeId>,
     queued: HashSet<AttributeId>,
     batch_depth: usize,
+    mutation_context: Option<Rc<dyn Any>>,
 
     // State-write version used by callers to reject stale prepared work.
     epoch: u64,
@@ -82,6 +100,7 @@ impl Runtime {
             queue: VecDeque::new(),
             queued: HashSet::new(),
             batch_depth: 0,
+            mutation_context: None,
             epoch: 0,
             dirty_observers: HashSet::new(),
             wake: None,
@@ -106,6 +125,8 @@ impl Runtime {
                 compute,
                 observer: false,
                 dirty: false,
+                cause: None,
+                notified_epoch: 0,
             },
         );
         Handle::new(id, Rc::downgrade(&self.retired))
@@ -124,6 +145,10 @@ impl Runtime {
             .downcast_mut::<T>()
             .expect("attribute type mismatch") = value;
         attr.revision = attr.revision.checked_add(1).expect("revision exhausted");
+        attr.cause = Some(MutationContext {
+            epoch: self.epoch,
+            value: self.mutation_context.clone(),
+        });
         self.enqueue_readers(id);
         if self.batch_depth == 0 {
             self.settle();
@@ -221,6 +246,7 @@ impl Runtime {
             .expect("foreign observer")
             .dirty = false;
         self.dirty_observers.remove(&observer.id());
+        self.attributes.get_mut(&observer.id()).unwrap().cause = None;
     }
 
     /// Mark an observer clean while retaining its existing subscriptions.
@@ -230,6 +256,7 @@ impl Runtime {
             .expect("foreign observer")
             .dirty = false;
         self.dirty_observers.remove(&observer.id());
+        self.attributes.get_mut(&observer.id()).unwrap().cause = None;
     }
 
     pub(crate) fn replace_dependencies(&mut self, target: AttributeId, dependencies: Dependencies) {
@@ -268,7 +295,19 @@ impl Runtime {
     }
 
     fn enqueue_readers(&mut self, source: AttributeId) {
-        for &id in &self.attributes[&source].readers {
+        let cause = self.attributes[&source].cause.clone();
+        let readers: Vec<_> = self.attributes[&source].readers.iter().copied().collect();
+        for id in readers {
+            if let Some(cause) = &cause {
+                let attr = self.attributes.get_mut(&id).unwrap();
+                if attr
+                    .cause
+                    .as_ref()
+                    .is_none_or(|old| old.epoch < cause.epoch)
+                {
+                    attr.cause = Some(cause.clone());
+                }
+            }
             if self.queued.insert(id) {
                 self.queue.push_back(id);
             }
@@ -296,12 +335,16 @@ impl Runtime {
                 // here, including to observers that aggregate other observers.
                 wake = true;
                 self.dirty_observers.insert(id);
-                if attr.dirty {
+                let epoch = attr.cause.as_ref().map_or(0, |cause| cause.epoch);
+                if attr.dirty && attr.notified_epoch >= epoch {
                     continue;
                 }
                 let attr = self.attributes.get_mut(&id).unwrap();
+                if !attr.dirty {
+                    self.invalidations += 1;
+                }
                 attr.dirty = true;
-                self.invalidations += 1;
+                attr.notified_epoch = epoch;
                 wake = true;
                 self.enqueue_readers(id);
             } else if let Some(compute) = &attr.compute {
@@ -347,6 +390,29 @@ impl Runtime {
             }
             Err(e) => std::panic::resume_unwind(e),
         }
+    }
+
+    /// Run synchronous mutations with caller-owned context, preserving nested
+    /// scopes and restoring context on unwind. Deferred propagation carries the
+    /// context captured at each write, not the context at batch settlement.
+    pub fn with_mutation_context<T: 'static, R>(
+        &mut self,
+        context: T,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let previous = self.mutation_context.replace(Rc::new(context));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.batch(f)));
+        self.mutation_context = previous;
+        match result {
+            Ok(value) => value,
+            Err(error) => std::panic::resume_unwind(error),
+        }
+    }
+
+    /// Context remains available until an observer's output is accepted. Draining
+    /// dirty notifications or abandoning a prepared UI does not consume it.
+    pub fn observer_context(&self, observer: &Observer) -> Option<&MutationContext> {
+        self.attributes.get(&observer.id())?.cause.as_ref()
     }
 
     /// Remove retired attributes, detach their edges, and discard their queued work.
