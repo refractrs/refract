@@ -16,7 +16,7 @@ let app;
 try {
   await init(); app = start(document.querySelector('#fixture'));
   const root = document.querySelector('#fixture').shadowRoot;
-  const find = label => root.querySelector(`[aria-label="${label}"]`);
+  const find = label => root.querySelector(`[data-refract-id][aria-label="${label}"]`);
   const disabled = label => find(label).getAttribute('aria-disabled') === 'true' && find(label).tabIndex === -1;
   const press = async label => { find(label).click(); await settle(); };
   const input = async (label, value) => { const el = find(label); el.value = value; el.dispatchEvent(new InputEvent('input', {bubbles:true, composed:true})); await settle(); };
