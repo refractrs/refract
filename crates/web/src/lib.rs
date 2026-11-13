@@ -11,4 +11,4 @@ mod style;
 pub use dom::*;
 #[doc(hidden)]
 pub use prerender::encode_export;
-pub use prerender::{prerender, PrerenderOptions};
+pub use prerender::{prerender, prerender_with_inputs, PrerenderOptions};

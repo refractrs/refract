@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Host input conformance</title>
+<button id="run">Run host input checks</button>
+<pre id="result">Ready</pre>
+<div id="fixtures"></div>
+<script type="module">
+import init, { start, snapshot } from './pkg/host_input_fixture.js';
+await init();
+const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+document.querySelector('#run').onclick = async () => {
+  const apps = [];
+  const fixtures = document.querySelector('#fixtures');
+  fixtures.replaceChildren();
+  try {
+    const host = document.createElement('div');
+    host.innerHTML = snapshot();
+    fixtures.append(host);
+    const app = start(host);
+    apps.push(app);
+    const root = host.shadowRoot;
+    const label = root.querySelector('[aria-label="host inputs"]');
+    const local = root.querySelector('[aria-label="local state"]');
+    assert(app.hydrated(), 'snapshot was not hydrated');
+    assert(label.textContent === 'initial:7', 'wrong initial inputs');
+    local.click();
+    await settle();
+    assert(local.textContent === 'local:1', 'local state did not update');
+    const before = app.evaluations();
+    app.update('changed', 8);
+    await settle();
+    assert(label === root.querySelector('[aria-label="host inputs"]'), 'input update replaced nodes');
+    assert(label.textContent === 'changed:8', 'input batch did not apply');
+    assert(app.evaluations() === before + 1, 'input batch rendered more than once');
+    assert(local.textContent === 'local:1', 'input update reset local state');
+    app.update('changed', 8);
+    await settle();
+    assert(app.evaluations() === before + 1, 'equal inputs invalidated views');
+    const second = document.createElement('div');
+    second.innerHTML = snapshot();
+    fixtures.append(second);
+    const other = start(second);
+    apps.push(other);
+    assert(second.shadowRoot.textContent.includes('initial:7'), 'inputs leaked between mounts');
+    app.update('discarded', 9);
+    app.dispose();
+    await settle();
+    assert(!root.querySelector('.refract-root'), 'disposed mount retained its tree');
+    let rejected = false;
+    try { app.update('late', 10); } catch { rejected = true; }
+    assert(rejected, 'disposed mount accepted inputs');
+    document.querySelector('#result').textContent = 'PASS: hydration, batching, equality, identity, isolation, and disposal';
+  } catch (error) {
+    document.querySelector('#result').textContent = `FAIL: ${error.message}`;
+    console.error(error);
+  } finally {
+    for (const app of apps) app.free();
+  }
+};
+</script>

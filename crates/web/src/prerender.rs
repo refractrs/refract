@@ -25,7 +25,24 @@ impl Default for PrerenderOptions {
 /// Render a fragment for insertion inside a host element. Effects are never started.
 /// Use `hydrate` with the same initial view and shadow policy in the browser.
 pub fn prerender(view: impl View, options: PrerenderOptions) -> Result<String, ViewError> {
-    let mut app = App::new(view);
+    prerender_app(App::new(view), options)
+}
+
+/// Render with host inputs initialized in the same way as a browser mount.
+/// The initializer must be browser-independent. Handles are kept alive through
+/// rendering and then dropped; no effects are committed or state serialized.
+/// Use identical initial values when hydrating the resulting HTML.
+pub fn prerender_with_inputs<V: View, I>(
+    options: PrerenderOptions,
+    initialize: impl FnOnce(&mut refract_core::Runtime) -> (V, I),
+) -> Result<String, ViewError> {
+    let (app, inputs) = App::with_inputs(initialize);
+    let result = prerender_app(app, options);
+    drop(inputs);
+    result
+}
+
+fn prerender_app(mut app: App, options: PrerenderOptions) -> Result<String, ViewError> {
     // Surface-dependent views can observe an unavailable build-time viewport.
     // Browser observations may change the initial tree, causing a clean remount.
     let _surface =
@@ -149,11 +166,59 @@ macro_rules! export_prerender {
     };
 }
 
+/// Export a snapshot using the initializer shared with `hydrate_with_inputs`.
+/// Initial values belong to the application; the snapshot ABI remains HTML-only.
+#[macro_export]
+macro_rules! export_prerender_with_inputs {
+    ($initialize:expr) => {
+        $crate::export_prerender_with_inputs!(
+            $initialize,
+            $crate::PrerenderOptions::default()
+        );
+    };
+    ($initialize:expr, $options:expr) => {
+        #[cfg(target_arch = "wasm32")]
+        #[unsafe(no_mangle)]
+        pub extern "C" fn __refract_prerender_v1() -> u64 {
+            $crate::encode_export($crate::prerender_with_inputs($options, $initialize))
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use refract_core::prelude::*;
     use std::{cell::Cell, rc::Rc};
+
+    #[test]
+    fn host_inputs_are_deterministic_and_do_not_start_effects() {
+        struct Inputs(Read<String>);
+        let effects = Rc::new(Cell::new(0));
+        let render = |initial: &str| {
+            prerender_with_inputs(PrerenderOptions::default(), |rt| {
+                let value = State::new(rt, initial.to_owned());
+                let effects = effects.clone();
+                let view = view_fn(move |cx| {
+                    let inputs = cx.object::<Inputs>()?;
+                    let effects = effects.clone();
+                    cx.effect("host input effect", (), move |_| {
+                        effects.set(effects.get() + 1);
+                        Box::new(|| {})
+                    });
+                    Ok::<_, ViewError>(text(cx.read(&inputs.0)))
+                })
+                .environment_object(Rc::new(Inputs(value.read_only())));
+                (view, value)
+            })
+            .unwrap()
+        };
+        let html = render("dark <initial>");
+        assert!(html.contains("dark &lt;initial&gt;"));
+        assert_eq!(html, render("dark <initial>"));
+        assert_ne!(html, render("light"));
+        assert_eq!(effects.get(), 0);
+    }
 
     #[test]
     fn escapes_markup_and_does_not_start_effects() {
