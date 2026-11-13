@@ -7,7 +7,7 @@ use crate::{
 
 macro_rules! element_builder {
     ($name:ident) => {
-        impl crate::modifiers::ElementBuilder for $name {
+        impl crate::view::modifiers::ElementBuilder for $name {
             fn element_mut(&mut self) -> &mut Element {
                 &mut self.element
             }
@@ -15,9 +15,9 @@ macro_rules! element_builder {
         }
 
         impl $name {
-            crate::modifiers::element_modifiers!(pub Self, crate::modifiers::configure);
-            crate::modifiers::event_modifiers!(pub Self, crate::modifiers::configure_handler);
-    crate::modifiers::focus_modifiers!(pub Self, crate::modifiers::configure_focus);
+            crate::view::modifiers::element_modifiers!(pub Self, crate::view::modifiers::configure);
+            crate::view::modifiers::event_modifiers!(pub Self, crate::view::modifiers::configure_handler);
+            crate::view::modifiers::focus_modifiers!(pub Self, crate::view::modifiers::configure_focus);
 
             /// Add pointer/keyboard activation, preserving this builder.
             /// Browser activation targets suppress user text selection.
@@ -170,7 +170,7 @@ leaf_builder!(
 );
 
 impl Text {
-    crate::modifiers::text_modifiers!(pub Self, crate::modifiers::configure);
+    crate::view::modifiers::text_modifiers!(pub Self, crate::view::modifiers::configure);
 
     /// Display a single line, truncating overflow with an ellipsis on both hosts.
     /// Constrain the text's width to enable truncation. Whitespace is collapsed;

@@ -1,7 +1,15 @@
 //! Mounted state, incremental reconciliation, and host commit coordination.
 
-use crate::{element::ElementIdentity, environment::Entry, *};
-use crate::transaction::AnimationContext;
+pub(crate) mod environment;
+mod focus;
+pub(crate) mod focus_state;
+mod surface;
+
+pub use environment::{Environment, EnvironmentKey};
+pub use surface::*;
+
+use self::environment::Entry;
+use crate::{element::ElementIdentity, presentation::transaction::AnimationContext, *};
 use std::{
     any::{Any, TypeId},
     cell::{Cell, RefCell},
@@ -14,9 +22,6 @@ use std::{
 pub struct ElementId(pub u64);
 
 type MountId = ElementId;
-
-#[path = "focus_runtime.rs"]
-mod focus_runtime;
 
 /// Work performed while preparing a single update.
 #[derive(Clone, Copy, Debug, Default)]
@@ -191,7 +196,7 @@ impl ViewContext<'_> {
     /// Read an inherited shared model, or fail if no provider exists.
     /// Read the model's graph bindings separately to subscribe to its fields.
     pub fn object<T: 'static>(&mut self) -> Result<Rc<T>, ViewError> {
-        self.environment::<crate::environment::ObjectKey<T>>()
+        self.environment::<crate::runtime::environment::ObjectKey<T>>()
             .0
             .ok_or_else(|| {
                 ViewError::new(format!(
@@ -295,7 +300,7 @@ pub struct Pending {
     removed: HashSet<MountId>,
     root: MountId,
     subscriptions: Vec<(Observer, Option<Dependencies>)>,
-    focus_bindings: BTreeMap<ElementId, crate::focus::FocusBinding>,
+    focus_bindings: BTreeMap<ElementId, crate::runtime::focus_state::FocusBinding>,
 }
 
 impl Pending {
@@ -346,7 +351,7 @@ pub struct App {
     revision: u64,
     replace_root: bool,
     last_stats: UpdateStats,
-    focus: crate::focus::Focus,
+    focus: crate::runtime::focus_state::Focus,
 }
 
 impl App {
@@ -406,9 +411,9 @@ impl App {
 
     /// Install an object in the root environment before evaluating views.
     pub fn set_environment_object<T: 'static>(&mut self, value: Rc<T>) {
-        self.set_environment::<crate::environment::ObjectKey<T>>(crate::environment::ObjectValue(
-            Some(value),
-        ));
+        self.set_environment::<crate::runtime::environment::ObjectKey<T>>(
+            crate::runtime::environment::ObjectValue(Some(value)),
+        );
     }
 
     /// Batch model writes before the next preparation.
