@@ -101,6 +101,8 @@ impl<A: Animatable, B: Animatable> Animatable for (A, B) {
 pub enum CanvasSchedule {
     #[default]
     OnChange,
+    /// Retain scheduled time without requesting frames.
+    Paused,
     /// Pauses while hidden and while reduced motion is requested.
     Animation,
 }
@@ -354,10 +356,10 @@ impl CanvasCache {
         } else {
             self.pause();
         }
-        let elapsed = if scheduled {
-            self.elapsed
-        } else {
+        let elapsed = if reduced_motion || content.schedule == CanvasSchedule::OnChange {
             Duration::ZERO
+        } else {
+            self.elapsed
         };
         if self.content.as_ref() != Some(content)
             || self.size != size

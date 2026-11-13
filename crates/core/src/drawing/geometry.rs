@@ -138,7 +138,9 @@ impl Path {
         ));
     }
     pub fn close(&mut self) {
-        Arc::make_mut(&mut self.0).push(PathElement::Close);
+        if !self.0.is_empty() && self.0.last() != Some(&PathElement::Close) {
+            Arc::make_mut(&mut self.0).push(PathElement::Close);
+        }
     }
     pub fn elements(&self) -> &[PathElement] {
         &self.0
