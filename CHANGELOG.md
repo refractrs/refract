@@ -2,6 +2,27 @@
 
 Notable changes to Refract, newest first.
 
+## 0.1.8
+
+- Add `App::with_inputs` to initialize host-owned state before the first
+  render. Share read-only fields through environment objects using the
+  existing state and dependency tracking APIs.
+- Add `mount_with_inputs`, `hydrate_with_inputs`, and `InputMount` for
+  embedded browser apps. Publish host changes through queued mutation
+  batches, skip equal values with `set_if_changed`, and preserve local
+  state and retained nodes without remounting. Reject updates after
+  disposal.
+- Add `prerender_with_inputs` and `export_prerender_with_inputs!` to share
+  initialization between prerendering and hydration. Recreate matching
+  initial input values, then publish current host values after hydration.
+  Snapshots remain HTML-only; inputs are not serialized automatically.
+- Add coverage for selective invalidation, batched updates, equal-value
+  writes, hydration, independent mounts, retained state, and disposal.
+- Update the shared chat example with reactive theme inputs, a browser
+  host toggle, and system color-scheme updates. Support prerendering and
+  hydration while preserving drafts and active replies across theme
+  changes. Keep the native launcher on the shared initialization path.
+
 ## 0.1.7
 
 - Add portable vector drawing with shared, copy-on-write paths, curves,
