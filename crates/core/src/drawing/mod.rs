@@ -1,4 +1,9 @@
-//! Portable vector geometry and drawing commands.
+//! Portable vector geometry, views, and drawing commands.
+mod canvas;
+mod shape;
+pub use canvas::*;
+pub use shape::*;
+
 mod geometry;
 mod graphics;
 pub use geometry::*;
@@ -55,5 +60,23 @@ mod tests {
             |g| g.fill(&path, Color::WHITE),
         );
         assert!(g.finish().is_err());
+    }
+}
+
+#[cfg(test)]
+mod animation_tests {
+    use super::*;
+    use crate::Color;
+    #[test]
+    fn transparent_canvas_colors_interpolate_without_dark_fringes() {
+        let target = Color(255, 0, 0, 255);
+        let transparent = Color(0, 0, 0, 0);
+        let midpoint = transparent
+            .components()
+            .iter()
+            .zip(target.components())
+            .map(|(a, b)| (a + b) / 2.0)
+            .collect::<Vec<_>>();
+        assert_eq!(target.with_components(&midpoint), Color(255, 0, 0, 128));
     }
 }

@@ -30,17 +30,19 @@ impl Track {
 pub struct PresentationState {
     targets: HashMap<ElementId, Element>,
     tracks: HashMap<ElementId, BTreeMap<u16, Track>>,
+    canvas_tracks: HashMap<ElementId, Vec<Track>>,
     parents: HashMap<ElementId, Option<ElementId>>,
     exits: HashMap<ElementId, (crate::TransitionEffect, Track)>,
 }
 
 impl PresentationState {
     pub fn is_animating(&self) -> bool {
-        !self.tracks.is_empty() || !self.exits.is_empty()
+        !self.tracks.is_empty() || !self.canvas_tracks.is_empty() || !self.exits.is_empty()
     }
     pub fn clear(&mut self) {
         self.targets.clear();
         self.tracks.clear();
+        self.canvas_tracks.clear();
         self.parents.clear();
         self.exits.clear();
     }
@@ -105,6 +107,7 @@ impl PresentationState {
                 Patch::Create(id, element) => {
                     self.targets.insert(*id, element.clone());
                     self.tracks.remove(id);
+                    self.canvas_tracks.remove(id);
                     if update.base_revision > 0 {
                         if let (Some(transition), Some(animation)) = (
                             element.transition,
@@ -136,6 +139,7 @@ impl PresentationState {
                 Patch::Remove(id) => {
                     self.targets.remove(id);
                     self.tracks.remove(id);
+                    self.canvas_tracks.remove(id);
                     self.parents.remove(id);
                 }
                 Patch::Children(parent, children) => {
@@ -154,6 +158,7 @@ impl PresentationState {
         animation: Option<Animation>,
         now: Duration,
     ) {
+        self.retarget_canvas(id, element, animation, now);
         let old = self
             .targets
             .get(&id)
@@ -195,6 +200,28 @@ impl PresentationState {
         self.targets.insert(id, element.clone());
     }
 
+    fn retarget_canvas(&mut self, id: ElementId, element: &Element,
+        animation: Option<Animation>, now: Duration) {
+        let previous = self.targets.get(&id).and_then(|e|e.canvas.as_ref());
+        let next = element.canvas.as_ref();
+        let pair = previous.zip(next).filter(|(a,b)|a.compatible(b))
+            .and_then(|(a,b)|a.components().zip(b.components()));
+        let Some((from,to)) = pair.filter(|(a,b)|a.len()==b.len()) else {
+            self.canvas_tracks.remove(&id);
+            return;
+        };
+        if from == to { return; }
+        let old = self.canvas_tracks.remove(&id);
+        if let Some(animation) = animation {
+            let tracks = from.iter().zip(&to).enumerate().map(|(i,(&from,&to))| {
+                let sample = old.as_ref().and_then(|v|v.get(i)).map(|t|t.sample(now));
+                Track { from:sample.map_or(from,|s|s.value), to,
+                    velocity:sample.map_or(0.0,|s|s.velocity),start:now,animation }
+            }).collect();
+            self.canvas_tracks.insert(id,tracks);
+        }
+    }
+
     /// Current displayed description, including immediate semantic fields.
     pub fn element(&self, id: ElementId, now: Duration) -> Option<Element> {
         let mut result = self.targets.get(&id)?.clone();
@@ -209,6 +236,10 @@ impl PresentationState {
                 }
             });
         }
+        if let (Some(canvas),Some(tracks)) = (&result.canvas,self.canvas_tracks.get(&id)) {
+            let values = tracks.iter().map(|track|track.sample(now).value).collect::<Vec<_>>();
+            result.canvas=Some(canvas.sampled(&values));
+        }
         Some(result)
     }
 
@@ -217,15 +248,15 @@ impl PresentationState {
     pub fn advance(&mut self, now: Duration) -> Vec<(ElementId, Element)> {
         self.exits
             .retain(|_, (_, track)| !track.sample(now).finished);
-        let ids: Vec<_> = self.tracks.keys().copied().collect();
+        let ids: HashSet<_> = self.tracks.keys().chain(self.canvas_tracks.keys()).copied().collect();
         let mut result = Vec::with_capacity(ids.len());
         for id in ids {
-            self.tracks
-                .get_mut(&id)
-                .unwrap()
-                .retain(|_, track| !track.sample(now).finished);
-            if self.tracks[&id].is_empty() {
-                self.tracks.remove(&id);
+            if let Some(tracks) = self.tracks.get_mut(&id) {
+                tracks.retain(|_,track|!track.sample(now).finished);
+                if tracks.is_empty() { self.tracks.remove(&id); }
+            }
+            if self.canvas_tracks.get(&id).is_some_and(|tracks|tracks.iter().all(|t|t.sample(now).finished)) {
+                self.canvas_tracks.remove(&id);
             }
             if let Some(element) = self.element(id, now) {
                 result.push((id, element));
@@ -244,7 +275,7 @@ impl PresentationState {
     }
 
     pub fn active_ids(&self) -> HashSet<ElementId> {
-        self.tracks.keys().copied().collect()
+        self.tracks.keys().chain(self.canvas_tracks.keys()).copied().collect()
     }
 }
 
