@@ -53,6 +53,11 @@ and `assets/` in `dist/desktop/`; run the executable from that directory.
 Use `--base-path /my-app/` when hosting under a URL prefix, or `--out-dir` to
 choose an output directory. Run `refract build --help` for all options.
 
+## Examples
+
+The [canvas example](examples/canvas/README.md) demonstrates portable vector
+drawing, reactive inputs, and presentation animation on web and desktop.
+
 ## License
 
 [MIT](https://github.com/refractrs/refract/blob/HEAD/LICENSE).

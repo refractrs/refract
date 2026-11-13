@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Canvas — Refract</title>
+<style>html,body{margin:0;min-height:100%;background:#f5f8fd}body{display:grid;place-items:center;min-height:100svh}#app{max-width:100%;}</style>
+<main id="app"></main>
+<script type="module">
+import init,{start} from './pkg/refract_canvas.js';
+await init();window.canvasApp=start(document.getElementById('app'));
+</script></html>
