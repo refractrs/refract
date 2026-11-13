@@ -4,7 +4,7 @@ default-members = ["crates/*"]
 members = ["crates/*", "examples/counter", "examples/clock", "examples/gallery", "examples/chat", "examples/animation", "examples/canvas"]
 
 [workspace.package]
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 rust-version = "1.93"
 publish = ["crates-io"]
@@ -14,13 +14,13 @@ homepage = "https://refract.rs"
 readme = "README.md"
 
 [workspace.dependencies]
-refract-graph = { version = "0.1.6", path = "crates/graph" }
-refract-core = { version = "0.1.6", path = "crates/core" }
-refract-web = { version = "0.1.6", path = "crates/web" }
-refract-native = { version = "0.1.6", path = "crates/native" }
-refract-macros = { version = "0.1.6", path = "crates/macros" }
-refract-test = { version = "0.1.6", path = "crates/test" }
-refract = { version = "0.1.6", path = "crates/refract" }
+refract-graph = { version = "0.1.7", path = "crates/graph" }
+refract-core = { version = "0.1.7", path = "crates/core" }
+refract-web = { version = "0.1.7", path = "crates/web" }
+refract-native = { version = "0.1.7", path = "crates/native" }
+refract-macros = { version = "0.1.7", path = "crates/macros" }
+refract-test = { version = "0.1.7", path = "crates/test" }
+refract = { version = "0.1.7", path = "crates/refract" }
 wasm-bindgen = "=0.2.130"
 js-sys = "=0.3.107"
 web-sys = "=0.3.107"

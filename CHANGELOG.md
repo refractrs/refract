@@ -2,7 +2,42 @@
 
 Notable changes to Refract, newest first.
 
-## 0.1.6 (unreleased)
+## 0.1.7
+
+- Add portable vector drawing with shared, copy-on-write paths, curves,
+  arcs, fills, gradients, and configurable strokes. Add `Shape`, built-in
+  shapes, and `shape(...)` views that generate geometry from layout bounds.
+- Add `canvas` and `canvas_with` with independently tracked input
+  preparation. Drawing uses committed input snapshots without evaluating
+  views or reading the attribute graph on animation frames.
+- Add `.animatable_inputs()` and the `Animatable` trait for custom canvas
+  data. Use existing animation transactions and preserve displayed values
+  and spring velocity when retargeting. Interpolate colors with
+  premultiplied alpha to avoid dark fringes.
+- Add scoped transforms, clipping, isolated layers, alpha masks, Gaussian
+  blur, opacity, and blend modes. Validate drawing commands before they
+  reach a renderer, and clip canvas ink to its content box.
+- Render canvases through Vello on desktop and retained SVG nodes on the
+  web. Include initial vector drawings in prerendered output and support
+  adopting canvas SVG during hydration.
+- Cache unchanged drawings and add on-change, animated, and paused canvas
+  schedules. Preserve animation phase while paused or hidden. Honor
+  reduced-motion preferences for continuous canvas schedules on the web
+  and macOS.
+- Expose local pointer positions and bounds through `ActionContext`, using
+  host-provided geometry for each handler in the bubbling route. Native
+  pointer hit testing follows displayed transforms.
+- Add a shared desktop and web prism example with spring-driven pointer
+  tilt, animated light pulses, gradients, masks, and glow controls. Add
+  coverage for canvas invalidation, caching, pointer geometry, prerendering,
+  and native GPU effects at multiple display scales.
+- Organize core modules into view, runtime, and presentation directories
+  alongside drawing, preserving crate-root exports and the prelude.
+
+See [the canvas example](examples/canvas/README.md) for the drawing API,
+animation behavior, and backend limitations.
+
+## 0.1.6
 
 - Add portable animations with linear and easing curves, configurable
   springs, and delays. Interrupted animations continue from the displayed
