@@ -1,10 +1,13 @@
 //! A portable vector illustration: no SVG strings or platform drawing calls.
+
 use refract::prelude::*;
 
 fn project(x: f64, y: f64, z: f64, tilt: Point) -> Point {
     let camera = 650.0;
     let yaw = tilt.x * 0.34;
     let pitch = -tilt.y * 0.24;
+
+    // Undo the resting projection before rotation, preserving the original silhouette.
     let x = (x - 265.0) * (1.0 - z / camera);
     let y = (y - 166.0) * (1.0 - z / camera);
     let rx = x * yaw.cos() + z * yaw.sin();
@@ -17,6 +20,7 @@ fn project(x: f64, y: f64, z: f64, tilt: Point) -> Point {
         166.0 + ry * perspective + tilt.y * 4.0,
     )
 }
+
 fn gradient(start: Point, end: Point, stops: &[(f32, Color)]) -> Paint {
     Paint::linear(
         start,
@@ -27,12 +31,15 @@ fn gradient(start: Point, end: Point, stops: &[(f32, Color)]) -> Paint {
             .collect::<Vec<_>>(),
     )
 }
+
 fn line(a: Point, b: Point) -> Path {
     Path::polyline([a, b])
 }
+
 fn alpha(c: Color, a: f64) -> Color {
     Color(c.0, c.1, c.2, (a.clamp(0.0, 1.0) * 255.0) as u8)
 }
+
 fn pulse(
     g: &mut GraphicsContext,
     points: &[Point],
@@ -50,6 +57,8 @@ fn pulse(
         .map(|p| (p[1].x - p[0].x).hypot(p[1].y - p[0].y))
         .sum::<f64>();
     let opacity = (t * 8.0).min(1.0) * ((1.0 - t) * 8.0).min(1.0);
+
+    // One short dash travels along the ray; the long gap keeps it from repeating.
     g.stroke(
         &Path::polyline(points.iter().copied()),
         alpha(color, opacity * 0.8),
@@ -72,6 +81,7 @@ pub fn draw(g: &mut GraphicsContext, frame: &CanvasFrame, tilt: Point, glow: f64
     let spread = 1.0 + tilt.x * 0.16 - tilt.y * 0.1;
     let end = |y: f64| Point::new(524.0, center.y + (y - 163.0) * spread);
     let phase = (frame.elapsed.as_secs_f64() / 7.0).fract();
+
     let spectrum = gradient(
         Point::new(320.0, 105.0),
         Point::new(450.0, 240.0),
@@ -90,6 +100,7 @@ pub fn draw(g: &mut GraphicsContext, frame: &CanvasFrame, tilt: Point, glow: f64
             &[(0.0, Color::WHITE), (1.0, Color(255, 255, 255, 0))],
         ),
     );
+
     let grid = StrokeStyle::new(1.0).dash(vec![2.0, 6.0]);
     g.stroke(
         &line(Point::new(12.0, 166.0), Point::new(518.0, 166.0)),
@@ -101,6 +112,7 @@ pub fn draw(g: &mut GraphicsContext, frame: &CanvasFrame, tilt: Point, glow: f64
         Color::rgb(215, 225, 238),
         &grid,
     );
+
     g.layer(Layer::new().blur(8.0).opacity(0.17), |g| {
         let rx = 111.0 - tilt.x.abs() * 12.0;
         let ry = 7.0 + tilt.y * 2.0;
@@ -129,6 +141,7 @@ pub fn draw(g: &mut GraphicsContext, frame: &CanvasFrame, tilt: Point, glow: f64
     g.layer(Layer::new().opacity(0.17).mask(fade), |g| {
         g.fill(&Path::polygon([center, end(107.0), end(238.0)]), &spectrum);
     });
+
     let colors = [
         Color::rgb(73, 185, 207),
         Color::rgb(93, 159, 231),
@@ -145,6 +158,7 @@ pub fn draw(g: &mut GraphicsContext, frame: &CanvasFrame, tilt: Point, glow: f64
         g.stroke(&line(start, end(y)), color, StrokeStyle::new(1.5));
         pulse(g, &[start, end(y)], color, phase, 0.30, 0.76);
     }
+
     let white_light = gradient(
         source,
         Point::new(205.0, 160.0),
@@ -157,6 +171,7 @@ pub fn draw(g: &mut GraphicsContext, frame: &CanvasFrame, tilt: Point, glow: f64
         g.stroke(&line(source, entry), &white_light, StrokeStyle::new(9.0))
     });
     g.stroke(&line(source, entry), &white_light, StrokeStyle::new(2.0));
+
     let glass = gradient(
         Point::new(174.0 + tilt.x * 65.0, 85.0 + tilt.y * 45.0),
         Point::new(336.0 - tilt.x * 35.0, 265.0 - tilt.y * 30.0),
@@ -170,6 +185,7 @@ pub fn draw(g: &mut GraphicsContext, frame: &CanvasFrame, tilt: Point, glow: f64
     let body = Path::polygon([top, right, left]);
     g.fill(&body, glass);
     g.stroke(&body, Color::rgb(174, 190, 214), StrokeStyle::new(1.2));
+
     let side = Path::polygon([top, facet, right]);
     g.fill(
         &side,
@@ -183,6 +199,7 @@ pub fn draw(g: &mut GraphicsContext, frame: &CanvasFrame, tilt: Point, glow: f64
         ),
     );
     g.stroke(&side, Color::rgb(181, 199, 225), StrokeStyle::new(0.7));
+
     let bottom = Path::polygon([left, facet, right]);
     g.fill(
         &bottom,
@@ -214,6 +231,7 @@ pub fn draw(g: &mut GraphicsContext, frame: &CanvasFrame, tilt: Point, glow: f64
             )
         });
     }
+
     for (x, y) in [(34.0, 40.0), (508.0, 40.0), (34.0, 290.0), (508.0, 290.0)] {
         g.stroke(
             &line(Point::new(x - 10.0, y), Point::new(x + 10.0, y)),

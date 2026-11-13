@@ -19,7 +19,9 @@ impl NativeApp {
         let mut prevented = false;
         for (id, event) in self.host.pointer_events(pointer) {
             let original = matches!(&event, Event::Pointer(e) if e.phase == pointer.phase);
-            let response = self.app.dispatch_event_with_geometry(id, event, |id|self.host.geometry(id));
+            let response = self
+                .app
+                .dispatch_event_with_geometry(id, event, |id| self.host.geometry(id));
             self.host.apply_event_response(response);
             if original {
                 prevented |= response.default_prevented;

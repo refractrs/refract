@@ -429,8 +429,12 @@ impl App {
 
     /// Hosts supply current geometry for each handler in the bubbling route.
     /// Geometry is sampled before callbacks and never stored in the graph.
-    pub fn dispatch_event_with_geometry(&mut self, id: ElementId, event: Event,
-        mut geometry: impl FnMut(ElementId) -> Option<crate::ElementGeometry>) -> crate::EventResponse {
+    pub fn dispatch_event_with_geometry(
+        &mut self,
+        id: ElementId,
+        event: Event,
+        mut geometry: impl FnMut(ElementId) -> Option<crate::ElementGeometry>,
+    ) -> crate::EventResponse {
         let mut response = crate::EventResponse::default();
         let Some(target) = self.mounts.get(&id) else {
             return response;
@@ -451,7 +455,12 @@ impl App {
             };
             if mount.owner.get() && (focus_lost || !mount.element.as_ref().is_some_and(|e| e.disabled)) {
                 if let Some(handler) = &mount.handler {
-                    route.push((current, handler.clone(), mount.environment.clone(), geometry(current)));
+                    route.push((
+                        current,
+                        handler.clone(),
+                        mount.environment.clone(),
+                        geometry(current),
+                    ));
                 }
             }
             cursor = if event.bubbles() { mount.parent } else { None };

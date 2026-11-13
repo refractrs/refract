@@ -1,4 +1,5 @@
 //! Tracked input preparation and host-owned drawing caches.
+
 use super::*;
 use crate::{AnyView, Description, Element, ElementKind, Handler, View, ViewContext, ViewError};
 use std::{any::Any, fmt, rc::Rc, time::Duration};
@@ -8,13 +9,16 @@ use std::{any::Any, fmt, rc::Rc, time::Duration};
 pub struct DrawingInputs<'a, 'b> {
     cx: &'a mut ViewContext<'b>,
 }
+
 impl DrawingInputs<'_, '_> {
     pub fn read<T: 'static>(&self, value: &crate::Read<T>) -> T {
         self.cx.read(value)
     }
+
     pub fn with<T: 'static, R>(&self, value: &crate::Read<T>, f: impl FnOnce(&T) -> R) -> R {
         self.cx.with(value, f)
     }
+
     pub fn environment<K: crate::EnvironmentKey>(&mut self) -> K::Value {
         self.cx.environment::<K>()
     }
@@ -24,42 +28,53 @@ impl DrawingInputs<'_, '_> {
 /// their order and count across updates. Non-component fields snap to target.
 pub trait Animatable: Clone + PartialEq + 'static {
     fn components(&self) -> Vec<f64>;
+
     fn with_components(&self, components: &[f64]) -> Self;
 }
+
 impl Animatable for f64 {
     fn components(&self) -> Vec<f64> {
         vec![*self]
     }
+
     fn with_components(&self, values: &[f64]) -> Self {
         values[0]
     }
 }
+
 impl Animatable for f32 {
     fn components(&self) -> Vec<f64> {
         vec![f64::from(*self)]
     }
+
     fn with_components(&self, values: &[f64]) -> Self {
         values[0].clamp(-f64::from(f32::MAX), f64::from(f32::MAX)) as f32
     }
 }
+
 impl Animatable for Point {
     fn components(&self) -> Vec<f64> {
         vec![self.x, self.y]
     }
+
     fn with_components(&self, values: &[f64]) -> Self {
         Self::new(values[0], values[1])
     }
 }
+
 impl Animatable for Size {
     fn components(&self) -> Vec<f64> {
         vec![self.width, self.height]
     }
+
     fn with_components(&self, values: &[f64]) -> Self {
         Self::new(values[0], values[1])
     }
 }
+
 impl Animatable for crate::Color {
     fn components(&self) -> Vec<f64> {
+        // Premultiplication keeps transparent RGB from tinting intermediate colors.
         let alpha = f64::from(self.3) / 255.0;
         vec![
             f64::from(self.0) / 255.0 * alpha,
@@ -68,6 +83,7 @@ impl Animatable for crate::Color {
             alpha,
         ]
     }
+
     fn with_components(&self, values: &[f64]) -> Self {
         let alpha = values[3].clamp(0.0, 1.0);
         if alpha <= 0.000001 {
@@ -82,12 +98,14 @@ impl Animatable for crate::Color {
         )
     }
 }
+
 impl<A: Animatable, B: Animatable> Animatable for (A, B) {
     fn components(&self) -> Vec<f64> {
         let mut values = self.0.components();
         values.extend(self.1.components());
         values
     }
+
     fn with_components(&self, values: &[f64]) -> Self {
         let n = self.0.components().len();
         (
@@ -106,6 +124,7 @@ pub enum CanvasSchedule {
     /// Pauses while hidden and while reduced motion is requested.
     Animation,
 }
+
 impl CanvasSchedule {
     pub fn animation() -> Self {
         Self::Animation
@@ -126,25 +145,34 @@ type Draw<I> = dyn Fn(&mut GraphicsContext, &CanvasFrame, &I);
 type Prepare<I> = dyn Fn(&mut DrawingInputs<'_, '_>) -> I;
 type Components<I> = fn(&I) -> Vec<f64>;
 type Replace<I> = fn(&I, &[f64]) -> I;
+
 trait Prepared: Any {
     fn as_any(&self) -> &dyn Any;
+
     fn draw(&self, g: &mut GraphicsContext, frame: &CanvasFrame);
+
     fn equal(&self, other: &dyn Prepared) -> bool;
+
     fn components(&self) -> Option<Vec<f64>>;
+
     fn sampled(&self, values: &[f64]) -> Rc<dyn Prepared>;
 }
+
 struct PreparedInputs<I> {
     input: I,
     draw: Rc<Draw<I>>,
     animation: Option<(Components<I>, Replace<I>)>,
 }
+
 impl<I: Clone + PartialEq + 'static> Prepared for PreparedInputs<I> {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
     fn draw(&self, g: &mut GraphicsContext, frame: &CanvasFrame) {
         (self.draw)(g, frame, &self.input);
     }
+
     fn equal(&self, other: &dyn Prepared) -> bool {
         other.as_any().downcast_ref::<Self>().is_some_and(|p| {
             Rc::ptr_eq(&self.draw, &p.draw)
@@ -152,9 +180,11 @@ impl<I: Clone + PartialEq + 'static> Prepared for PreparedInputs<I> {
                 && self.animation.is_some() == p.animation.is_some()
         })
     }
+
     fn components(&self) -> Option<Vec<f64>> {
         self.animation.map(|(get, _)| get(&self.input))
     }
+
     fn sampled(&self, values: &[f64]) -> Rc<dyn Prepared> {
         let input = self.animation.map_or_else(
             || self.input.clone(),
@@ -175,6 +205,7 @@ pub struct CanvasContent {
     pub view_box: Option<Rect>,
     pub schedule: CanvasSchedule,
 }
+
 impl fmt::Debug for CanvasContent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CanvasContent")
@@ -183,6 +214,7 @@ impl fmt::Debug for CanvasContent {
             .finish_non_exhaustive()
     }
 }
+
 impl PartialEq for CanvasContent {
     fn eq(&self, other: &Self) -> bool {
         self.view_box == other.view_box
@@ -191,19 +223,23 @@ impl PartialEq for CanvasContent {
                 || self.prepared.equal(&*other.prepared))
     }
 }
+
 impl CanvasContent {
     pub(crate) fn components(&self) -> Option<Vec<f64>> {
         self.prepared.components()
     }
+
     pub(crate) fn compatible(&self, other: &Self) -> bool {
         self.prepared.as_any().type_id() == other.prepared.as_any().type_id()
     }
+
     pub(crate) fn sampled(&self, values: &[f64]) -> Self {
         Self {
             prepared: self.prepared.sampled(values),
             ..self.clone()
         }
     }
+
     pub fn validate(&self) -> Result<(), ViewError> {
         if self
             .view_box
@@ -218,6 +254,7 @@ impl CanvasContent {
         }
         Ok(())
     }
+
     pub fn transform(&self, size: Size) -> crate::Affine2d {
         let Some(b) = self.view_box else {
             return crate::Affine2d::IDENTITY;
@@ -232,6 +269,7 @@ impl CanvasContent {
             (size.height - b.height * scale) / 2.0 - b.y * scale,
         ])
     }
+
     pub fn draw(&self, size: Size, elapsed: Duration) -> Result<Rc<[DrawingCommand]>, ViewError> {
         self.validate()?;
         if !Rect::new(0.0, 0.0, size.width, size.height).valid() {
@@ -260,9 +298,13 @@ pub struct Canvas<I> {
     view_box: Option<Rect>,
     schedule: CanvasSchedule,
 }
+
 pub fn canvas(draw: impl Fn(&mut GraphicsContext, &CanvasFrame) + 'static) -> Canvas<()> {
     canvas_with(|_| (), move |g, frame, _| draw(g, frame))
 }
+
+/// Prepare graph-dependent inputs at the canvas mount. Drawing uses the committed
+/// snapshot and may run each frame without reevaluating the view.
 pub fn canvas_with<I: Clone + PartialEq + 'static>(
     prepare: impl Fn(&mut DrawingInputs<'_, '_>) -> I + 'static,
     draw: impl Fn(&mut GraphicsContext, &CanvasFrame, &I) + 'static,
@@ -277,25 +319,31 @@ pub fn canvas_with<I: Clone + PartialEq + 'static>(
         schedule: CanvasSchedule::OnChange,
     }
 }
+
 impl<I> crate::modifiers::ElementBuilder for Canvas<I> {
     fn element_mut(&mut self) -> &mut Element {
         &mut self.element
     }
+
     fn handler_mut(&mut self) -> &mut Option<Handler> {
         &mut self.handler
     }
 }
+
 impl<I> Canvas<I> {
     crate::modifiers::element_modifiers!(pub Self, crate::modifiers::configure);
     crate::modifiers::event_modifiers!(pub Self, crate::modifiers::configure_handler);
+
     pub fn view_box(mut self, bounds: Rect) -> Self {
         self.view_box = Some(bounds);
         self
     }
+
     pub fn schedule(mut self, schedule: CanvasSchedule) -> Self {
         self.schedule = schedule;
         self
     }
+
     pub fn animatable_inputs(mut self) -> Self
     where
         I: Animatable,
@@ -304,6 +352,7 @@ impl<I> Canvas<I> {
         self
     }
 }
+
 impl<I: Clone + PartialEq + 'static> View for Canvas<I> {
     fn body(&self, cx: &mut ViewContext<'_>) -> Result<impl View, ViewError> {
         let input = (self.prepare)(&mut DrawingInputs { cx });
@@ -335,10 +384,13 @@ pub struct CanvasCache {
     rendered_elapsed: Duration,
     commands: Option<Rc<[DrawingCommand]>>,
 }
+
 impl CanvasCache {
     pub fn pause(&mut self) {
+        // Preserve the phase, but exclude the paused interval from the next tick.
         self.last_tick = None;
     }
+
     pub fn render(
         &mut self,
         content: &CanvasContent,

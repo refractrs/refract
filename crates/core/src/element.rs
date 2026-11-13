@@ -104,7 +104,9 @@ impl Element {
     pub fn validate(&self) -> Result<(), ViewError> {
         if let Some(transition) = self.transition { transition.validate()?; }
         self.style.validate()?;
-        if let Some(canvas) = &self.canvas { canvas.validate()?; }
+        if let Some(canvas) = &self.canvas {
+            canvas.validate()?;
+        }
         if self.canvas.is_some() != (self.kind == ElementKind::Canvas) {
             return Err(ViewError::new("canvas content requires a canvas element"));
         }
@@ -196,10 +198,16 @@ impl ActionContext<'_> {
     /// Convert a surface point into the current handler's local border box.
     /// Returns None before layout or for a non-invertible transform.
     pub fn local_position(&self, point: crate::EventPoint) -> Option<crate::Point> {
-        let [a,b,c,d,e,f] = self.geometry?.transform.inverse()?.0;
-        Some(crate::Point::new(a*point.x+c*point.y+e,b*point.x+d*point.y+f))
+        let [a, b, c, d, e, f] = self.geometry?.transform.inverse()?.0;
+        Some(crate::Point::new(
+            a * point.x + c * point.y + e,
+            b * point.x + d * point.y + f,
+        ))
     }
-    pub fn local_bounds(&self) -> Option<crate::Rect> { self.geometry.map(|g|g.bounds) }
+
+    pub fn local_bounds(&self) -> Option<crate::Rect> {
+        self.geometry.map(|g| g.bounds)
+    }
 
     pub fn target(&self) -> ElementId {
         self.target

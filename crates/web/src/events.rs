@@ -292,27 +292,39 @@ pub(super) fn reconcile_capture(inner: &Inner) {
 }
 
 impl Dom {
-    fn geometry(&self,id:ElementId)->Option<refract_core::ElementGeometry> {
-        let entry=self.entries.get(&id)?;
-        let width=f64::from(entry.node.offset_width());
-        let height=f64::from(entry.node.offset_height());
-        let mut linear=refract_core::Affine2d::IDENTITY;
-        let mut node:Option<web_sys::Element>=Some(entry.node.clone().into());
-        while let Some(current)=node {
-            if let Some(e)=current.get_attribute("data-refract-id").and_then(|v|v.parse().ok()).and_then(|id|self.entries.get(&ElementId(id))) {
-                let m=e.element.style.transform.matrix(0.0,0.0,0.0,0.0);
-                let [a,b,c,d,_,_]=m.0;
-                linear=refract_core::Affine2d([a,b,c,d,0.0,0.0]).then(linear);
+    fn geometry(&self, id: ElementId) -> Option<refract_core::ElementGeometry> {
+        let entry = self.entries.get(&id)?;
+        let width = f64::from(entry.node.offset_width());
+        let height = f64::from(entry.node.offset_height());
+        let mut linear = refract_core::Affine2d::IDENTITY;
+        let mut node: Option<web_sys::Element> = Some(entry.node.clone().into());
+        while let Some(current) = node {
+            if let Some(e) = current
+                .get_attribute("data-refract-id")
+                .and_then(|v| v.parse().ok())
+                .and_then(|id| self.entries.get(&ElementId(id)))
+            {
+                let m = e.element.style.transform.matrix(0.0, 0.0, 0.0, 0.0);
+                let [a, b, c, d, _, _] = m.0;
+                linear = refract_core::Affine2d([a, b, c, d, 0.0, 0.0]).then(linear);
             }
-            if current==*self.root {break;}
-            node=current.parent_element();
+            if current == *self.root {
+                break;
+            }
+            node = current.parent_element();
         }
-        let bounds=refract_core::Rect::new(0.0,0.0,width,height);
-        let projected=bounds.transformed(linear);
-        let actual=entry.node.get_bounding_client_rect();
-        let root=self.root.get_bounding_client_rect();
-        linear.0[4]=actual.left()-root.left()-projected.x;
-        linear.0[5]=actual.top()-root.top()-projected.y;
-        Some(refract_core::ElementGeometry {bounds,transform:linear})
+
+        // Recover translation from the DOM bounds so layout and scrolling are
+        // included without treating the rotated bounding box as local geometry.
+        let bounds = refract_core::Rect::new(0.0, 0.0, width, height);
+        let projected = bounds.transformed(linear);
+        let actual = entry.node.get_bounding_client_rect();
+        let root = self.root.get_bounding_client_rect();
+        linear.0[4] = actual.left() - root.left() - projected.x;
+        linear.0[5] = actual.top() - root.top() - projected.y;
+        Some(refract_core::ElementGeometry {
+            bounds,
+            transform: linear,
+        })
     }
 }
