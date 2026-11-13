@@ -3,6 +3,7 @@ use crate::model::Conversation;
 
 #[view]
 pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
+    let palette = crate::theme::palette(cx)?;
     #[environment_object]
     let chat: Rc<Conversation>;
     #[environment_object]
@@ -33,7 +34,7 @@ pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
                             font_size: Some(14.0),
                             line_height: Some(23.0),
                             background: Some(Color(0, 0, 0, 0)),
-                            foreground: Some(INK),
+                            foreground: Some(palette.ink),
                             border: Some(Border::all(0.0, Color::WHITE)),
                             focus_ring: Some(FocusRing::none()),
                             ..Default::default()
@@ -43,22 +44,26 @@ pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
                     h_stack()
                         .alignment(Alignment::Center)
                         .justify(Alignment::SpaceBetween)
-                        .child(text("Local assistant").font_size(11.0).foreground(MUTED))
+                        .child(
+                            text("Local assistant")
+                                .font_size(11.0)
+                                .foreground(palette.muted),
+                        )
                         .child(send_control()),
                 )
                 .padding(16.0)
                 .background(if active {
-                    Color::rgb(247, 250, 255)
+                    palette.focused_card
                 } else {
-                    Color::WHITE
+                    palette.card
                 })
                 .on_focus_within_change(move |cx, active| {
                     within.set_if_changed(cx.runtime(), active);
                 })
-                .border(Border::all(1.0, LINE))
+                .border(Border::all(1.0, palette.line))
                 .radius(14.0)
-                .focus_within(FocusRing::new(ACCENT, 2.0, 2.0))
-                .shadow(BoxShadow::new(0.0, 4.0, 20.0, Color(24, 40, 63, 18)))
+                .focus_within(FocusRing::new(palette.accent, 2.0, 2.0))
+                .shadow(BoxShadow::new(0.0, 4.0, 20.0, palette.shadow))
                 .max_width(740.0)
                 .fill_width()
                 .animation(color_motion(), active),
@@ -66,7 +71,7 @@ pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
         .child(
             text("Scripted replies · Chats stay in this session · ⌘ / Ctrl + Enter to send")
                 .font_size(10.0)
-                .foreground(MUTED)
+                .foreground(palette.muted)
                 .text_align(Alignment::Center),
         )
         .padding(Insets::symmetric(34.0, 18.0))
@@ -75,6 +80,7 @@ pub(super) fn composer(cx: &mut ViewContext<'_>) -> impl View {
 
 #[view]
 fn send_control(cx: &mut ViewContext<'_>) -> impl View {
+    let palette = crate::theme::palette(cx)?;
     #[environment_object]
     let chat: Rc<Conversation>;
     let busy = cx.read_state(&chat.request).is_some();
@@ -103,8 +109,16 @@ fn send_control(cx: &mut ViewContext<'_>) -> impl View {
             "Send message"
         })
         .disabled(!busy && !enabled)
-        .background(if busy || enabled { ACCENT } else { SIDE })
-        .foreground(if busy || enabled { Color::WHITE } else { MUTED })
+        .background(if busy || enabled {
+            palette.accent
+        } else {
+            palette.side
+        })
+        .foreground(if busy || enabled {
+            palette.on_accent
+        } else {
+            palette.muted
+        })
         .radius(8.0)
         .animation(color_motion(), (busy, enabled))
 }

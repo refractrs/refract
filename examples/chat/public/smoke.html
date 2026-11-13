@@ -8,6 +8,9 @@ import init, {start} from './pkg/refract_chat.js';
 const status = document.querySelector('#status'), results = document.querySelector('#results');
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+// Outline widths snap to device pixels at fractional browser scales.
+const outlineNear = (element, width) =>
+  Math.abs(parseFloat(getComputedStyle(element).outlineWidth) - width) < 1 / devicePixelRatio;
 function check(ok, message) {
   const li = document.createElement('li'); li.textContent = `${ok ? 'PASS' : 'FAIL'} — ${message}`; results.append(li);
   if (!ok) throw Error(message);
@@ -76,11 +79,11 @@ try {
   composer.focus();
   const composerBox = [...root.querySelectorAll('[data-refract-id]')].find(el => el.contains(composer) && getComputedStyle(el).boxShadow !== 'none');
   check(getComputedStyle(composer).outlineWidth === '0px', 'composer delegates focus feedback to its container');
-  check(getComputedStyle(composerBox).outlineWidth === '1px', 'pointer focus uses a quiet editing cue');
+  check(outlineNear(composerBox, 1), 'pointer focus uses a quiet editing cue');
   composer.dispatchEvent(new KeyboardEvent('keydown', {key:'a', bubbles:true, composed:true}));
-  check(getComputedStyle(composerBox).outlineWidth === '1px', 'typing preserves pointer focus appearance');
+  check(outlineNear(composerBox, 1), 'typing preserves pointer focus appearance');
   document.dispatchEvent(new KeyboardEvent('keydown', {key:'Tab', bubbles:true}));
-  check(getComputedStyle(composerBox).outlineWidth === '2px', 'Tab restores the keyboard focus ring from outside the mount');
+  check(outlineNear(composerBox, 2), 'Tab restores the keyboard focus ring from outside the mount');
   composer.dispatchEvent(new CompositionEvent('compositionstart', {bubbles:true, composed:true}));
   await key('Message Refract', {ctrlKey:true, isComposing:true});
   check(app.active_streams() === 0, 'Enter during IME composition cannot submit');
@@ -88,6 +91,14 @@ try {
   await key('Message Refract', {ctrlKey:true});
   check(app.active_streams() === 1 && composer.value === '', 'Ctrl+Enter sends and clears the draft');
   check(composer === find('Message Refract') && root.activeElement === composer, 'submission retains editor identity and focus');
+  await input('Message Refract', 'Keep this draft');
+  app.set_dark(true);
+  await until(() => getComputedStyle(root.querySelector('[data-refract-id]')).backgroundColor === 'rgb(16, 24, 38)');
+  check(composer === find('Message Refract') && composer.value === 'Keep this draft' && app.active_streams() === 1,
+    'host theme updates preserve the editor, draft, and active reply');
+  app.set_dark(false);
+  await until(() => getComputedStyle(root.querySelector('[data-refract-id]')).backgroundColor === 'rgb(251, 252, 254)');
+  check(composer.value === 'Keep this draft', 'returning to light mode retains local state');
   // Let the 180ms entrance finish before measuring token-only DOM work.
   await delay(220);
   const ids = [...root.querySelectorAll('[data-refract-id]')].map(e => e.dataset.refractId).join(',');
@@ -117,6 +128,9 @@ try {
   check(app.active_streams() === 1, 'deleting a conversation cancels only its own stream');
   app.dispose();
   check(app.active_streams() === 0 && !root.querySelector('[data-refract-id]'), 'disposing cancels all streams and removes mounted elements');
+  let rejected = false;
+  try { app.set_dark(true); } catch { rejected = true; }
+  check(rejected, 'disposed chat rejects new host inputs');
   status.textContent = `${results.children.length} checks passed`;
 } catch(error) { console.error(error); status.textContent = `FAILED: ${error.message}`; }
 finally { app?.dispose(); }

@@ -19,30 +19,40 @@ fn mounted() -> (App, TestHost, Rc<Workers>) {
 }
 
 fn mounted_at(url: &str) -> (App, TestHost, Rc<Workers>) {
+    let (app, host, workers, _) = mounted_with_inputs_at(url);
+    (app, host, workers)
+}
+
+fn mounted_with_inputs_at(url: &str) -> (App, TestHost, Rc<Workers>, InputHandles) {
     let workers = Rc::new(Workers::default());
-    let mut app = App::new(root(Rc::new(ReplySource::new({
-        let workers = workers.clone();
-        move |prompt, sender| {
-            let chunks = service::chunks(&service::reply(&prompt));
-            let total = chunks.len();
-            workers.workers.borrow_mut().push(Worker {
-                sender,
-                pending: RefCell::new(
-                    chunks
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, text)| service::StreamEvent::Chunk {
-                            text,
-                            complete: i + 1 == total,
-                        })
-                        .collect(),
-                ),
-            });
-            workers.active.set(workers.active.get() + 1);
-            let active = workers.active.clone();
-            Ok(Box::new(move || active.set(active.get() - 1)))
-        }
-    }))));
+    let (mut app, inputs) = App::with_inputs(|rt| {
+        initialize_with_source(
+            rt,
+            Rc::new(ReplySource::new({
+                let workers = workers.clone();
+                move |prompt, sender| {
+                    let chunks = service::chunks(&service::reply(&prompt));
+                    let total = chunks.len();
+                    workers.workers.borrow_mut().push(Worker {
+                        sender,
+                        pending: RefCell::new(
+                            chunks
+                                .into_iter()
+                                .enumerate()
+                                .map(|(i, text)| service::StreamEvent::Chunk {
+                                    text,
+                                    complete: i + 1 == total,
+                                })
+                                .collect(),
+                        ),
+                    });
+                    workers.active.set(workers.active.get() + 1);
+                    let active = workers.active.clone();
+                    Ok(Box::new(move || active.set(active.get() - 1)))
+                }
+            })),
+        )
+    });
     let mut host = TestHost::default();
     host.install_surface(&mut app, "Chat", Some(url.parse().unwrap()));
     host.set_viewport(
@@ -55,7 +65,7 @@ fn mounted_at(url: &str) -> (App, TestHost, Rc<Workers>) {
     )
     .unwrap();
     host.flush(&mut app).unwrap();
-    (app, host, workers)
+    (app, host, workers, inputs)
 }
 
 fn input(app: &mut App, host: &mut TestHost, label: &str, value: &str) {
@@ -260,9 +270,13 @@ fn queued_chunks_are_ignored_on_delete_and_failures_release_the_composer() {
 
 #[test]
 fn failed_worker_start_is_rendered_without_leaving_a_live_request() {
-    let mut app = App::new(root(Rc::new(ReplySource::new(|_, _| {
-        Err("cannot start worker".into())
-    }))));
+    let mut app = App::with_inputs(|rt| {
+        initialize_with_source(
+            rt,
+            Rc::new(ReplySource::new(|_, _| Err("cannot start worker".into()))),
+        )
+    })
+    .0;
     let mut host = TestHost::default();
     host.install_surface(&mut app, "Chat", Some("app://chat/".parse().unwrap()));
     host.flush(&mut app).unwrap();
@@ -390,4 +404,73 @@ fn deep_links_preserve_prefixes_and_unknown_conversations_replace_the_current_en
         host.history.go(-1).is_none(),
         "normalization must replace, not push"
     );
+}
+
+#[test]
+fn host_theme_updates_preserve_drafts_nodes_and_active_streams() {
+    let (mut app, mut host, workers, inputs) =
+        mounted_with_inputs_at("https://refract.rs/examples/chat");
+    input(&mut app, &mut host, "Message Refract", "Explain Rust state");
+    host.press(&mut app, "Send message").unwrap();
+    input(&mut app, &mut host, "Message Refract", "Keep this draft");
+    let ids = host
+        .elements
+        .keys()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(workers.active.get(), 1);
+
+    app.mutate(|rt| inputs.dark.set_if_changed(rt, true));
+    host.flush(&mut app).unwrap();
+    assert_eq!(
+        host.elements
+            .keys()
+            .copied()
+            .collect::<std::collections::HashSet<_>>(),
+        ids
+    );
+    assert!(host
+        .elements
+        .values()
+        .any(|element| element.value == "Keep this draft"));
+    assert!(host
+        .elements
+        .values()
+        .any(|element| element.style.background
+            == Some(crate::theme::Palette::for_dark(true).background)));
+    assert_eq!(workers.active.get(), 1);
+    let revision = app.revision();
+    app.mutate(|rt| inputs.dark.set_if_changed(rt, true));
+    host.flush(&mut app).unwrap();
+    assert_eq!(app.revision(), revision);
+
+    tick(&mut app, &mut host, &workers, 0);
+    assert!(host.text().contains("In this example"));
+    app.mutate(|rt| inputs.dark.set_if_changed(rt, false));
+    host.flush(&mut app).unwrap();
+    assert!(host
+        .elements
+        .values()
+        .any(|element| element.value == "Keep this draft"));
+    assert_eq!(workers.active.get(), 1);
+}
+
+#[test]
+fn native_entry_initializes_theme_and_retains_drafts() {
+    let mut app = App::new(application());
+    let mut host = TestHost::default();
+    host.install_surface(&mut app, "Chat", Some("app://chat/".parse().unwrap()));
+    host.flush(&mut app).unwrap();
+    assert!(host
+        .elements
+        .values()
+        .any(|element| element.style.background == Some(BACKGROUND)));
+    input(&mut app, &mut host, "Message Refract", "Native draft");
+    host.press(&mut app, "Open A weekend away").unwrap();
+    host.press(&mut app, "Open A calmer kind of workspace")
+        .unwrap();
+    assert!(host
+        .elements
+        .values()
+        .any(|element| element.value == "Native draft"));
 }
