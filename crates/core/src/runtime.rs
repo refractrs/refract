@@ -424,6 +424,13 @@ impl App {
     /// Dispatch synchronously, bubbling keyboard and pointer events through the
     /// mounted tree in one mutation batch. Hosts apply the returned native controls.
     pub fn dispatch_event(&mut self, id: ElementId, event: Event) -> crate::EventResponse {
+        self.dispatch_event_with_geometry(id, event, |_| None)
+    }
+
+    /// Hosts supply current geometry for each handler in the bubbling route.
+    /// Geometry is sampled before callbacks and never stored in the graph.
+    pub fn dispatch_event_with_geometry(&mut self, id: ElementId, event: Event,
+        mut geometry: impl FnMut(ElementId) -> Option<crate::ElementGeometry>) -> crate::EventResponse {
         let mut response = crate::EventResponse::default();
         let Some(target) = self.mounts.get(&id) else {
             return response;
@@ -444,16 +451,17 @@ impl App {
             };
             if mount.owner.get() && (focus_lost || !mount.element.as_ref().is_some_and(|e| e.disabled)) {
                 if let Some(handler) = &mount.handler {
-                    route.push((current, handler.clone(), mount.environment.clone()));
+                    route.push((current, handler.clone(), mount.environment.clone(), geometry(current)));
                 }
             }
             cursor = if event.bubbles() { mount.parent } else { None };
         }
         self.runtime.batch(|runtime| {
-            for (current_target, handler, environment) in route {
+            for (current_target, handler, environment, geometry) in route {
                 response.handled = true;
                 handler(
                     &mut ActionContext {
+                        geometry,
                         runtime,
                         environment: &environment,
                         target: id,

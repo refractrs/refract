@@ -35,7 +35,7 @@ mod style;
 mod surface;
 mod view;
 
-pub use element::{ActionContext, Element, ElementKind, Handler, Interaction};
+pub use element::{ActionContext, Element, ElementGeometry, ElementKind, Handler, Interaction};
 pub use environment::{Environment, EnvironmentKey};
 pub use events::*;
 pub use field::{field, Field};
