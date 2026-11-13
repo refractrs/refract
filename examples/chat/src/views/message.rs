@@ -20,7 +20,9 @@ pub(super) fn message(message: Rc<Message>) -> impl View {
         .child(message_status(message))
 }
 
-fn avatar(user: bool) -> impl View {
+#[view]
+fn avatar(cx: &mut ViewContext<'_>, user: bool) -> impl View {
+    let palette = crate::theme::palette(cx)?;
     h_stack()
         .alignment(Alignment::Center)
         .justify(Alignment::Center)
@@ -31,14 +33,15 @@ fn avatar(user: bool) -> impl View {
         )
         .width(28.0)
         .height(28.0)
-        .background(if user { SIDE } else { PALE })
-        .background_gradient(avatar_gradient(28.0))
-        .foreground(ACCENT)
+        .background(if user { palette.side } else { palette.pale })
+        .background_gradient(palette.avatar_gradient(28.0))
+        .foreground(palette.accent)
         .radius(8.0)
 }
 
 #[view]
 fn message_body(cx: &mut ViewContext<'_>, message: Rc<Message>) -> impl View {
+    let palette = crate::theme::palette(cx)?;
     // The only view subscribed to streaming text. No list or parent reads body.
     let body = cx.read_state(&message.body);
     text(if body.is_empty() {
@@ -54,11 +57,12 @@ fn message_body(cx: &mut ViewContext<'_>, message: Rc<Message>) -> impl View {
     })
     .font_size(15.0)
     .line_height(25.0)
-    .foreground(INK)
+    .foreground(palette.ink)
 }
 
 #[view]
 fn message_status(cx: &mut ViewContext<'_>, message: Rc<Message>) -> impl View {
+    let palette = crate::theme::palette(cx)?;
     let delivery = cx.read_state(&message.delivery);
     if message.role == Role::User {
         Empty.into_any()
@@ -71,7 +75,7 @@ fn message_status(cx: &mut ViewContext<'_>, message: Rc<Message>) -> impl View {
         })
         .font_family(MONO)
         .font_size(9.0)
-        .foreground(MUTED)
+        .foreground(palette.muted)
         .into_any()
     }
 }

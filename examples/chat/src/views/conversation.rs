@@ -14,7 +14,10 @@ pub(super) fn selected(cx: &mut ViewContext<'_>) -> impl View {
     // A key changes the pane's identity on selection. Drafts live in the model,
     // while host-owned selection/scroll belongs to the mounted conversation.
     pane()
-        .transition(Transition::asymmetric(Transition::opacity(), Transition::identity()))
+        .transition(Transition::asymmetric(
+            Transition::opacity(),
+            Transition::identity(),
+        ))
         .environment_object(chat)
         .key(selected.0.to_string())
         .animation(Animation::ease_out(Duration::from_millis(120)), selected)
@@ -75,6 +78,7 @@ fn transcript(cx: &mut ViewContext<'_>) -> impl View {
 
 #[view]
 fn welcome(cx: &mut ViewContext<'_>) -> impl View {
+    let palette = crate::theme::palette(cx)?;
     #[environment_object]
     let chat: Rc<Conversation>;
     v_stack()
@@ -84,13 +88,13 @@ fn welcome(cx: &mut ViewContext<'_>) -> impl View {
                 .font_family(SANS)
                 .font_size(38.0)
                 .line_height(48.0)
-                .foreground(INK),
+                .foreground(palette.ink),
         )
         .child(
             text("Explore an idea, untangle a problem, or make a little room to think.")
                 .font_size(14.0)
                 .line_height(23.0)
-                .foreground(MUTED),
+                .foreground(palette.muted),
         )
         .child(
             v_stack().gap(10.0).children(
@@ -118,15 +122,15 @@ fn welcome(cx: &mut ViewContext<'_>) -> impl View {
                             v_stack()
                                 .gap(5.0)
                                 .child(text(title).font_size(13.0).font_weight(600))
-                                .child(text(prompt).font_size(12.0).foreground(MUTED))
+                                .child(text(prompt).font_size(12.0).foreground(palette.muted))
                                 .padding(16.0)
                                 .fill_width(),
                         )
                         .on_press(move |action| chat.suggest(action.runtime(), prompt))
                         .label(title)
                         .fill_width()
-                        .background(BACKGROUND)
-                        .border(Border::all(1.0, LINE))
+                        .background(palette.background)
+                        .border(Border::all(1.0, palette.line))
                         .radius(10.0)
                 }),
             ),

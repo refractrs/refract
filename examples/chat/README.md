@@ -16,6 +16,30 @@ target/debug/refract dev -p refract-chat --platform desktop --offline
 
 Build the CLI first if needed: `cargo build -p refract --features cli`.
 
+## Host inputs and theme
+
+The browser page owns the color scheme. It starts with the system preference,
+follows later system changes, and offers a **Dark mode** button outside the
+Refract mount. Using that button overrides the system preference for this page.
+
+`initialize` creates a `State<bool>` before rendering and provides its read-only
+handle through the `HostInputs` environment object. Shared views read this field
+to select a palette. The browser adapter returns an `InputMount` and exposes
+`set_dark`, which queues `set_if_changed` through `update_inputs`. Theme changes
+preserve drafts, editor identity, conversation selection, and active replies.
+The native launcher retains the same initializer and its default light palette.
+
+To build the initial view into the browser page:
+
+```sh
+target/debug/refract build -p refract-chat --release --prerender --offline
+```
+
+`export_prerender_with_inputs!` and `hydrate_with_inputs` share the same light
+default. The page forwards its current preference after hydration, so dark-mode
+visitors may briefly see the light preview while WASM loads. Without a snapshot,
+the hydration entry point mounts normally. Inputs are not serialized into HTML.
+
 ## Try it
 
 Send “Explain Rust state” to see a reply explaining the implementation. While
@@ -52,8 +76,8 @@ cargo test -p refract-chat --offline --lib
 
 Tests cover cross-thread delivery, a full inbox, precise text-only updates,
 concurrent conversation ownership, cancellation with queued results, deletion,
-failure/retry, and disposal. With the web server running, open `/smoke.html` for
-browser interaction checks.
+failure/retry, disposal, and host theme updates during streaming. With the web
+server running, open `/smoke.html` for browser interaction checks.
 
 ## Viewport, title, and history
 
@@ -80,7 +104,7 @@ The native launcher supplies `app://chat/` as its initial application URL.
 Clicking the composer shows a quiet accent outline around its rounded container;
 Tab navigation uses a stronger outline. The inner field delegates its indicator
 with `.focus_ring(FocusRing::none())`, and the container uses
-`.focus_within(FocusRing::new(ACCENT, 2.0, 2.0))`.
+`.focus_within(FocusRing::new(palette.accent, 2.0, 2.0))`.
 
 `FocusRing::new(color, width, offset)` configures the keyboard indicator in logical
 pixels. Its corners follow `.radius(...)`; it occupies no layout space. Pointer

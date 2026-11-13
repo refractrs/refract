@@ -3,6 +3,7 @@ use crate::model::Conversation;
 
 #[view]
 pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
+    let palette = crate::theme::palette(cx)?;
     #[environment_object]
     let model: Rc<ChatModel>;
     #[action(model)]
@@ -24,13 +25,13 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
                 .label("New Conversation")
                 .fill_width()
                 .height(44.0)
-                .background(ACCENT)
+                .background(palette.accent)
                 .background_gradient(LinearGradient::new(
                     160.0,
-                    Color::rgb(49, 84, 166),
-                    Color::rgb(37, 62, 105),
+                    palette.primary_start,
+                    palette.primary_end,
                 ))
-                .foreground(Color::WHITE)
+                .foreground(palette.on_accent)
                 .radius(9.0),
         )
         .child(
@@ -43,8 +44,9 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
                     fill_width: true,
                     height: Some(36.0),
                     padding: Insets::symmetric(10.0, 6.0),
-                    background: Some(SIDE),
-                    border: Some(Border::all(1.0, LINE)),
+                    background: Some(palette.side),
+                    foreground: Some(palette.ink),
+                    border: Some(Border::all(1.0, palette.line)),
                     radius: 7.0.into(),
                     ..Default::default()
                 }),
@@ -56,7 +58,7 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
                     text("YOUR CONVERSATIONS")
                         .font_family(MONO)
                         .font_size(9.0)
-                        .foreground(MUTED),
+                        .foreground(palette.muted),
                 )
                 .child(conversation_list())
                 .padding(6.0)
@@ -65,40 +67,38 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
                 .min_height(0.0),
         )
         .child(
-            v_stack()
-                .gap(16.0)
-                .child(
-                    h_stack()
-                        .gap(10.0)
-                        .alignment(Alignment::Center)
-                        .child(
-                            h_stack()
-                                .alignment(Alignment::Center)
-                                .justify(Alignment::Center)
-                                .child(text("Y").font_size(12.0).line_height(12.0))
-                                .width(40.0)
-                                .height(40.0)
-                                .foreground(ACCENT)
-                                .background(PALE)
-                                .background_gradient(avatar_gradient(40.0))
-                                .radius(20.0),
-                        )
-                        .child(
-                            v_stack()
-                                .gap(3.0)
-                                .child(text("Your workspace").font_size(12.0).font_weight(600))
-                                .child(
-                                    text("On this device · this session")
-                                        .font_size(10.0)
-                                        .foreground(MUTED),
-                                ),
-                        ),
-                ),
+            v_stack().gap(16.0).child(
+                h_stack()
+                    .gap(10.0)
+                    .alignment(Alignment::Center)
+                    .child(
+                        h_stack()
+                            .alignment(Alignment::Center)
+                            .justify(Alignment::Center)
+                            .child(text("Y").font_size(12.0).line_height(12.0))
+                            .width(40.0)
+                            .height(40.0)
+                            .foreground(palette.accent)
+                            .background(palette.pale)
+                            .background_gradient(palette.avatar_gradient(40.0))
+                            .radius(20.0),
+                    )
+                    .child(
+                        v_stack()
+                            .gap(3.0)
+                            .child(text("Your workspace").font_size(12.0).font_weight(600))
+                            .child(
+                                text("On this device · this session")
+                                    .font_size(10.0)
+                                    .foreground(palette.muted),
+                            ),
+                    ),
+            ),
         )
         .fill_height()
         .padding(Insets::symmetric(18.0, 24.0))
         .fill_height()
-        .background(SIDE);
+        .background(palette.side);
     if compact {
         content.fill_width()
     } else {
@@ -108,6 +108,7 @@ pub(super) fn sidebar(cx: &mut ViewContext<'_>, compact: bool) -> impl View {
 
 #[view]
 fn conversation_list(cx: &mut ViewContext<'_>) -> impl View {
+    let palette = crate::theme::palette(cx)?;
     #[environment_object]
     let model: Rc<ChatModel>;
     let chats = cx.read_state(&model.conversations);
@@ -119,7 +120,7 @@ fn conversation_list(cx: &mut ViewContext<'_>) -> impl View {
     if matches.is_empty() {
         text("No conversations found.")
             .font_size(12.0)
-            .foreground(MUTED)
+            .foreground(palette.muted)
             .padding(8.0)
             .into_any()
     } else {
@@ -135,6 +136,7 @@ fn conversation_list(cx: &mut ViewContext<'_>) -> impl View {
 
 #[view]
 fn conversation_row(cx: &mut ViewContext<'_>, chat: Rc<Conversation>) -> impl View {
+    let palette = crate::theme::palette(cx)?;
     #[environment_object]
     let model: Rc<ChatModel>;
     let selected = cx.read_state(&model.selected) == chat.id;
@@ -152,7 +154,11 @@ fn conversation_row(cx: &mut ViewContext<'_>, chat: Rc<Conversation>) -> impl Vi
                 .child(
                     text(if active { "●" } else { "○" })
                         .font_size(13.0)
-                        .foreground(if active { ACCENT } else { MUTED }),
+                        .foreground(if active {
+                            palette.accent
+                        } else {
+                            palette.muted
+                        }),
                 )
                 .child(text(&title).font_size(12.0).line_height(19.0).grow(1.0))
                 .padding(10.0)
@@ -161,7 +167,7 @@ fn conversation_row(cx: &mut ViewContext<'_>, chat: Rc<Conversation>) -> impl Vi
         .on_press(select)
         .label(format!("Open {title}"))
         .fill_width()
-        .background(if selected { PALE } else { SIDE })
+        .background(if selected { palette.pale } else { palette.side })
         .radius(7.0)
         // Clear the old highlight immediately, including when insertion moves this row.
         .animation(selected.then(color_motion), selected)
