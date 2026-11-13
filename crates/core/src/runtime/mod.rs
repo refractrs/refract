@@ -355,6 +355,21 @@ pub struct App {
 }
 
 impl App {
+    /// Initialize host-owned state in the application's runtime before rendering.
+    ///
+    /// Return the root view and any handles the host needs to update it. Expose
+    /// read-only handles to descendants through an environment object. The
+    /// initializer runs once; it must not perform host I/O when also used for
+    /// prerendering.
+    pub fn with_inputs<V: View, I>(
+        initialize: impl FnOnce(&mut Runtime) -> (V, I),
+    ) -> (Self, I) {
+        let mut app = Self::new(crate::Empty);
+        let (view, inputs) = initialize(&mut app.runtime);
+        app.view = view.into_any();
+        (app, inputs)
+    }
+
     pub fn new(view: impl View) -> Self {
         Self {
             identity: Rc::new(()),
