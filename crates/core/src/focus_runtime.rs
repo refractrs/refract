@@ -181,6 +181,7 @@ impl App {
             for (id, event, handler, environment) in callbacks {
                 handler(
                     &mut ActionContext {
+                        geometry: None,
                         runtime: rt,
                         environment: &environment,
                         target: id,

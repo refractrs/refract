@@ -159,4 +159,48 @@ fn drawing_subscriptions_follow_dynamic_reads_and_release_on_removal() {
     a.set(app.runtime_mut(), 4.0);
     assert!(!host.flush(&mut app).unwrap());
     assert_eq!(runs.get(), 2);
+    app.set_view(Empty);
+    host.flush(&mut app).unwrap();
+    b.set(app.runtime_mut(), 8.0);
+    assert!(!host.flush(&mut app).unwrap());
+    assert!(!host.presentation.is_animating());
+}
+
+#[test]
+fn pointer_geometry_uses_each_handler_coordinate_system() {
+    let positions = Rc::new(RefCell::new(Vec::new()));
+    let capture = positions.clone();
+    let mut app = App::new(view().on_pointer(move |cx, event| {
+        capture
+            .borrow_mut()
+            .push((cx.local_position(event.position), cx.local_bounds()));
+    }));
+    let mut host = TestHost::default();
+    host.flush(&mut app).unwrap();
+    let id = *host.elements.keys().next().unwrap();
+    let event = refract_core::Event::Pointer(PointerEvent {
+        id: 1,
+        kind: PointerKind::Mouse,
+        phase: PointerPhase::Move,
+        position: EventPoint { x: 120.0, y: 80.0 },
+        button: None,
+        buttons: PointerButtons(0),
+        modifiers: Default::default(),
+        pressure: 0.0,
+    });
+    app.dispatch_event_with_geometry(id, event.clone(), |_| {
+        Some(refract_core::ElementGeometry {
+            bounds: Rect::new(0.0, 0.0, 100.0, 50.0),
+            transform: refract_core::Affine2d([2.0, 0.0, 0.0, 2.0, 100.0, 60.0]),
+        })
+    });
+    assert_eq!(
+        positions.borrow()[0],
+        (
+            Some(Point::new(10.0, 10.0)),
+            Some(Rect::new(0.0, 0.0, 100.0, 50.0))
+        )
+    );
+    app.dispatch_event(id, event);
+    assert_eq!(positions.borrow()[1], (None, None));
 }

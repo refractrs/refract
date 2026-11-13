@@ -173,9 +173,18 @@ pub(crate) fn add_press_handler(
     );
 }
 
+/// Host-provided border-box geometry at the last presented layout. The transform
+/// maps local coordinates into the mounting surface; it includes scrolling.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ElementGeometry {
+    pub bounds: crate::Rect,
+    pub transform: crate::Affine2d,
+}
+
 /// Access to graph mutation and inherited values during event dispatch.
 pub struct ActionContext<'a> {
     pub(crate) runtime: &'a mut Runtime,
+    pub(crate) geometry: Option<ElementGeometry>,
     pub(crate) environment: &'a Environment,
     pub(crate) target: ElementId,
     pub(crate) current_target: ElementId,
@@ -184,6 +193,14 @@ pub struct ActionContext<'a> {
 }
 
 impl ActionContext<'_> {
+    /// Convert a surface point into the current handler's local border box.
+    /// Returns None before layout or for a non-invertible transform.
+    pub fn local_position(&self, point: crate::EventPoint) -> Option<crate::Point> {
+        let [a,b,c,d,e,f] = self.geometry?.transform.inverse()?.0;
+        Some(crate::Point::new(a*point.x+c*point.y+e,b*point.x+d*point.y+f))
+    }
+    pub fn local_bounds(&self) -> Option<crate::Rect> { self.geometry.map(|g|g.bounds) }
+
     pub fn target(&self) -> ElementId {
         self.target
     }
