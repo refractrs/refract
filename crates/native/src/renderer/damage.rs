@@ -175,7 +175,8 @@ fn is_layer(command: &DrawCommand) -> bool {
 
 fn command_bounds(command: &DrawCommand, cache: &mut GlyphBounds) -> Option<Rect> {
     match command {
-        DrawCommand::Fill { rect, .. }
+        DrawCommand::Canvas { rect, .. }
+        | DrawCommand::Fill { rect, .. }
         | DrawCommand::LinearGradient { rect, .. }
         | DrawCommand::RadialGradient { rect, .. }
         | DrawCommand::Image { rect, .. }
@@ -487,5 +488,21 @@ mod tests {
                 height: 100
             })
         );
+    }
+}
+
+#[cfg(test)]
+mod canvas_tests {
+    use super::*;
+    #[test]
+    fn canvas_effect_damage_stays_inside_the_canvas_clip() {
+        let frame=|x| {
+            let mut g=refract_core::GraphicsContext::new();
+            g.layer(refract_core::Layer::new().blur(12.0),|g|g.fill(&refract_core::Path::rectangle(refract_core::Rect::new(x,0.0,10.0,10.0)),refract_core::Color::BLUE));
+            Frame {commands:vec![DrawCommand::Canvas {rect:Rect {x:20.0,y:30.0,width:100.0,height:80.0},commands:g.finish().unwrap()}],background:refract_core::Color::WHITE,scale_factor:1.0}
+        };
+        let mut damage=DamageTracker::default();
+        damage.commit(&frame(0.0),400,400);
+        assert_eq!(damage.plan(&frame(5.0),400,400),Damage::Region(PixelRect {x:19,y:29,width:102,height:82}));
     }
 }

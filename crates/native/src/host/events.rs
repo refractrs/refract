@@ -13,11 +13,18 @@ pub(super) struct InputState {
 }
 
 impl Host {
+    pub fn geometry(&self, id: ElementId) -> Option<refract_core::ElementGeometry> {
+        let entry=self.entries.get(&id)?;
+        let rect=entry.rect;
+        Some(refract_core::ElementGeometry {
+            bounds:refract_core::Rect::new(0.0,0.0,rect.width.into(),rect.height.into()),
+            transform:entry.transform.then(refract_core::Affine2d([1.0,0.0,0.0,1.0,rect.x.into(),rect.y.into()])),
+        })
+    }
+
     pub fn input_hit_test(&self, point: Point) -> Option<ElementId> {
         self.paint_order.iter().rev().copied().find(|id| {
-            self.entries
-                .get(id)
-                .is_some_and(|e| e.rect.contains(point) && e.clip.contains(point))
+            self.point_inside(*id, point)
         })
     }
 

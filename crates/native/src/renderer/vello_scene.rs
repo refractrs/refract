@@ -74,6 +74,7 @@ impl Encoder<'_> {
         let scale = Affine::scale(self.scale_factor) * transform;
         while let Some(command) = commands.next() {
             match command {
+                DrawCommand::Canvas { rect, commands } => self.canvas(scene, commands, *rect, transform)?,
                 DrawCommand::PopLayer => return Ok(()),
                 DrawCommand::PushTransform(matrix) => {
                     self.encode_at(commands, scene, backdrop, extent, transform * Affine::new(matrix.0))?;
