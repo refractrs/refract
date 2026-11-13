@@ -51,7 +51,7 @@ pub fn prerender(view: impl View, options: PrerenderOptions) -> Result<String, V
         elements: &BTreeMap<ElementId, &Element>,
         children: &BTreeMap<Option<ElementId>, &[ElementId]>,
         out: &mut String,
-    ) {
+    ) -> Result<(), ViewError> {
         for id in children.get(&parent).copied().unwrap_or_default() {
             let e = elements[id];
             let tag = crate::html::tag(e);
@@ -73,9 +73,16 @@ pub fn prerender(view: impl View, options: PrerenderOptions) -> Result<String, V
                 }
                 out.push_str(&crate::html::escape(&e.value));
             }
-            render(Some(*id), elements, children, out);
+            if let Some(canvas) = &e.canvas {
+                let fallback=canvas.view_box.map(|r|r.size()).unwrap_or(refract_core::Size::new(300.0,150.0));
+                let size=refract_core::Size::new(e.style.width.map_or(fallback.width,f64::from),e.style.height.map_or(fallback.height,f64::from));
+                let commands=canvas.draw(size,std::time::Duration::ZERO)?;
+                out.push_str(&crate::svg::scene(&commands,size,&format!("refract-{}",id.0)).html());
+            }
+            render(Some(*id), elements, children, out)?;
             out.push_str(&format!("</{tag}>"));
         }
+        Ok(())
     }
     let mut out = String::new();
     if options.shadow {
@@ -90,7 +97,7 @@ pub fn prerender(view: impl View, options: PrerenderOptions) -> Result<String, V
     // CSS is application-authored, but must not terminate its HTML raw-text element.
     out.push_str(&options.styles.replace('<', "\\3c "));
     out.push_str("</style><div class=\"refract-root\" data-refract-prerender=\"1\">");
-    render(None, &elements, &children, &mut out);
+    render(None, &elements, &children, &mut out)?;
     out.push_str("</div>");
     if options.shadow {
         out.push_str("</template>");
