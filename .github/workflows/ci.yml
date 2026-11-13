@@ -84,12 +84,43 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Run animation browser conformance
         run: |
-          cargo build -p refract --features cli --locked
-          target/debug/refract dev -p refract-animation --port 4176 --offline > /tmp/refract-animation.log 2>&1 &
+          site_dir=$(mktemp -d)
+          server_log=$(mktemp)
+          server_pid=
+          cleanup() {
+            status=$?
+            trap - EXIT
+            if [ -n "$server_pid" ]; then
+              kill "$server_pid" 2>/dev/null || true
+              wait "$server_pid" 2>/dev/null || true
+            fi
+            cat "$server_log"
+            rm -rf "$site_dir" "$server_log"
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          cp -R examples/animation/public/. "$site_dir/"
+          .tools/bin/wasm-bindgen \
+            target/wasm32-unknown-unknown/debug/refract_animation.wasm \
+            --target web --out-dir "$site_dir/pkg"
+          python3 -m http.server 4176 --bind 127.0.0.1 \
+            --directory "$site_dir" > "$server_log" 2>&1 &
           server_pid=$!
-          trap 'kill "$server_pid"; cat /tmp/refract-animation.log' EXIT
-          for attempt in $(seq 1 90); do
-            if curl --fail --silent http://127.0.0.1:4176/ > /dev/null; then break; fi
+          ready=false
+          for attempt in $(seq 1 45); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              echo "Animation server exited before becoming ready" >&2
+              exit 1
+            fi
+            if curl --fail --silent --max-time 1 http://127.0.0.1:4176/ > /dev/null; then
+              ready=true
+              break
+            fi
             sleep 1
           done
-          node .github/scripts/animation-smoke.mjs
+          if [ "$ready" != true ]; then
+            echo "Timed out waiting for the animation server" >&2
+            exit 1
+          fi
+          node .github/scripts/animation-smoke.mjs http://127.0.0.1:4176/
