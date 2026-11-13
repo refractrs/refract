@@ -2,6 +2,7 @@
 #[cfg(target_arch = "wasm32")]
 mod dom;
 mod html;
+mod svg;
 #[cfg(target_arch = "wasm32")]
 mod image;
 mod prerender;

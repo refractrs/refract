@@ -22,7 +22,7 @@ base64 = "0.22"
 
 [dependencies.web-sys]
 workspace = true
-features = ["FocusEvent", "HtmlTemplateElement", "DocumentFragment", "History", "Location", "MutationObserver", "MutationObserverInit", "ResizeObserverEntry", "MediaQueryList", "HtmlHeadElement", "PointerEvent", "DomRect", "ResizeObserver", "Blob", "BlobPropertyBag", "Url", "Window", "Document", "Node", "Element", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement", "HtmlButtonElement", "CssStyleDeclaration", "Event", "EventTarget", "MouseEvent", "KeyboardEvent", "InputEvent", "CompositionEvent", "ShadowRoot", "ShadowRootInit", "ShadowRootMode", "console", "Performance", "NodeList"]
+features = ["IntersectionObserver", "IntersectionObserverEntry", "HtmlCollection", "FocusEvent", "HtmlTemplateElement", "DocumentFragment", "History", "Location", "MutationObserver", "MutationObserverInit", "ResizeObserverEntry", "MediaQueryList", "HtmlHeadElement", "PointerEvent", "DomRect", "ResizeObserver", "Blob", "BlobPropertyBag", "Url", "Window", "Document", "Node", "Element", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement", "HtmlButtonElement", "CssStyleDeclaration", "Event", "EventTarget", "MouseEvent", "KeyboardEvent", "InputEvent", "CompositionEvent", "ShadowRoot", "ShadowRootInit", "ShadowRootMode", "console", "Performance", "NodeList"]
 
 [package.metadata.docs.rs]
 default-target = "wasm32-unknown-unknown"
