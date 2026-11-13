@@ -8,6 +8,9 @@
 //! Commit publishes subscriptions and runs effect setup and cleanup. Layout,
 //! native input behavior, and rendering remain the adapter's responsibility.
 
+pub mod drawing;
+pub use drawing::*;
+
 mod transition;
 pub use transition::*;
 mod presentation;
