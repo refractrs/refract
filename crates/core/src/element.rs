@@ -13,6 +13,7 @@ pub enum ElementKind {
     Text,
     TextInput,
     Image,
+    Canvas,
 }
 
 /// Native interaction semantics, independent of visual primitive kind.
@@ -56,6 +57,7 @@ pub struct Element {
     pub level: Option<u8>,
     pub placeholder: Option<String>,
     pub source: Option<ImageSource>,
+    pub canvas: Option<crate::CanvasContent>,
 }
 
 impl Element {
@@ -78,6 +80,7 @@ impl Element {
             level: None,
             placeholder: None,
             source: None,
+            canvas: None,
         }
     }
 
@@ -101,6 +104,10 @@ impl Element {
     pub fn validate(&self) -> Result<(), ViewError> {
         if let Some(transition) = self.transition { transition.validate()?; }
         self.style.validate()?;
+        if let Some(canvas) = &self.canvas { canvas.validate()?; }
+        if self.canvas.is_some() != (self.kind == ElementKind::Canvas) {
+            return Err(ViewError::new("canvas content requires a canvas element"));
+        }
         if self.multiline && self.kind != ElementKind::TextInput {
             return Err(ViewError::new("multiline requires a text input"));
         }
