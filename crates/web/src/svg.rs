@@ -1,4 +1,5 @@
 //! SVG lowering shared by browser rendering and deterministic prerendering.
+
 use refract_core::{DrawingCommand, FillRule, LineCap, LineJoin, Paint, Path, PathElement, Size};
 use std::collections::BTreeMap;
 
@@ -8,6 +9,7 @@ pub(crate) struct SvgNode {
     attrs: BTreeMap<&'static str, String>,
     children: Vec<SvgNode>,
 }
+
 impl SvgNode {
     fn new(tag: &'static str) -> Self {
         Self {
@@ -16,10 +18,12 @@ impl SvgNode {
             children: vec![],
         }
     }
+
     fn attr(mut self, key: &'static str, value: impl ToString) -> Self {
         self.attrs.insert(key, value.to_string());
         self
     }
+
     #[cfg(target_arch = "wasm32")]
     pub fn position(&mut self, x: f32, y: f32) {
         self.attrs
@@ -27,6 +31,7 @@ impl SvgNode {
             .or_default()
             .push_str(&format!(";left:{x}px;top:{y}px"));
     }
+
     pub fn html(&self) -> String {
         let mut result = format!("<{}", self.tag);
         for (key, value) in &self.attrs {
@@ -40,6 +45,7 @@ impl SvgNode {
         result
     }
 }
+
 fn path_data(path: &Path) -> String {
     let mut data = String::new();
     for el in path.elements() {
@@ -55,26 +61,31 @@ fn path_data(path: &Path) -> String {
     }
     data
 }
+
 fn rule(rule: FillRule) -> &'static str {
     match rule {
         FillRule::NonZero => "nonzero",
         FillRule::EvenOdd => "evenodd",
     }
 }
+
 fn color(c: refract_core::Color) -> String {
     format!("rgba({},{},{},{})", c.0, c.1, c.2, f64::from(c.3) / 255.0)
 }
+
 struct Builder {
     prefix: String,
     next: usize,
     defs: Vec<SvgNode>,
 }
+
 impl Builder {
     fn id(&mut self) -> String {
         let id = format!("{}-{}", self.prefix, self.next);
         self.next += 1;
         id
     }
+
     fn paint(&mut self, paint: &Paint) -> String {
         let (mut gradient, stops) = match paint {
             Paint::Solid(c) => return color(*c),
@@ -118,6 +129,7 @@ impl Builder {
         self.defs.push(gradient);
         format!("url(#{id})")
     }
+
     fn commands(&mut self, commands: &[DrawingCommand]) -> Vec<SvgNode> {
         commands
             .iter()
@@ -262,6 +274,7 @@ impl Builder {
             .collect()
     }
 }
+
 pub(crate) fn scene(commands: &[DrawingCommand], size: Size, prefix: &str) -> SvgNode {
     let mut builder = Builder {
         prefix: prefix.into(),
@@ -295,12 +308,14 @@ pub(crate) fn update(
     tree: &SvgNode,
 ) -> Result<u64, wasm_bindgen::JsValue> {
     use wasm_bindgen::JsCast;
+
     fn sync(
         parent: &web_sys::Element,
         index: u32,
         tree: &SvgNode,
         calls: &mut u64,
     ) -> Result<(), wasm_bindgen::JsValue> {
+        // Stable command order lets animated attributes reuse existing DOM nodes.
         let existing = parent.children().item(index);
         let node = if let Some(node) = existing.as_ref().filter(|e| e.local_name() == tree.tag) {
             node.clone()
@@ -351,6 +366,7 @@ pub(crate) fn update(
 mod tests {
     use super::*;
     use refract_core::*;
+
     #[test]
     fn masks_filters_and_gradients_use_local_coordinates_and_unique_ids() {
         let mut g = GraphicsContext::new();
@@ -383,6 +399,7 @@ mod tests {
 #[cfg(test)]
 mod prerender_tests {
     use refract_core::prelude::*;
+
     #[test]
     fn prerender_emits_vectors_and_reports_invalid_drawings() {
         let html = crate::prerender(

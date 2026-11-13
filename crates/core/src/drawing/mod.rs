@@ -1,4 +1,5 @@
 //! Portable vector geometry, views, and drawing commands.
+
 mod canvas;
 mod shape;
 pub use canvas::*;
@@ -68,6 +69,7 @@ mod tests {
 mod animation_tests {
     use super::*;
     use crate::Color;
+
     #[test]
     fn transparent_canvas_colors_interpolate_without_dark_fringes() {
         let target = Color(255, 0, 0, 255);

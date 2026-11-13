@@ -200,25 +200,46 @@ impl PresentationState {
         self.targets.insert(id, element.clone());
     }
 
-    fn retarget_canvas(&mut self, id: ElementId, element: &Element,
-        animation: Option<Animation>, now: Duration) {
-        let previous = self.targets.get(&id).and_then(|e|e.canvas.as_ref());
+    fn retarget_canvas(
+        &mut self,
+        id: ElementId,
+        element: &Element,
+        animation: Option<Animation>,
+        now: Duration,
+    ) {
+        let previous = self.targets.get(&id).and_then(|e| e.canvas.as_ref());
         let next = element.canvas.as_ref();
-        let pair = previous.zip(next).filter(|(a,b)|a.compatible(b))
-            .and_then(|(a,b)|a.components().zip(b.components()));
-        let Some((from,to)) = pair.filter(|(a,b)|a.len()==b.len()) else {
+        let pair = previous
+            .zip(next)
+            .filter(|(a, b)| a.compatible(b))
+            .and_then(|(a, b)| a.components().zip(b.components()));
+        let Some((from, to)) = pair.filter(|(a, b)| a.len() == b.len()) else {
             self.canvas_tracks.remove(&id);
             return;
         };
-        if from == to { return; }
+        if from == to {
+            return;
+        }
+
+        // Retarget from the displayed value and velocity, not the previous target.
         let old = self.canvas_tracks.remove(&id);
         if let Some(animation) = animation {
-            let tracks = from.iter().zip(&to).enumerate().map(|(i,(&from,&to))| {
-                let sample = old.as_ref().and_then(|v|v.get(i)).map(|t|t.sample(now));
-                Track { from:sample.map_or(from,|s|s.value), to,
-                    velocity:sample.map_or(0.0,|s|s.velocity),start:now,animation }
-            }).collect();
-            self.canvas_tracks.insert(id,tracks);
+            let tracks = from
+                .iter()
+                .zip(&to)
+                .enumerate()
+                .map(|(i, (&from, &to))| {
+                    let sample = old.as_ref().and_then(|v| v.get(i)).map(|t| t.sample(now));
+                    Track {
+                        from: sample.map_or(from, |s| s.value),
+                        to,
+                        velocity: sample.map_or(0.0, |s| s.velocity),
+                        start: now,
+                        animation,
+                    }
+                })
+                .collect();
+            self.canvas_tracks.insert(id, tracks);
         }
     }
 
@@ -236,9 +257,12 @@ impl PresentationState {
                 }
             });
         }
-        if let (Some(canvas),Some(tracks)) = (&result.canvas,self.canvas_tracks.get(&id)) {
-            let values = tracks.iter().map(|track|track.sample(now).value).collect::<Vec<_>>();
-            result.canvas=Some(canvas.sampled(&values));
+        if let (Some(canvas), Some(tracks)) = (&result.canvas, self.canvas_tracks.get(&id)) {
+            let values = tracks
+                .iter()
+                .map(|track| track.sample(now).value)
+                .collect::<Vec<_>>();
+            result.canvas = Some(canvas.sampled(&values));
         }
         Some(result)
     }
@@ -248,14 +272,25 @@ impl PresentationState {
     pub fn advance(&mut self, now: Duration) -> Vec<(ElementId, Element)> {
         self.exits
             .retain(|_, (_, track)| !track.sample(now).finished);
-        let ids: HashSet<_> = self.tracks.keys().chain(self.canvas_tracks.keys()).copied().collect();
+        let ids: HashSet<_> = self
+            .tracks
+            .keys()
+            .chain(self.canvas_tracks.keys())
+            .copied()
+            .collect();
         let mut result = Vec::with_capacity(ids.len());
         for id in ids {
             if let Some(tracks) = self.tracks.get_mut(&id) {
-                tracks.retain(|_,track|!track.sample(now).finished);
-                if tracks.is_empty() { self.tracks.remove(&id); }
+                tracks.retain(|_, track| !track.sample(now).finished);
+                if tracks.is_empty() {
+                    self.tracks.remove(&id);
+                }
             }
-            if self.canvas_tracks.get(&id).is_some_and(|tracks|tracks.iter().all(|t|t.sample(now).finished)) {
+            if self
+                .canvas_tracks
+                .get(&id)
+                .is_some_and(|tracks| tracks.iter().all(|t| t.sample(now).finished))
+            {
                 self.canvas_tracks.remove(&id);
             }
             if let Some(element) = self.element(id, now) {
@@ -275,7 +310,11 @@ impl PresentationState {
     }
 
     pub fn active_ids(&self) -> HashSet<ElementId> {
-        self.tracks.keys().chain(self.canvas_tracks.keys()).copied().collect()
+        self.tracks
+            .keys()
+            .chain(self.canvas_tracks.keys())
+            .copied()
+            .collect()
     }
 }
 

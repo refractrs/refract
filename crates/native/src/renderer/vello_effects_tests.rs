@@ -375,23 +375,51 @@ fn gpu_animation_transforms_preserve_clips_and_group_opacity() {
 #[test]
 #[ignore = "requires a GPU: cargo test -p refract-native gpu_canvas -- --ignored"]
 fn gpu_canvas_filters_alpha_masks_and_strokes_at_multiple_scales() {
-    use refract_core::{GraphicsContext,Layer,Mask,Path,Rect,Point,GradientStop,StrokeStyle,LineCap};
-    let mut gpu=Gpu::new();
-    let mut g=GraphicsContext::new();
-    let block=Path::rectangle(Rect::new(20.0,20.0,56.0,56.0));
-    let mask=Mask::new(Path::rectangle(Rect::new(0.0,0.0,96.0,96.0)),refract_core::Paint::linear(
-        Point::ZERO,Point::new(96.0,0.0),vec![GradientStop::new(0.0,Paint::BLACK),GradientStop::new(1.0,Paint(0,0,0,0))]));
-    g.layer(Layer::new().blur(3.0).mask(mask),|g|g.fill(&block,Paint::rgb(255,0,0)));
-    g.stroke(&Path::polyline([Point::new(20.0,8.0),Point::new(76.0,8.0)]),Paint::rgb(0,0,255),StrokeStyle::new(4.0).line_cap(LineCap::Round).dash(vec![8.0,8.0]));
-    let commands=[DrawCommand::Canvas {rect:rect(0.0,0.0,96.0,96.0),commands:g.finish().unwrap()}];
-    for scale in [1,2] {
-        let data=gpu.pixels(&commands,scale as f64);
-        let left=pixel(&data,30,48,scale);
-        let right=pixel(&data,65,48,scale);
-        assert!(left[0]>220 && left[3]>140,"left {left:?}");
-        assert!(right[0]>220 && right[3]<110 && right[3]>50,"right {right:?}");
-        assert!(pixel(&data,18,48,scale)[3]>5,"blur must extend beyond the path");
-        assert!(pixel(&data,24,8,scale)[2]>220,"dash ink");
-        assert!(pixel(&data,32,8,scale)[3]<10,"dash gap");
+    use refract_core::{
+        GradientStop, GraphicsContext, Layer, LineCap, Mask, Path, Point, Rect, StrokeStyle,
+    };
+    let mut gpu = Gpu::new();
+    let mut g = GraphicsContext::new();
+    let block = Path::rectangle(Rect::new(20.0, 20.0, 56.0, 56.0));
+    let mask = Mask::new(
+        Path::rectangle(Rect::new(0.0, 0.0, 96.0, 96.0)),
+        refract_core::Paint::linear(
+            Point::ZERO,
+            Point::new(96.0, 0.0),
+            vec![
+                GradientStop::new(0.0, Paint::BLACK),
+                GradientStop::new(1.0, Paint(0, 0, 0, 0)),
+            ],
+        ),
+    );
+    g.layer(Layer::new().blur(3.0).mask(mask), |g| {
+        g.fill(&block, Paint::rgb(255, 0, 0))
+    });
+    g.stroke(
+        &Path::polyline([Point::new(20.0, 8.0), Point::new(76.0, 8.0)]),
+        Paint::rgb(0, 0, 255),
+        StrokeStyle::new(4.0)
+            .line_cap(LineCap::Round)
+            .dash(vec![8.0, 8.0]),
+    );
+    let commands = [DrawCommand::Canvas {
+        rect: rect(0.0, 0.0, 96.0, 96.0),
+        commands: g.finish().unwrap(),
+    }];
+    for scale in [1, 2] {
+        let data = gpu.pixels(&commands, scale as f64);
+        let left = pixel(&data, 30, 48, scale);
+        let right = pixel(&data, 65, 48, scale);
+        assert!(left[0] > 220 && left[3] > 140, "left {left:?}");
+        assert!(
+            right[0] > 220 && right[3] < 110 && right[3] > 50,
+            "right {right:?}"
+        );
+        assert!(
+            pixel(&data, 18, 48, scale)[3] > 5,
+            "blur must extend beyond the path"
+        );
+        assert!(pixel(&data, 24, 8, scale)[2] > 220, "dash ink");
+        assert!(pixel(&data, 32, 8, scale)[3] < 10, "dash gap");
     }
 }

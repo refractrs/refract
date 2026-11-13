@@ -1,4 +1,5 @@
 //! Portable drawing commands. Scoped state does not allocate compositing layers.
+
 use super::{Path, Point, Rect};
 use crate::{Affine2d, Color, GradientStop, ViewError};
 use std::rc::Rc;
@@ -17,6 +18,7 @@ pub enum Paint {
         stops: Vec<GradientStop>,
     },
 }
+
 impl Paint {
     pub fn linear(start: Point, end: Point, stops: impl Into<Vec<GradientStop>>) -> Self {
         Self::Linear {
@@ -25,6 +27,7 @@ impl Paint {
             stops: stops.into(),
         }
     }
+
     pub fn radial(center: Point, radius: f64, stops: impl Into<Vec<GradientStop>>) -> Self {
         Self::Radial {
             center,
@@ -32,6 +35,7 @@ impl Paint {
             stops: stops.into(),
         }
     }
+
     fn valid(&self) -> bool {
         let stops = match self {
             Self::Solid(_) => return true,
@@ -63,11 +67,13 @@ impl Paint {
             && stops.windows(2).all(|p| p[0].offset <= p[1].offset)
     }
 }
+
 impl From<Color> for Paint {
     fn from(color: Color) -> Self {
         Self::Solid(color)
     }
 }
+
 impl From<&Paint> for Paint {
     fn from(paint: &Paint) -> Self {
         paint.clone()
@@ -80,6 +86,7 @@ pub enum FillRule {
     NonZero,
     EvenOdd,
 }
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LineCap {
     #[default]
@@ -87,6 +94,7 @@ pub enum LineCap {
     Round,
     Square,
 }
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LineJoin {
     #[default]
@@ -94,6 +102,7 @@ pub enum LineJoin {
     Round,
     Bevel,
 }
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct StrokeStyle {
     pub width: f64,
@@ -103,6 +112,7 @@ pub struct StrokeStyle {
     pub dash: Vec<f64>,
     pub dash_offset: f64,
 }
+
 impl StrokeStyle {
     pub fn new(width: f64) -> Self {
         Self {
@@ -114,22 +124,27 @@ impl StrokeStyle {
             dash_offset: 0.0,
         }
     }
+
     pub fn line_cap(mut self, cap: LineCap) -> Self {
         self.line_cap = cap;
         self
     }
+
     pub fn line_join(mut self, join: LineJoin) -> Self {
         self.line_join = join;
         self
     }
+
     pub fn dash(mut self, dash: impl Into<Vec<f64>>) -> Self {
         self.dash = dash.into();
         self
     }
+
     pub fn dash_offset(mut self, offset: f64) -> Self {
         self.dash_offset = offset;
         self
     }
+
     fn valid(&self) -> bool {
         self.width.is_finite()
             && self.width >= 0.0
@@ -140,6 +155,7 @@ impl StrokeStyle {
             && (self.dash.is_empty() || self.dash.iter().any(|v| *v > 0.0))
     }
 }
+
 impl From<&StrokeStyle> for StrokeStyle {
     fn from(style: &StrokeStyle) -> Self {
         style.clone()
@@ -154,11 +170,13 @@ pub enum BlendMode {
     Screen,
     Plus,
 }
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mask {
     pub path: Path,
     pub paint: Paint,
 }
+
 impl Mask {
     /// Alpha mask: paint RGB has no effect on coverage.
     pub fn new(path: Path, paint: impl Into<Paint>) -> Self {
@@ -168,6 +186,7 @@ impl Mask {
         }
     }
 }
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Layer {
     pub opacity: f32,
@@ -175,6 +194,7 @@ pub struct Layer {
     pub mask: Option<Mask>,
     pub blend_mode: BlendMode,
 }
+
 impl Default for Layer {
     fn default() -> Self {
         Self {
@@ -185,23 +205,28 @@ impl Default for Layer {
         }
     }
 }
+
 impl Layer {
     pub fn new() -> Self {
         Self::default()
     }
+
     pub fn opacity(mut self, opacity: f32) -> Self {
         self.opacity = opacity;
         self
     }
+
     /// Gaussian standard deviation in local logical pixels.
     pub fn blur(mut self, sigma: f64) -> Self {
         self.blur = sigma;
         self
     }
+
     pub fn mask(mut self, mask: Mask) -> Self {
         self.mask = Some(mask);
         self
     }
+
     pub fn blend_mode(mut self, mode: BlendMode) -> Self {
         self.blend_mode = mode;
         self
@@ -227,6 +252,7 @@ pub enum DrawingCommand {
         commands: Rc<[DrawingCommand]>,
     },
 }
+
 impl DrawingCommand {
     pub fn bounds(&self) -> Option<Rect> {
         match self {
@@ -245,6 +271,7 @@ impl DrawingCommand {
             }),
         }
     }
+
     fn valid(&self) -> bool {
         match self {
             Self::Fill { path, paint, .. } => path.valid() && paint.valid(),
@@ -271,6 +298,7 @@ impl DrawingCommand {
         }
     }
 }
+
 pub fn drawing_bounds(commands: &[DrawingCommand]) -> Option<Rect> {
     commands
         .iter()
@@ -282,13 +310,16 @@ pub fn drawing_bounds(commands: &[DrawingCommand]) -> Option<Rect> {
 pub struct GraphicsContext {
     commands: Vec<DrawingCommand>,
 }
+
 impl GraphicsContext {
     pub fn new() -> Self {
         Self::default()
     }
+
     pub fn fill(&mut self, path: &Path, paint: impl Into<Paint>) {
         self.fill_rule(path, paint, FillRule::NonZero);
     }
+
     pub fn fill_rule(&mut self, path: &Path, paint: impl Into<Paint>, rule: FillRule) {
         self.commands.push(DrawingCommand::Fill {
             path: path.clone(),
@@ -296,6 +327,7 @@ impl GraphicsContext {
             rule,
         });
     }
+
     pub fn stroke(&mut self, path: &Path, paint: impl Into<Paint>, style: impl Into<StrokeStyle>) {
         self.commands.push(DrawingCommand::Stroke {
             path: path.clone(),
@@ -303,20 +335,25 @@ impl GraphicsContext {
             style: style.into(),
         });
     }
+
     pub fn scoped(&mut self, draw: impl FnOnce(&mut Self)) {
         self.group(Affine2d::IDENTITY, None, None, draw);
     }
+
     pub fn transformed(&mut self, transform: Affine2d, draw: impl FnOnce(&mut Self)) {
         self.group(transform, None, None, draw);
     }
+
     pub fn clipped(&mut self, path: &Path, rule: FillRule, draw: impl FnOnce(&mut Self)) {
         self.group(Affine2d::IDENTITY, Some((path.clone(), rule)), None, draw);
     }
+
     /// Isolate children, blur them, apply the alpha mask, then composite with
     /// group opacity and blend mode. Effects never change layout or hit testing.
     pub fn layer(&mut self, layer: Layer, draw: impl FnOnce(&mut Self)) {
         self.group(Affine2d::IDENTITY, None, Some(layer), draw);
     }
+
     fn group(
         &mut self,
         transform: Affine2d,
@@ -333,6 +370,7 @@ impl GraphicsContext {
             commands: child.commands.into(),
         });
     }
+
     /// Reject invalid user geometry before it reaches a rasterizer or DOM.
     pub fn finish(self) -> Result<Rc<[DrawingCommand]>, ViewError> {
         if !self.commands.iter().all(DrawingCommand::valid) {

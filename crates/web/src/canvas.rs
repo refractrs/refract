@@ -1,4 +1,5 @@
 //! Canvas resources, size/visibility observation, and presentation-only drawing.
+
 use super::*;
 use refract_core::{CanvasCache, CanvasSchedule, DrawingCommand, Size};
 
@@ -19,6 +20,7 @@ pub(super) struct CanvasObserver {
     callback: Closure<dyn FnMut(web_sys::Event)>,
     document: Document,
 }
+
 impl CanvasObserver {
     pub fn new(inner: &Rc<Inner>) -> Result<Self, JsValue> {
         let weak = Rc::downgrade(inner);
@@ -87,6 +89,7 @@ impl CanvasObserver {
             document,
         })
     }
+
     pub fn reconnect(&self, dom: &Dom) {
         self.resize.disconnect();
         self.intersection.disconnect();
@@ -96,6 +99,7 @@ impl CanvasObserver {
         }
     }
 }
+
 impl Drop for CanvasObserver {
     fn drop(&mut self) {
         self.resize.disconnect();
@@ -109,6 +113,7 @@ impl Drop for CanvasObserver {
         );
     }
 }
+
 impl Dom {
     pub(super) fn draw_canvases(&mut self, now: std::time::Duration) -> Result<(), JsValue> {
         let hidden = self.document.hidden();

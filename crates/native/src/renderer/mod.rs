@@ -140,7 +140,10 @@ impl PartialEq for RasterImage {
 #[derive(Clone, Debug, PartialEq)]
 pub enum DrawCommand {
     /// A canvas is clipped to its content box, including all filtered ink.
-    Canvas { rect: Rect, commands: Rc<[refract_core::DrawingCommand]> },
+    Canvas {
+        rect: Rect,
+        commands: Rc<[refract_core::DrawingCommand]>,
+    },
     /// Presentation transform around a subtree; pair with PopLayer.
     PushTransform(refract_core::Affine2d),
     /// Group opacity bounded only by the current viewport and ancestor clips.

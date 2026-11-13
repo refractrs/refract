@@ -1,6 +1,8 @@
 //! One canvas example shared by the browser and native hosts.
+
 use refract::prelude::*;
 use std::time::Duration;
+
 mod prism;
 
 pub const BACKGROUND: Color = Color::rgb(245, 248, 253);
@@ -38,6 +40,8 @@ pub fn application(cx: &mut ViewContext<'_>) -> impl View {
     let pointer_tilt = tilt.clone();
     let toggle_pulses = pulses.clone();
     let toggle_glow = glow.clone();
+
+    // Read tilt here so pointer updates invalidate the canvas preparation alone.
     let illustration = canvas_with(
         move |inputs| (inputs.read(&read_tilt), inputs.read(&read_glow)),
         |g, frame, (tilt, glow)| prism::draw(g, frame, *tilt, *glow),
@@ -79,6 +83,7 @@ pub fn application(cx: &mut ViewContext<'_>) -> impl View {
             |rt| pointer_tilt.set(rt, target),
         );
     });
+
     v_stack()
         .gap(18.0)
         .child(
@@ -141,23 +146,29 @@ pub fn application(cx: &mut ViewContext<'_>) -> impl View {
 mod browser {
     use super::*;
     use wasm_bindgen::prelude::*;
+
     #[wasm_bindgen]
     pub struct CanvasApp(refract_web::Mount);
+
     #[wasm_bindgen]
     impl CanvasApp {
         pub fn dispose(&self) {
             self.0.dispose();
         }
+
         pub fn revision(&self) -> u64 {
             self.0.revision()
         }
+
         pub fn dom_calls(&self) -> u64 {
             self.0.dom_calls()
         }
+
         pub fn last_error(&self) -> Option<String> {
             self.0.last_error()
         }
     }
+
     #[wasm_bindgen]
     pub fn start(host: web_sys::Element) -> Result<CanvasApp, JsValue> {
         Ok(CanvasApp(refract_web::mount(

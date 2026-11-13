@@ -1,4 +1,5 @@
 //! Encode portable drawing trees, including bounded local-space effects.
+
 use super::vello_scene::{color, Encoder};
 use refract_core::{
     drawing_bounds, DrawingCommand, FillRule, Layer, LineCap, LineJoin, Paint, Path, PathElement,
@@ -24,6 +25,7 @@ fn path(path: &Path) -> BezPath {
     }
     result
 }
+
 fn paint(paint: &Paint) -> Brush {
     let gradient = match paint {
         Paint::Solid(c) => return color(*c).into(),
@@ -56,6 +58,7 @@ fn paint(paint: &Paint) -> Brush {
     };
     gradient.into()
 }
+
 fn stroke(style: &StrokeStyle) -> Stroke {
     Stroke::new(style.width)
         .with_caps(match style.line_cap {
@@ -71,12 +74,14 @@ fn stroke(style: &StrokeStyle) -> Stroke {
         .with_miter_limit(style.miter_limit)
         .with_dashes(style.dash_offset, style.dash.iter().copied())
 }
+
 fn fill(rule: FillRule) -> Fill {
     match rule {
         FillRule::NonZero => Fill::NonZero,
         FillRule::EvenOdd => Fill::EvenOdd,
     }
 }
+
 fn rect(r: refract_core::Rect) -> Rect {
     Rect::new(r.x, r.y, r.x + r.width, r.y + r.height)
 }
@@ -105,6 +110,7 @@ impl Encoder<'_> {
         scene.pop_layer();
         Ok(())
     }
+
     fn drawing(
         &mut self,
         scene: &mut Scene,
@@ -152,6 +158,7 @@ impl Encoder<'_> {
         }
         Ok(())
     }
+
     fn drawing_layer(
         &mut self,
         scene: &mut Scene,
@@ -182,6 +189,8 @@ impl Encoder<'_> {
                 false,
             )?;
         }
+
+        // Destination-in retains the blurred content in proportion to mask alpha.
         if let Some(mask) = &layer.mask {
             content.push_layer(
                 Fill::NonZero,

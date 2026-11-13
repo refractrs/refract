@@ -1,4 +1,5 @@
 //! Geometry in local logical pixels. Paths are shared, copy-on-write values.
+
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -6,12 +7,15 @@ pub struct Point {
     pub x: f64,
     pub y: f64,
 }
+
 impl Point {
     pub const ZERO: Self = Self::new(0.0, 0.0);
+
     pub const fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
 }
+
 impl From<(f64, f64)> for Point {
     fn from((x, y): (f64, f64)) -> Self {
         Self::new(x, y)
@@ -23,6 +27,7 @@ pub struct Size {
     pub width: f64,
     pub height: f64,
 }
+
 impl Size {
     pub const fn new(width: f64, height: f64) -> Self {
         Self { width, height }
@@ -36,6 +41,7 @@ pub struct Rect {
     pub width: f64,
     pub height: f64,
 }
+
 impl Rect {
     pub const fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
         Self {
@@ -45,24 +51,31 @@ impl Rect {
             height,
         }
     }
+
     pub fn size(self) -> Size {
         Size::new(self.width, self.height)
     }
+
     pub fn center(self) -> Point {
         Point::new(self.x + self.width / 2.0, self.y + self.height / 2.0)
     }
+
     pub fn top_center(self) -> Point {
         Point::new(self.center().x, self.y)
     }
+
     pub fn bottom_left(self) -> Point {
         Point::new(self.x, self.y + self.height)
     }
+
     pub fn bottom_right(self) -> Point {
         Point::new(self.x + self.width, self.y + self.height)
     }
+
     pub fn contains(self, p: Point) -> bool {
         p.x >= self.x && p.y >= self.y && p.x < self.x + self.width && p.y < self.y + self.height
     }
+
     pub fn inflate(self, amount: f64) -> Self {
         Self::new(
             self.x - amount,
@@ -71,6 +84,7 @@ impl Rect {
             self.height + amount * 2.0,
         )
     }
+
     pub fn union(self, other: Self) -> Self {
         let x = self.x.min(other.x);
         let y = self.y.min(other.y);
@@ -81,6 +95,7 @@ impl Rect {
             (self.y + self.height).max(other.y + other.height) - y,
         )
     }
+
     pub fn transformed(self, matrix: crate::Affine2d) -> Self {
         let [a, b, c, d, e, f] = matrix.0;
         let points = [
@@ -92,6 +107,7 @@ impl Rect {
         .map(|(x, y)| Point::new(a * x + c * y + e, b * x + d * y + f));
         bounds(points).unwrap_or_default()
     }
+
     pub(crate) fn valid(self) -> bool {
         [self.x, self.y, self.width, self.height]
             .iter()
@@ -112,19 +128,24 @@ pub enum PathElement {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Path(Arc<Vec<PathElement>>);
+
 impl Path {
     pub fn new() -> Self {
         Self::default()
     }
+
     pub fn move_to(&mut self, point: impl Into<Point>) {
         Arc::make_mut(&mut self.0).push(PathElement::MoveTo(point.into()));
     }
+
     pub fn line_to(&mut self, point: impl Into<Point>) {
         Arc::make_mut(&mut self.0).push(PathElement::LineTo(point.into()));
     }
+
     pub fn quad_to(&mut self, control: impl Into<Point>, end: impl Into<Point>) {
         Arc::make_mut(&mut self.0).push(PathElement::QuadTo(control.into(), end.into()));
     }
+
     pub fn cubic_to(
         &mut self,
         first: impl Into<Point>,
@@ -137,14 +158,17 @@ impl Path {
             end.into(),
         ));
     }
+
     pub fn close(&mut self) {
         if !self.0.is_empty() && self.0.last() != Some(&PathElement::Close) {
             Arc::make_mut(&mut self.0).push(PathElement::Close);
         }
     }
+
     pub fn elements(&self) -> &[PathElement] {
         &self.0
     }
+
     pub fn polyline(points: impl IntoIterator<Item = Point>) -> Self {
         let mut result = Self::new();
         for (index, point) in points.into_iter().enumerate() {
@@ -156,11 +180,13 @@ impl Path {
         }
         result
     }
+
     pub fn polygon(points: impl IntoIterator<Item = Point>) -> Self {
         let mut result = Self::polyline(points);
         result.close();
         result
     }
+
     pub fn rectangle(r: Rect) -> Self {
         Self::polygon([
             Point::new(r.x, r.y),
@@ -169,6 +195,7 @@ impl Path {
             r.bottom_left(),
         ])
     }
+
     pub fn ellipse(r: Rect) -> Self {
         let mut path = Self::arc(
             r.center(),
@@ -179,6 +206,7 @@ impl Path {
         path.close();
         path
     }
+
     /// Elliptical arc. Angles are radians, clockwise with y increasing downward.
     /// Sweeps are limited to one revolution; invalid values fail validation.
     pub fn arc(center: Point, radii: Size, start: f64, sweep: f64) -> Self {
@@ -217,10 +245,12 @@ impl Path {
         }
         path
     }
+
     /// Conservative control-point bounds, including all Bézier coverage.
     pub fn bounds(&self) -> Option<Rect> {
         bounds(self.points())
     }
+
     fn points(&self) -> impl Iterator<Item = Point> + '_ {
         self.0.iter().flat_map(|el| {
             match *el {
@@ -233,10 +263,12 @@ impl Path {
             .flatten()
         })
     }
+
     pub(crate) fn valid(&self) -> bool {
         self.points().all(|p| p.x.is_finite() && p.y.is_finite())
     }
 }
+
 fn bounds(points: impl IntoIterator<Item = Point>) -> Option<Rect> {
     let mut points = points.into_iter();
     let first = points.next()?;

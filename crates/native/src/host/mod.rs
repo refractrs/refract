@@ -423,7 +423,9 @@ impl Host {
     }
 
     pub fn pause_canvases(&mut self) {
-        for entry in self.entries.values_mut() { entry.canvas.pause(); }
+        for entry in self.entries.values_mut() {
+            entry.canvas.pause();
+        }
     }
 
     pub fn animation_deadline(&self) -> Option<std::time::Instant> {
@@ -448,9 +450,16 @@ impl Host {
             let inherited = self.entries[&id].parent.map(|p|self.entries[&p].typography.clone()).unwrap_or_default();
             self.refresh_text(id, &inherited)?;
         }
-        self.next_animation_frame = (self.presentation.is_animating() || (!self.reduced_motion && self.entries.values().any(|e|
-            e.canvas_visible && e.element.canvas.as_ref().is_some_and(|c|c.schedule == refract_core::CanvasSchedule::Animation))))
-            .then_some(now + std::time::Duration::from_millis(16));
+        self.next_animation_frame = (self.presentation.is_animating()
+            || (!self.reduced_motion
+                && self.entries.values().any(|e| {
+                    e.canvas_visible
+                        && e.element
+                            .canvas
+                            .as_ref()
+                            .is_some_and(|c| c.schedule == refract_core::CanvasSchedule::Animation)
+                })))
+        .then_some(now + std::time::Duration::from_millis(16));
         Ok(())
     }
 

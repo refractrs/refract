@@ -74,10 +74,18 @@ pub fn prerender(view: impl View, options: PrerenderOptions) -> Result<String, V
                 out.push_str(&crate::html::escape(&e.value));
             }
             if let Some(canvas) = &e.canvas {
-                let fallback=canvas.view_box.map(|r|r.size()).unwrap_or(refract_core::Size::new(300.0,150.0));
-                let size=refract_core::Size::new(e.style.width.map_or(fallback.width,f64::from),e.style.height.map_or(fallback.height,f64::from));
-                let commands=canvas.draw(size,std::time::Duration::ZERO)?;
-                out.push_str(&crate::svg::scene(&commands,size,&format!("refract-{}",id.0)).html());
+                let fallback = canvas
+                    .view_box
+                    .map(|r| r.size())
+                    .unwrap_or(refract_core::Size::new(300.0, 150.0));
+                let size = refract_core::Size::new(
+                    e.style.width.map_or(fallback.width, f64::from),
+                    e.style.height.map_or(fallback.height, f64::from),
+                );
+                let commands = canvas.draw(size, std::time::Duration::ZERO)?;
+                out.push_str(
+                    &crate::svg::scene(&commands, size, &format!("refract-{}", id.0)).html(),
+                );
             }
             render(Some(*id), elements, children, out)?;
             out.push_str(&format!("</{tag}>"));

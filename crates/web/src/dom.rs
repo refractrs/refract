@@ -429,7 +429,10 @@ fn mount_inner(
             exits: HashMap::new(),
             canvas_ids: HashSet::new(),
             canvas_active: false,
-            canvas_prefix: format!("refract-{:x}", js_sys::Date::now().to_bits() ^ js_sys::Math::random().to_bits()),
+            canvas_prefix: format!(
+                "refract-{:x}",
+                js_sys::Date::now().to_bits() ^ js_sys::Math::random().to_bits()
+            ),
         }),
         listeners: RefCell::new(vec![]),
         captures: RefCell::new(HashMap::new()),
@@ -586,7 +589,12 @@ fn animation_now() -> std::time::Duration {
 }
 
 fn request_animation(inner: &Rc<Inner>) -> Result<(), JsValue> {
-    if !inner.active.get() || inner.animation_frame.get().is_some() || !(inner.dom.borrow().presentation.is_animating() || inner.dom.borrow().canvas_active) { return Ok(()); }
+    if !inner.active.get()
+        || inner.animation_frame.get().is_some()
+        || !(inner.dom.borrow().presentation.is_animating() || inner.dom.borrow().canvas_active)
+    {
+        return Ok(());
+    }
     if inner.animation_callback.borrow().is_none() {
         let weak = Rc::downgrade(inner);
         let callback = Closure::wrap(Box::new(move |timestamp: f64| {
@@ -720,7 +728,9 @@ fn flush(inner: &Rc<Inner>) -> Result<(), JsValue> {
         let result = result.and_then(|()| {
             events::reconcile_capture(inner);
             if reconnect_scroll {
-                if let Some(canvases)=inner.canvases.borrow().as_ref() { canvases.reconnect(&inner.dom.borrow()); }
+                if let Some(canvases) = inner.canvases.borrow().as_ref() {
+                    canvases.reconnect(&inner.dom.borrow());
+                }
                 if let Some(scroll) = inner.scroll.borrow().as_ref() {
                     scroll.reconnect(&inner.dom.borrow())?;
                 }
@@ -999,7 +1009,10 @@ impl Dom {
                         pending_value: None,
                         image_url: None,
                         scroll_tracker: Default::default(),
-                        canvas: canvas::CanvasDom { visible:true, ..Default::default() },
+                        canvas: canvas::CanvasDom {
+                            visible: true,
+                            ..Default::default()
+                        },
                     },
                 );
             }
@@ -1028,9 +1041,14 @@ impl Dom {
                 element.kind == ElementKind::Text
                     || (element.kind == ElementKind::TextInput && element.multiline)
             });
-            if parent.is_some_and(|id|entries[&id].element.kind == ElementKind::Canvas) {
-                if !expected.is_empty() || actual.length() != 1 || !node.first_element_child().is_some_and(|svg|
-                    svg.local_name() == "svg" && svg.namespace_uri().as_deref() == Some("http://www.w3.org/2000/svg")) {
+            if parent.is_some_and(|id| entries[&id].element.kind == ElementKind::Canvas) {
+                if !expected.is_empty()
+                    || actual.length() != 1
+                    || !node.first_element_child().is_some_and(|svg| {
+                        svg.local_name() == "svg"
+                            && svg.namespace_uri().as_deref() == Some("http://www.w3.org/2000/svg")
+                    })
+                {
                     return Ok(false);
                 }
             } else if text_leaf && expected.is_empty() {
@@ -1199,9 +1217,13 @@ impl Dom {
         self.presentation.apply(update, now);
         for patch in &update.patches {
             match patch {
-                Patch::Create(id,e) if e.canvas.is_some() => { self.canvas_ids.insert(*id); },
-                Patch::Remove(id) => { self.canvas_ids.remove(id); },
-                _ => {},
+                Patch::Create(id, e) if e.canvas.is_some() => {
+                    self.canvas_ids.insert(*id);
+                }
+                Patch::Remove(id) => {
+                    self.canvas_ids.remove(id);
+                }
+                _ => {}
             }
         }
         self.capture_exits()?;
@@ -1262,7 +1284,10 @@ impl Dom {
                         pending_value: None,
                         image_url: None,
                         scroll_tracker: Default::default(),
-                        canvas: canvas::CanvasDom { visible:true, ..Default::default() },
+                        canvas: canvas::CanvasDom {
+                            visible: true,
+                            ..Default::default()
+                        },
                     };
                     let displayed=self.presentation.element(*id,now).unwrap_or_else(||element.clone());
                     self.calls += apply_properties(&mut entry, &displayed, true)?;

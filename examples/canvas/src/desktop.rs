@@ -12,5 +12,6 @@ fn main() -> refract_native::Result<()> {
         |_| refract_canvas::application(),
     )
 }
+
 #[cfg(target_arch = "wasm32")]
 fn main() {}
