@@ -2232,6 +2232,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "refract-canvas"
+version = "0.1.6"
+dependencies = [
+ "refract",
+ "refract-native",
+ "refract-test",
+ "refract-web",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "refract-chat"
 version = "0.1.6"
 dependencies = [
