@@ -9,50 +9,25 @@
 //! native input behavior, and rendering remain the adapter's responsibility.
 
 pub mod drawing;
-pub use drawing::*;
-
-mod transition;
-pub use transition::*;
-mod presentation;
-pub use presentation::PresentationState;
-mod animation;
-pub use animation::*;
-mod transform;
-pub use transform::*;
-mod transaction;
-pub use transaction::{with_animation, with_transaction, AnimationScope, Transaction, TransactionView};
 mod element;
-mod environment;
 mod events;
-mod field;
-mod focus;
 mod image;
-mod modifiers;
-mod primitives;
+mod presentation;
 mod runtime;
-mod scroll;
 mod style;
-mod surface;
 mod view;
 
+pub use drawing::*;
 pub use element::{ActionContext, Element, ElementGeometry, ElementKind, Handler, Interaction};
-pub use environment::{Environment, EnvironmentKey};
 pub use events::*;
-pub use field::{field, Field};
 pub use image::{ImageFit, ImageFormat, ImageSource};
-pub use modifiers::{KeyView, Memo, MemoView, Modified, Provided, ViewExt};
-pub use primitives::{
-    h_stack, image, spacer, stack, text, v_stack, view, z_stack, Container, Direction, Image,
-    Overlay, Spacer, Stack, Text,
-};
+pub use presentation::*;
 pub use refract_graph::{
     AttributeId, Binding, Dependencies, Derived, GraphStats, MessageSender, MessageSubscription,
     Observer, Read, Runtime, SendError, State,
 };
 pub use runtime::*;
-pub use scroll::*;
 pub use style::*;
-pub use surface::*;
 pub use view::*;
 
 /// An authoring, validation, or reconciliation error.
@@ -76,21 +51,23 @@ impl std::error::Error for ViewError {}
 /// Common types and constructors for writing views.
 pub mod prelude {
     pub use crate::drawing::*;
-    pub use crate::{with_animation, with_transaction, Animation, Transaction, Transform, Transition, UnitPoint};
     pub use crate::events::{
         EventPoint, Key, KeyEvent, KeyState, Modifiers, PointerButton, PointerButtons,
         PointerEvent, PointerKind, PointerPhase,
     };
-    pub use crate::primitives::{image, view};
+    pub use crate::view::{image, view};
     pub use crate::{
         field, fragment, h_stack, scroll_view, spacer, stack, text, v_stack, view_fn, z_stack,
         ActionContext, Alignment, AnyView, Axis, Binding, Border, BorderSide, BoxShadow, Color,
-        Container, CornerRadii, Derived, Direction, Empty, EnvironmentKey, Field, FocusRing, Gradient,
-        GradientStop, HistoryMode, Image, ImageFit, ImageFormat, ImageSource, Insets,
+        Container, CornerRadii, Derived, Direction, Empty, EnvironmentKey, Field, FocusRing,
+        Gradient, GradientStop, HistoryMode, Image, ImageFit, ImageFormat, ImageSource, Insets,
         LinearGradient, MemoryHistory, MessageSender, MessageSubscription, Overlay, RadialGradient,
         Read, Request, RequestStatus, Runtime, ScrollEvent, ScrollFollow, ScrollMetrics,
         ScrollOffset, ScrollPosition, ScrollSize, ScrollView, SendError, Spacer, Stack, State,
         Surface, SurfaceCapabilities, SurfaceCommand, SurfaceDriver, SurfaceError, SurfaceRequest,
         Text, Url, View, ViewContext, ViewError, ViewExt, Viewport,
+    };
+    pub use crate::{
+        with_animation, with_transaction, Animation, Transaction, Transform, Transition, UnitPoint,
     };
 }

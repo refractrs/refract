@@ -2,7 +2,7 @@
 //! host observations and callbacks share a graph batch, with no synthetic blur
 //! between descendants of a common ancestor.
 use super::*;
-use crate::focus::{FocusBinding, Group};
+use crate::runtime::focus_state::{FocusBinding, Group};
 
 impl App {
     pub(super) fn prepare_focus(

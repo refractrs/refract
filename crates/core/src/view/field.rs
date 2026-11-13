@@ -12,7 +12,7 @@ pub struct Field {
     element: Element,
 }
 
-impl crate::modifiers::ElementBuilder for Field {
+impl crate::view::modifiers::ElementBuilder for Field {
     fn element_mut(&mut self) -> &mut crate::Element {
         &mut self.element
     }
@@ -22,10 +22,10 @@ impl crate::modifiers::ElementBuilder for Field {
 }
 
 impl Field {
-    crate::modifiers::element_modifiers!(pub Self, crate::modifiers::configure);
-    crate::modifiers::event_modifiers!(pub Self, crate::modifiers::configure_handler);
-    crate::modifiers::focus_modifiers!(pub Self, crate::modifiers::configure_focus);
-    crate::modifiers::text_modifiers!(pub Self, crate::modifiers::configure);
+    crate::view::modifiers::element_modifiers!(pub Self, crate::view::modifiers::configure);
+    crate::view::modifiers::event_modifiers!(pub Self, crate::view::modifiers::configure_handler);
+    crate::view::modifiers::focus_modifiers!(pub Self, crate::view::modifiers::configure_focus);
+    crate::view::modifiers::text_modifiers!(pub Self, crate::view::modifiers::configure);
 
     /// Allow multiple lines. Defaults to false.
     ///
@@ -45,7 +45,7 @@ impl Field {
 
     /// Submit without inserting a newline. IME composition never submits.
     pub fn on_submit(mut self, action: impl Fn(&mut ActionContext<'_>) + 'static) -> Self {
-        crate::modifiers::append_handler(
+        crate::view::modifiers::append_handler(
             &mut self.handler,
             Handler::new(move |cx, event| {
                 if matches!(event, Event::Submit) {
@@ -58,7 +58,7 @@ impl Field {
 
     /// Observe user edits after the binding updates; programmatic writes do not emit input.
     pub fn on_input(mut self, action: impl Fn(&mut ActionContext<'_>, &str) + 'static) -> Self {
-        crate::modifiers::append_handler(
+        crate::view::modifiers::append_handler(
             &mut self.handler,
             Handler::new(move |cx, event| {
                 if let Event::Input(value) = event {

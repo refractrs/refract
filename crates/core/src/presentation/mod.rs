@@ -1,5 +1,16 @@
 //! Retained property animation shared by all hosts. Frames never touch the graph.
-use crate::{Animation, Color, Element, ElementId, Patch, Style, Update};
+
+mod animation;
+pub(crate) mod transaction;
+mod transform;
+mod transition;
+
+pub use animation::*;
+pub use transaction::{with_animation, with_transaction, AnimationScope, Transaction, TransactionView};
+pub use transform::*;
+pub use transition::*;
+
+use crate::{Color, Element, ElementId, Patch, Style, Update};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     time::Duration,

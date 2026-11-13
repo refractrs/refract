@@ -138,7 +138,7 @@ impl Element {
 #[derive(Clone)]
 pub struct Handler {
     callback: Rc<dyn Fn(&mut ActionContext<'_>, &Event)>,
-    pub(crate) focus: Option<crate::focus::FocusBinding>,
+    pub(crate) focus: Option<crate::runtime::focus_state::FocusBinding>,
 }
 
 impl Handler {
@@ -165,7 +165,7 @@ pub(crate) fn add_press_handler(
 ) {
     element.interaction = Some(Interaction::Activate);
     element.role.get_or_insert_with(|| "button".into());
-    crate::modifiers::append_handler(
+    crate::view::modifiers::append_handler(
         handler,
         Handler::new(move |cx, event| {
             if matches!(event, Event::Press) {

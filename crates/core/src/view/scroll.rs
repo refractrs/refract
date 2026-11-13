@@ -114,7 +114,7 @@ pub fn scroll_view(content: impl View) -> ScrollView {
     }
 }
 
-impl crate::modifiers::ElementBuilder for ScrollView {
+impl crate::view::modifiers::ElementBuilder for ScrollView {
     fn element_mut(&mut self) -> &mut crate::Element {
         &mut self.element
     }
@@ -122,9 +122,9 @@ impl crate::modifiers::ElementBuilder for ScrollView {
 }
 
 impl ScrollView {
-    crate::modifiers::element_modifiers!(pub Self, crate::modifiers::configure);
-    crate::modifiers::event_modifiers!(pub Self, crate::modifiers::configure_handler);
-    crate::modifiers::focus_modifiers!(pub Self, crate::modifiers::configure_focus);
+    crate::view::modifiers::element_modifiers!(pub Self, crate::view::modifiers::configure);
+    crate::view::modifiers::event_modifiers!(pub Self, crate::view::modifiers::configure_handler);
+    crate::view::modifiers::focus_modifiers!(pub Self, crate::view::modifiers::configure_focus);
 
     /// Choose the scrolling direction. Defaults to `Axis::Vertical`.
     pub fn axis(mut self, axis: Axis) -> Self {

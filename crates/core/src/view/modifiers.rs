@@ -1,8 +1,8 @@
 //! Shared modifiers and their identity, style, and environment wrappers.
 
 use crate::{
-    environment::Provider, scroll_view, ActionContext, AnyView, Description, Element, ElementKind,
-    EnvironmentKey, Insets, ScrollView, View,
+    runtime::environment::Provider, scroll_view, ActionContext, AnyView, Description, Element,
+    ElementKind, EnvironmentKey, Insets, ScrollView, View,
 };
 use std::{any::Any, rc::Rc};
 
@@ -183,11 +183,11 @@ macro_rules! focus_modifiers {
         /// Bind direct focus. Writes request focus after commit; host transitions
         /// update the binding. This does not add the element to the tab order.
         $visibility fn focused(self, binding: $crate::Binding<bool>) -> $output {
-            $apply(self, $crate::focus::FocusBinding::boolean(binding))
+            $apply(self, $crate::runtime::focus_state::FocusBinding::boolean(binding))
         }
         /// Associate this element with one value in a shared focus selection.
         $visibility fn focused_value<T: Clone + PartialEq + 'static>(self, binding: $crate::Binding<Option<T>>, value: T) -> $output {
-            $apply(self, $crate::focus::FocusBinding::value(binding, value))
+            $apply(self, $crate::runtime::focus_state::FocusBinding::value(binding, value))
         }
     };
 }
@@ -195,7 +195,7 @@ pub(crate) use focus_modifiers;
 
 pub(crate) fn configure_focus<T: ElementBuilder>(
     mut view: T,
-    focus: crate::focus::FocusBinding,
+    focus: crate::runtime::focus_state::FocusBinding,
 ) -> T {
     view.element_mut().focus_target = true;
     view.handler_mut()
@@ -204,7 +204,7 @@ pub(crate) fn configure_focus<T: ElementBuilder>(
     view
 }
 
-fn modify_focus(view: impl View, focus: crate::focus::FocusBinding) -> Modified {
+fn modify_focus(view: impl View, focus: crate::runtime::focus_state::FocusBinding) -> Modified {
     let (mut element, children, mut handler) = match view.describe() {
         Some(Description::Element(element, children, handler)) => (element, children, handler),
         _ => (
@@ -516,9 +516,9 @@ pub trait ViewExt: View + Sized {
 
     /// Provide a shared model by identity; descendants read it with ViewContext::object.
     fn environment_object<T: 'static>(self, value: Rc<T>) -> Provided {
-        self.environment::<crate::environment::ObjectKey<T>>(crate::environment::ObjectValue(Some(
-            value,
-        )))
+        self.environment::<crate::runtime::environment::ObjectKey<T>>(
+            crate::runtime::environment::ObjectValue(Some(value)),
+        )
     }
 
     /// Override a typed environment value for this subtree.

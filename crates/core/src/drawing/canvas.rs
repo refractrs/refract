@@ -320,7 +320,7 @@ pub fn canvas_with<I: Clone + PartialEq + 'static>(
     }
 }
 
-impl<I> crate::modifiers::ElementBuilder for Canvas<I> {
+impl<I> crate::view::modifiers::ElementBuilder for Canvas<I> {
     fn element_mut(&mut self) -> &mut Element {
         &mut self.element
     }
@@ -331,8 +331,8 @@ impl<I> crate::modifiers::ElementBuilder for Canvas<I> {
 }
 
 impl<I> Canvas<I> {
-    crate::modifiers::element_modifiers!(pub Self, crate::modifiers::configure);
-    crate::modifiers::event_modifiers!(pub Self, crate::modifiers::configure_handler);
+    crate::view::modifiers::element_modifiers!(pub Self, crate::view::modifiers::configure);
+    crate::view::modifiers::event_modifiers!(pub Self, crate::view::modifiers::configure_handler);
 
     pub fn view_box(mut self, bounds: Rect) -> Self {
         self.view_box = Some(bounds);
