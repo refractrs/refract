@@ -154,6 +154,37 @@ struct Inner {
 /// Own this handle for the mount's lifetime. Dropping it releases browser resources.
 pub struct Mount(Rc<Inner>);
 
+/// A browser mount and the host-owned handles created before its first render.
+/// Dropping this owner disposes the mount, just like dropping [`Mount`].
+pub struct InputMount<I> {
+    mount: Mount,
+    inputs: I,
+}
+
+impl<I> InputMount<I> {
+    pub fn mount(&self) -> &Mount {
+        &self.mount
+    }
+
+    pub fn inputs(&self) -> &I {
+        &self.inputs
+    }
+}
+
+impl<I: Clone + 'static> InputMount<I> {
+    /// Queue one mutation batch against this mount's input handles.
+    ///
+    /// Use `State::set_if_changed` to skip equal values. Admission, scheduling,
+    /// and disposal checks are the same as [`UpdateHandle::update`].
+    pub fn update_inputs(
+        &self,
+        update: impl FnOnce(&I, &mut Runtime) + 'static,
+    ) -> Result<(), JsValue> {
+        let inputs = self.inputs.clone();
+        self.mount.handle().update(move |rt| update(&inputs, rt))
+    }
+}
+
 /// A weak handle for submitting model updates from browser callbacks.
 #[derive(Clone)]
 pub struct UpdateHandle {
@@ -280,7 +311,20 @@ pub fn mount(
     view: impl View,
     options: MountOptions,
 ) -> Result<Mount, JsValue> {
-    mount_inner(host, view, options, false)
+    mount_inner(host, App::new(view), options, false)
+}
+
+/// Initialize host inputs in the mount's runtime before the first evaluation.
+/// The returned handles stay with the mount; views can receive read-only copies
+/// through an environment object.
+pub fn mount_with_inputs<V: View, I>(
+    host: web_sys::Element,
+    options: MountOptions,
+    initialize: impl FnOnce(&mut Runtime) -> (V, I),
+) -> Result<InputMount<I>, JsValue> {
+    let (app, inputs) = App::with_inputs(initialize);
+    let mount = mount_inner(host, app, options, false)?;
+    Ok(InputMount { mount, inputs })
 }
 
 /// Adopt matching prerendered HTML, or mount normally when no snapshot exists.
@@ -291,7 +335,20 @@ pub fn hydrate(
     view: impl View,
     options: MountOptions,
 ) -> Result<Mount, JsValue> {
-    mount_inner(host, view, options, true)
+    mount_inner(host, App::new(view), options, true)
+}
+
+/// Hydrate using the same initializer and values used during prerendering.
+/// Publish newer host values with [`InputMount::update_inputs`] after startup.
+/// A mismatching initial tree follows the normal hydration fallback.
+pub fn hydrate_with_inputs<V: View, I>(
+    host: web_sys::Element,
+    options: MountOptions,
+    initialize: impl FnOnce(&mut Runtime) -> (V, I),
+) -> Result<InputMount<I>, JsValue> {
+    let (app, inputs) = App::with_inputs(initialize);
+    let mount = mount_inner(host, app, options, true)?;
+    Ok(InputMount { mount, inputs })
 }
 
 fn direct_child(parent: &Node, attribute: &str) -> Option<web_sys::Element> {
@@ -304,7 +361,7 @@ fn direct_child(parent: &Node, attribute: &str) -> Option<web_sys::Element> {
 
 fn mount_inner(
     host: web_sys::Element,
-    view: impl View,
+    mut app: App,
     options: MountOptions,
     hydrate: bool,
 ) -> Result<Mount, JsValue> {
@@ -400,7 +457,6 @@ fn mount_inner(
         parent.append_child(&root)?;
     }
 
-    let mut app = App::new(view);
     let surface_driver = refract_core::SurfaceDriver::install(
         &mut app,
         document.title(),

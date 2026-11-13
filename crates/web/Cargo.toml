@@ -29,6 +29,11 @@ default-target = "wasm32-unknown-unknown"
 all-features = true
 
 [[example]]
+name = "host_input_fixture"
+path = "tests/browser/host_input_fixture.rs"
+crate-type = ["cdylib"]
+
+[[example]]
 name = "channel_fixture"
 path = "tests/browser/channel_fixture.rs"
 crate-type = ["cdylib"]
