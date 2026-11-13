@@ -16,6 +16,7 @@ mod tests {
 
     #[test]
     fn paths_share_storage_until_modified() {
+        assert!(Path::polygon([]).elements().is_empty());
         let original = Path::rectangle(Rect::new(2.0, 3.0, 8.0, 9.0));
         let mut changed = original.clone();
         assert_eq!(original.elements().as_ptr(), changed.elements().as_ptr());

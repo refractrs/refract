@@ -204,3 +204,47 @@ fn pointer_geometry_uses_each_handler_coordinate_system() {
     app.dispatch_event(id, event);
     assert_eq!(positions.borrow()[1], (None, None));
 }
+
+#[test]
+fn explicit_pause_preserves_the_scheduled_phase() {
+    let running = |schedule| {
+        canvas(|g, frame| {
+            g.fill(
+                &Path::rectangle(Rect::new(frame.elapsed.as_secs_f64(), 0.0, 10.0, 10.0)),
+                Color::BLUE,
+            )
+        })
+        .schedule(schedule)
+    };
+    let mut app = App::new(running(CanvasSchedule::Animation));
+    let mut host = TestHost::default();
+    host.flush(&mut app).unwrap();
+    let mut cache = CanvasCache::default();
+    let size = Size::new(100.0, 100.0);
+    let content = host
+        .elements
+        .values()
+        .find_map(|e| e.canvas.clone())
+        .unwrap();
+    cache
+        .render(&content, size, Duration::ZERO, true, false)
+        .unwrap();
+    cache
+        .render(&content, size, Duration::from_secs(2), true, false)
+        .unwrap();
+    app.set_view(running(CanvasSchedule::Paused));
+    host.flush(&mut app).unwrap();
+    let paused = host
+        .elements
+        .values()
+        .find_map(|e| e.canvas.clone())
+        .unwrap();
+    let commands = cache
+        .render(&paused, size, Duration::from_secs(3), true, false)
+        .unwrap();
+    assert_eq!(drawing_bounds(&commands).unwrap().x, 2.0);
+    let commands = cache
+        .render(&content, size, Duration::from_secs(50), true, false)
+        .unwrap();
+    assert_eq!(drawing_bounds(&commands).unwrap().x, 2.0);
+}
