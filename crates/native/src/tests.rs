@@ -1674,3 +1674,67 @@ fn exiting_snapshot_is_visible_but_no_longer_interactive() {
     assert!(!end.commands.iter().any(|c|matches!(c,DrawCommand::Glyphs{..})));
     assert!(host.animation_deadline().is_none());
 }
+
+#[test]
+fn canvas_frames_cache_drawing_work_without_layout_or_graph_updates() {
+    let draws=Rc::new(Cell::new(0));
+    let inputs=Rc::new(Cell::new(0));
+    let saved=Rc::new(RefCell::new(None));
+    let mut app=App::new(view_fn({
+        let (draws,inputs,saved)=(draws.clone(),inputs.clone(),saved.clone());
+        move |cx| {
+            let value=cx.state("value",||0.0f64);
+            *saved.borrow_mut()=Some(value.clone());
+            let (inputs,draws)=(inputs.clone(),draws.clone());
+            Ok(canvas_with(move |cx| {inputs.set(inputs.get()+1);cx.read(&value)},move |g,_,x| {
+                draws.set(draws.get()+1);
+                g.fill(&Path::rectangle(refract_core::Rect::new(*x,10.0,10.0,10.0)),Color::BLUE);
+            }).animatable_inputs().width(100.0).height(100.0))
+        }
+    }));
+    let mut host=Host::new().unwrap();
+    flush(&mut app,&mut host);
+    let start=Instant::now();
+    host.frame_at(200.0,200.0,1.0,Color::WHITE,start).unwrap();
+    let layouts=host.stats().layout_passes;
+    host.frame_at(200.0,200.0,1.0,Color::WHITE,start+Duration::from_millis(10)).unwrap();
+    assert_eq!(draws.get(),1);
+    with_animation(app.runtime_mut(),Animation::linear(Duration::from_secs(1)),|rt|saved.borrow().as_ref().unwrap().set(rt,50.0));
+    let pending=app.prepare().unwrap().unwrap();
+    host.apply_at(&pending.update,start+Duration::from_millis(10)).unwrap();
+    app.commit(pending).unwrap();
+    let before=inputs.get();
+    let f=host.frame_at(200.0,200.0,1.0,Color::WHITE,start+Duration::from_millis(510)).unwrap();
+    let commands=f.commands.iter().find_map(|c|match c {DrawCommand::Canvas {commands,..}=>Some(commands),_=>None}).unwrap();
+    assert!((drawing_bounds(commands).unwrap().x-25.0).abs()<0.01);
+    assert_eq!(host.stats().layout_passes,layouts);
+    assert_eq!(inputs.get(),before);
+    assert!(app.prepare().unwrap().is_none());
+    host.frame_at(200.0,200.0,1.0,Color::WHITE,start+Duration::from_millis(1010)).unwrap();
+    assert!(host.animation_deadline().is_none());
+}
+
+#[test]
+fn canvas_pointer_handlers_receive_local_geometry_from_the_host() {
+    let saved=Rc::new(RefCell::new(None));
+    let mut app=App::new(view_fn({let saved=saved.clone();move |cx| {
+        let position=cx.state("position",||refract_core::Point::ZERO);
+        *saved.borrow_mut()=Some(position.clone());
+        let reader=position.clone();
+        Ok(canvas_with(move |cx|cx.read(&reader),|_,_,_|{}).width(100.0).height(100.0)
+            .on_pointer(move |cx,event| {
+                if event.phase==PointerPhase::Move {
+                    if let Some(local)=cx.local_position(event.position) {position.set(cx.runtime(),local);}
+                }
+            }).offset(20.0,10.0))
+    }}));
+    let mut host=Host::new().unwrap();
+    flush(&mut app,&mut host);
+    host.frame(200.0,200.0,1.0,Color::WHITE).unwrap();
+    let event=PointerEvent {id:1,kind:PointerKind::Mouse,phase:PointerPhase::Move,
+        position:EventPoint {x:165.0,y:90.0},button:None,buttons:PointerButtons(0),modifiers:Default::default(),pressure:0.0};
+    for (id,event) in host.pointer_events(event) {
+        app.dispatch_event_with_geometry(id,event,|id|host.geometry(id));
+    }
+    assert_eq!(saved.borrow().as_ref().unwrap().get(app.runtime()),refract_core::Point::new(95.0,30.0));
+}

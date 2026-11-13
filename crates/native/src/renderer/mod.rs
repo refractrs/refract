@@ -20,6 +20,8 @@ mod vello_painter;
 #[cfg(feature = "vello")]
 mod vello_scene;
 #[cfg(feature = "vello")]
+mod vello_canvas;
+#[cfg(feature = "vello")]
 mod vello_shadow;
 
 #[cfg(feature = "vello")]
@@ -137,6 +139,8 @@ impl PartialEq for RasterImage {
 /// Commands are in painter's order. Every pushed layer has one matching pop.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DrawCommand {
+    /// A canvas is clipped to its content box, including all filtered ink.
+    Canvas { rect: Rect, commands: Rc<[refract_core::DrawingCommand]> },
     /// Presentation transform around a subtree; pair with PopLayer.
     PushTransform(refract_core::Affine2d),
     /// Group opacity bounded only by the current viewport and ancestor clips.

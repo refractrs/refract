@@ -38,7 +38,9 @@ impl Host {
         background: Color,
         now: std::time::Instant,
     ) -> Result<Frame> {
+        self.reduced_motion = crate::platform::reduced_motion();
         self.advance_animations(now)?;
+        let canvas_time = now.saturating_duration_since(self.animation_origin);
         let resized = self.viewport != (width, height);
         if resized {
             self.viewport = (width, height);
@@ -114,9 +116,13 @@ impl Host {
             height,
         };
         for id in self.roots.clone() {
-            self.paint(id, Point::default(), clip, refract_core::Affine2d::IDENTITY, &mut frame)?;
+            self.paint(id, Point::default(), clip, refract_core::Affine2d::IDENTITY, canvas_time, &mut frame)?;
         }
         self.scrolling.end_frame();
+        if !self.reduced_motion && self.entries.values().any(|e|e.canvas_visible && e.element.canvas.as_ref()
+            .is_some_and(|c|c.schedule == refract_core::CanvasSchedule::Animation)) {
+            self.next_animation_frame=Some(now+std::time::Duration::from_millis(16));
+        }
         self.last_commands = frame.commands.clone();
         self.paint_exits(&mut frame, now);
         self.paint_menu(&mut frame);
@@ -129,6 +135,7 @@ impl Host {
         origin: Point,
         inherited_clip: Rect,
         parent_transform: refract_core::Affine2d,
+        canvas_time: std::time::Duration,
         frame: &mut Frame,
     ) -> Result<()> {
         let paint_start=frame.commands.len();
@@ -269,6 +276,24 @@ impl Host {
                 });
             }
         }
+        if let Some(content) = &entry.element.canvas {
+            let left = layout.border.left + layout.padding.left;
+            let top = layout.border.top + layout.padding.top;
+            let bounds = Rect { x:rect.x+left, y:rect.y+top,
+                width:(rect.width-left-layout.border.right-layout.padding.right).max(0.0),
+                height:(rect.height-top-layout.border.bottom-layout.padding.bottom).max(0.0) };
+            let transformed_bounds = refract_core::Rect::new(bounds.x.into(),bounds.y.into(),bounds.width.into(),bounds.height.into()).transformed(world_transform);
+            let visible = transformed_bounds.x < f64::from(inherited_clip.x+inherited_clip.width)
+                && transformed_bounds.y < f64::from(inherited_clip.y+inherited_clip.height)
+                && transformed_bounds.x+transformed_bounds.width > f64::from(inherited_clip.x)
+                && transformed_bounds.y+transformed_bounds.height > f64::from(inherited_clip.y)
+                && bounds.width > 0.0 && bounds.height > 0.0;
+            entry.canvas_visible=visible;
+            if visible {
+                let commands=entry.canvas.render(content,refract_core::Size::new(bounds.width.into(),bounds.height.into()),canvas_time,true,self.reduced_motion)?;
+                frame.commands.push(DrawCommand::Canvas { rect:bounds,commands });
+            } else { entry.canvas.pause(); }
+        }
         if let Some(editor) = &mut entry.editor {
             let left = layout.border.left + layout.padding.left;
             let top = layout.border.top + layout.padding.top;
@@ -349,7 +374,7 @@ impl Host {
         };
         let radius = s.radius;
         for child in children {
-            self.paint(child, origin, clip, world_transform, frame)?;
+            self.paint(child, origin, clip, world_transform, canvas_time, frame)?;
         }
         if let Some((radius, alpha)) = feedback {
             frame.commands.push(DrawCommand::Fill {

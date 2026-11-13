@@ -50,6 +50,8 @@ struct RetainedElement {
     scroll_metrics: refract_core::ScrollMetrics,
     image: Option<ImageHandle>,
     editor: Option<TextEditor>,
+    canvas: refract_core::CanvasCache,
+    canvas_visible: bool,
 }
 
 /// Observable CPU work; presentation is counted separately by the event-loop host.
@@ -93,6 +95,7 @@ pub(crate) struct Host {
     presentation: refract_core::PresentationState,
     animation_origin: std::time::Instant,
     next_animation_frame: Option<std::time::Instant>,
+    reduced_motion: bool,
     last_commands: Vec<crate::renderer::DrawCommand>,
     exits: std::collections::BTreeMap<ElementId, ExitVisual>,
 }
@@ -136,6 +139,7 @@ impl Host {
             presentation: Default::default(),
             animation_origin: std::time::Instant::now(),
             next_animation_frame: None,
+            reduced_motion: false,
             last_commands: Vec::new(),
             exits: Default::default(),
         })
@@ -272,6 +276,8 @@ impl Host {
                             scroll_tracker: Default::default(),
                             scroll_metrics: Default::default(),
                             image,
+                            canvas: Default::default(),
+                            canvas_visible: false,
                             editor: (element.kind == ElementKind::TextInput)
                                 .then(|| TextEditor::new(element)),
                         },
@@ -416,6 +422,10 @@ impl Host {
         }
     }
 
+    pub fn pause_canvases(&mut self) {
+        for entry in self.entries.values_mut() { entry.canvas.pause(); }
+    }
+
     pub fn animation_deadline(&self) -> Option<std::time::Instant> {
         self.next_animation_frame
     }
@@ -432,12 +442,15 @@ impl Host {
             }
             if entry.element.style.foreground != displayed.style.foreground { colors.push(id); }
             entry.element.style = displayed.style;
+            entry.element.canvas = displayed.canvas;
         }
         for id in colors {
             let inherited = self.entries[&id].parent.map(|p|self.entries[&p].typography.clone()).unwrap_or_default();
             self.refresh_text(id, &inherited)?;
         }
-        self.next_animation_frame = self.presentation.is_animating().then_some(now + std::time::Duration::from_millis(16));
+        self.next_animation_frame = (self.presentation.is_animating() || (!self.reduced_motion && self.entries.values().any(|e|
+            e.canvas_visible && e.element.canvas.as_ref().is_some_and(|c|c.schedule == refract_core::CanvasSchedule::Animation))))
+            .then_some(now + std::time::Duration::from_millis(16));
         Ok(())
     }
 

@@ -63,3 +63,12 @@ impl TextInputSession {
         }
     }
 }
+
+/// Sample the desktop preference when painting or restoring a window. Other
+/// native platforms currently have no preference bridge; browsers use media queries.
+pub(crate) fn reduced_motion() -> bool {
+    #[cfg(all(target_os = "macos", feature = "vello"))]
+    { objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion() }
+    #[cfg(not(all(target_os = "macos", feature = "vello")))]
+    { false }
+}

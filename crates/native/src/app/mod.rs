@@ -370,6 +370,7 @@ impl ApplicationHandler<()> for NativeApp {
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.host.pause_canvases();
         self.occluded = true;
     }
 
@@ -405,6 +406,7 @@ impl ApplicationHandler<()> for NativeApp {
             }
             WindowEvent::Occluded(value) => {
                 self.occluded = value;
+                self.host.pause_canvases();
                 self.needs_frame = true;
                 if !value {
                     self.retry_at = None;

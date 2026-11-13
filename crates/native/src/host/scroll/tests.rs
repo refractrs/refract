@@ -1,3 +1,4 @@
+use crate::renderer::Point;
 use super::*;
 use refract::prelude::*;
 use refract_core::App;
