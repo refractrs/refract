@@ -5,6 +5,9 @@ use refract_core::{CanvasCache, CanvasSchedule, DrawingCommand, Size};
 
 #[derive(Default)]
 pub(super) struct CanvasDom {
+    pub(super) shader: Option<crate::shader::ShaderDom>,
+    pub(super) scale: f64,
+    pub(super) origin: (f32, f32),
     pub(super) cache: CanvasCache,
     pub(super) commands: Option<Rc<[DrawingCommand]>>,
     pub visible: bool,
@@ -141,7 +144,6 @@ impl Dom {
             let visible = !hidden && entry.canvas.visible && size.width > 0.0 && size.height > 0.0;
             entry.canvas.active =
                 visible && !reduced && content.schedule == CanvasSchedule::Animation;
-            self.canvas_active |= entry.canvas.active;
             if !visible {
                 entry.canvas.cache.pause();
                 continue;
@@ -151,18 +153,43 @@ impl Dom {
                 .cache
                 .render(&content, size, now, true, reduced)
                 .map_err(|e| JsValue::from_str(&e.to_string()))?;
-            if entry
-                .canvas
-                .commands
-                .as_ref()
-                .is_none_or(|old| !Rc::ptr_eq(old, &commands))
+            let scale = web_sys::window().unwrap().device_pixel_ratio();
+            if entry.canvas.scale != scale
+                || entry.canvas.origin != (s.padding.left, s.padding.top)
+                || entry
+                    .canvas
+                    .commands
+                    .as_ref()
+                    .is_none_or(|old| !Rc::ptr_eq(old, &commands))
             {
-                let mut tree =
-                    crate::svg::scene(&commands, size, &format!("{}-{}", self.canvas_prefix, id.0));
-                tree.position(s.padding.left, s.padding.top);
-                self.calls += crate::svg::update(&entry.node, &tree)?;
+                if entry.element.kind == ElementKind::Shader {
+                    let shader = entry
+                        .canvas
+                        .shader
+                        .get_or_insert_with(|| crate::shader::ShaderDom::new(&entry.node));
+                    shader.draw(&commands, size, s.padding.left, s.padding.top)?;
+                } else {
+                    let mut tree = crate::svg::scene(
+                        &commands,
+                        size,
+                        &format!("{}-{}", self.canvas_prefix, id.0),
+                    );
+                    tree.position(s.padding.left, s.padding.top);
+                    self.calls += crate::svg::update(&entry.node, &tree)?;
+                }
+                entry.canvas.scale = scale;
+                entry.canvas.origin = (s.padding.left, s.padding.top);
                 entry.canvas.commands = Some(commands);
             }
+            if entry
+                .canvas
+                .shader
+                .as_ref()
+                .is_some_and(|shader| !shader.active())
+            {
+                entry.canvas.active = false;
+            }
+            self.canvas_active |= entry.canvas.active;
         }
         Ok(())
     }

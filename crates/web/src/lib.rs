@@ -5,6 +5,8 @@ mod html;
 mod svg;
 #[cfg(target_arch = "wasm32")]
 mod image;
+#[cfg(target_arch = "wasm32")]
+mod shader;
 mod prerender;
 mod style;
 #[cfg(target_arch = "wasm32")]

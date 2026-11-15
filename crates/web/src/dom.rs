@@ -1097,7 +1097,7 @@ impl Dom {
                 element.kind == ElementKind::Text
                     || (element.kind == ElementKind::TextInput && element.multiline)
             });
-            if parent.is_some_and(|id| entries[&id].element.kind == ElementKind::Canvas) {
+            if parent.is_some_and(|id| matches!(entries[&id].element.kind, ElementKind::Canvas | ElementKind::Shader)) {
                 if !expected.is_empty()
                     || actual.length() != 1
                     || !node.first_element_child().is_some_and(|svg| {
@@ -1219,6 +1219,7 @@ impl Dom {
             for (index, original) in path.iter().enumerate() {
                 let deep=index+1==path.len();
                 let clone:HtmlElement=original.clone_node_with_deep(deep)?.dyn_into()?;
+                if deep { crate::shader::copy_shader_canvases(original, &clone); }
                 clone.remove_attribute("data-refract-id")?;
                 let nodes=clone.query_selector_all("[data-refract-id]")?;
                 for i in 0..nodes.length() { if let Some(node)=nodes.item(i).and_then(|n|n.dyn_into::<web_sys::Element>().ok()) {node.remove_attribute("data-refract-id")?;} }
