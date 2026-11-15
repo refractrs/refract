@@ -119,6 +119,31 @@ impl Encoder<'_> {
     ) -> crate::Result<()> {
         for command in commands {
             match command {
+                DrawingCommand::Shader {
+                    rect: bounds,
+                    shader,
+                    elapsed,
+                } => {
+                    if bounds.width <= 0.0 || bounds.height <= 0.0 {
+                        continue;
+                    }
+                    let image = self.effects.shaders.render(
+                        self.renderer,
+                        self.device,
+                        self.queue,
+                        shader,
+                        refract_core::Size::new(bounds.width, bounds.height),
+                        self.scale_factor,
+                        *elapsed,
+                    )?;
+                    let mapping = transform
+                        * Affine::translate((bounds.x, bounds.y))
+                        * Affine::scale_non_uniform(
+                            bounds.width / f64::from(image.width),
+                            bounds.height / f64::from(image.height),
+                        );
+                    scene.draw_image(&image, mapping);
+                }
                 DrawingCommand::Fill {
                     path: p,
                     paint: b,

@@ -14,6 +14,8 @@ mod vello_debug;
 #[cfg(feature = "vello")]
 mod vello_effects;
 #[cfg(feature = "vello")]
+mod vello_shader;
+#[cfg(feature = "vello")]
 mod vello_geometry;
 #[cfg(feature = "vello")]
 mod vello_painter;

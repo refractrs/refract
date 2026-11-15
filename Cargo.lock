@@ -2280,6 +2280,7 @@ dependencies = [
 name = "refract-core"
 version = "0.1.8"
 dependencies = [
+ "naga",
  "refract-graph",
  "url",
 ]

@@ -142,6 +142,7 @@ impl Painter {
             has_backdrop,
         }
         .encode(&mut commands.iter(), &mut self.scene, &backdrop, extent)?;
+        self.effects.shaders.end_frame(&mut self.renderer);
         let partial = matches!(damage, Damage::Region(_));
         if partial {
             if self

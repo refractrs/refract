@@ -14,6 +14,7 @@ pub enum ElementKind {
     TextInput,
     Image,
     Canvas,
+    Shader,
 }
 
 /// Native interaction semantics, independent of visual primitive kind.
@@ -107,7 +108,7 @@ impl Element {
         if let Some(canvas) = &self.canvas {
             canvas.validate()?;
         }
-        if self.canvas.is_some() != (self.kind == ElementKind::Canvas) {
+        if self.canvas.is_some() != matches!(self.kind, ElementKind::Canvas | ElementKind::Shader) {
             return Err(ViewError::new("canvas content requires a canvas element"));
         }
         if self.multiline && self.kind != ElementKind::TextInput {
