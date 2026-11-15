@@ -3,8 +3,11 @@
 let shared = null;
 const surfaces = new WeakMap();
 
-// cloneNode does not copy a canvas bitmap. Freeze shader pixels into the exit
-// snapshot before the original surface and its GPU resources are released.
+// Exit transitions clone the outgoing DOM subtree, but cloneNode(true) copies
+// canvas dimensions and attributes without its pixels. Without this copy, shader
+// views would appear blank while fading or moving out. Render the current frame
+// and freeze it into the snapshot's 2D canvas before releasing the original GPU
+// surface. This runs only when capturing an exit snapshot, not on every frame.
 export function copy_shader_canvases(original, clone) {
   const sources = original.querySelectorAll('canvas');
   const copies = clone.querySelectorAll('canvas');
