@@ -235,6 +235,12 @@ impl Layer {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DrawingCommand {
+    /// A dedicated shader view's frame. Hosts retain the program and GPU resources.
+    Shader {
+        rect: Rect,
+        shader: super::Shader,
+        elapsed: std::time::Duration,
+    },
     Fill {
         path: Path,
         paint: Paint,
@@ -256,6 +262,7 @@ pub enum DrawingCommand {
 impl DrawingCommand {
     pub fn bounds(&self) -> Option<Rect> {
         match self {
+            Self::Shader { rect, .. } => Some(*rect),
             Self::Fill { path, .. } => path.bounds(),
             Self::Stroke { path, style, .. } => path
                 .bounds()
@@ -274,6 +281,7 @@ impl DrawingCommand {
 
     fn valid(&self) -> bool {
         match self {
+            Self::Shader { rect, shader, .. } => rect.valid() && shader.validate().is_ok(),
             Self::Fill { path, paint, .. } => path.valid() && paint.valid(),
             Self::Stroke { path, paint, style } => path.valid() && paint.valid() && style.valid(),
             Self::Group {
@@ -312,6 +320,13 @@ pub struct GraphicsContext {
 }
 
 impl GraphicsContext {
+    pub(super) fn shader(&mut self, shader: super::Shader, frame: &super::CanvasFrame) {
+        self.commands.push(DrawingCommand::Shader {
+            rect: frame.bounds,
+            shader,
+            elapsed: frame.elapsed,
+        });
+    }
     pub fn new() -> Self {
         Self::default()
     }

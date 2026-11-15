@@ -17,6 +17,7 @@ include = ["/src/**", "/tests/**", "/Cargo.toml", "/README.md", "/LICENSE*"]
 [dependencies]
 refract-graph.workspace = true
 url = "2"
+naga = { version = "30", features = ["wgsl-in"] }
 
 [package.metadata.docs.rs]
 all-features = true

@@ -423,3 +423,49 @@ fn gpu_canvas_filters_alpha_masks_and_strokes_at_multiple_scales() {
         assert!(pixel(&data, 32, 8, scale)[3] < 10, "dash gap");
     }
 }
+
+#[test]
+#[ignore = "requires a GPU: cargo test -p refract-native gpu_shader -- --ignored"]
+fn gpu_shader_uniforms_time_image_and_alpha_at_multiple_scales() {
+    use refract_core::{DrawingCommand, Shader, ShaderImage};
+    use std::time::Duration;
+    let shader = Shader::wgsl("struct Uniforms { amount: f32 }\nfn shade(frame: ShaderFrame) -> vec4<f32> { return vec4<f32>(uniforms.amount, frame.uv.x, sample_image(frame.uv).b + frame.time * 0.1, 0.5); }").unwrap()
+        .uniform("amount", 0.8_f32)
+        .image(ShaderImage::rgba(1, 1, vec![0, 0, 51, 255]).unwrap());
+    let mut gpu = Gpu::new();
+    for scale in [1.0, 2.0] {
+        for (amount, seconds) in [(0.8_f32, 0_u64), (0.4, 2)] {
+            let pixels = gpu.pixels(
+                &[DrawCommand::Canvas {
+                    rect: BoxRect {
+                        x: 8.0,
+                        y: 8.0,
+                        width: 64.0,
+                        height: 64.0,
+                    },
+                    commands: vec![DrawingCommand::Shader {
+                        rect: refract_core::Rect::new(0.0, 0.0, 64.0, 64.0),
+                        shader: shader.clone().uniform("amount", amount),
+                        elapsed: Duration::from_secs(seconds),
+                    }]
+                    .into(),
+                }],
+                scale,
+            );
+            let width = (96.0 * scale) as usize;
+            let offset = (((40.0 * scale) as usize) * width + (40.0 * scale) as usize) * 4;
+            let pixel = &pixels[offset..offset + 4];
+            assert!(
+                (i32::from(pixel[0]) - (amount * 255.0) as i32).abs() <= 3,
+                "{pixel:?}"
+            );
+            assert!((i32::from(pixel[1]) - 129).abs() <= 3, "{pixel:?}");
+            assert!(
+                (i32::from(pixel[2]) - (51 + seconds as i32 * 25)).abs() <= 3,
+                "{pixel:?}"
+            );
+            assert!((i32::from(pixel[3]) - 128).abs() <= 2, "{pixel:?}");
+            assert_eq!(&pixels[..4], &[0, 0, 0, 0]);
+        }
+    }
+}

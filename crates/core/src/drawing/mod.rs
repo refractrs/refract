@@ -2,8 +2,10 @@
 
 mod canvas;
 mod shape;
+mod shader;
 pub use canvas::*;
 pub use shape::*;
+pub use shader::*;
 
 mod geometry;
 mod graphics;

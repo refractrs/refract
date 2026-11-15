@@ -10,12 +10,14 @@ use vello::{
 
 #[derive(Default)]
 pub(super) struct Effects {
+    pub shaders: super::vello_shader::Shaders,
     pipeline: Option<wgpu::ComputePipeline>,
     images: Vec<ImageData>,
 }
 
 impl Effects {
     pub fn begin_frame(&mut self, renderer: &mut vello::Renderer) {
+        self.shaders.begin_frame();
         for image in self.images.drain(..) {
             renderer.unregister_texture(image);
         }

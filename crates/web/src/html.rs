@@ -7,7 +7,7 @@ pub(crate) const BASE_STYLE: &str = include_str!("base.css");
 
 pub(crate) fn tag(element: &Element) -> &'static str {
     match element.kind {
-        ElementKind::Box | ElementKind::Canvas => "div",
+        ElementKind::Box | ElementKind::Canvas | ElementKind::Shader => "div",
         ElementKind::Text => "span",
         ElementKind::TextInput if element.multiline => "textarea",
         ElementKind::TextInput => "input",

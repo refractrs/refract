@@ -134,6 +134,10 @@ impl Builder {
         commands
             .iter()
             .map(|command| match command {
+                DrawingCommand::Shader { rect, shader, .. } => SvgNode::new("rect")
+                    .attr("x", rect.x).attr("y", rect.y)
+                    .attr("width", rect.width).attr("height", rect.height)
+                    .attr("fill", color(shader.fallback_color())),
                 DrawingCommand::Fill {
                     path,
                     paint,

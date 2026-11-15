@@ -145,8 +145,10 @@ type Draw<I> = dyn Fn(&mut GraphicsContext, &CanvasFrame, &I);
 type Prepare<I> = dyn Fn(&mut DrawingInputs<'_, '_>) -> I;
 type Components<I> = fn(&I) -> Vec<f64>;
 type Replace<I> = fn(&I, &[f64]) -> I;
+type Validate<I> = fn(&I) -> Result<(), ViewError>;
 
 trait Prepared: Any {
+    fn validate(&self) -> Result<(), ViewError>;
     fn as_any(&self) -> &dyn Any;
 
     fn draw(&self, g: &mut GraphicsContext, frame: &CanvasFrame);
@@ -162,9 +164,14 @@ struct PreparedInputs<I> {
     input: I,
     draw: Rc<Draw<I>>,
     animation: Option<(Components<I>, Replace<I>)>,
+    validate: Option<Validate<I>>,
 }
 
 impl<I: Clone + PartialEq + 'static> Prepared for PreparedInputs<I> {
+    fn validate(&self) -> Result<(), ViewError> {
+        self.validate
+            .map_or(Ok(()), |validate| validate(&self.input))
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -194,6 +201,7 @@ impl<I: Clone + PartialEq + 'static> Prepared for PreparedInputs<I> {
             input,
             draw: self.draw.clone(),
             animation: self.animation,
+            validate: self.validate,
         })
     }
 }
@@ -241,6 +249,7 @@ impl CanvasContent {
     }
 
     pub fn validate(&self) -> Result<(), ViewError> {
+        self.prepared.validate()?;
         if self
             .view_box
             .is_some_and(|r| !r.valid() || r.width == 0.0 || r.height == 0.0)
@@ -293,6 +302,7 @@ pub struct Canvas<I> {
     prepare: Rc<Prepare<I>>,
     draw: Rc<Draw<I>>,
     animation: Option<(Components<I>, Replace<I>)>,
+    validate: Option<Validate<I>>,
     element: Element,
     handler: Option<Handler>,
     view_box: Option<Rect>,
@@ -313,6 +323,7 @@ pub fn canvas_with<I: Clone + PartialEq + 'static>(
         prepare: Rc::new(prepare),
         draw: Rc::new(draw),
         animation: None,
+        validate: None,
         element: Element::new(ElementKind::Canvas),
         handler: None,
         view_box: None,
@@ -331,6 +342,14 @@ impl<I> crate::view::modifiers::ElementBuilder for Canvas<I> {
 }
 
 impl<I> Canvas<I> {
+    pub(super) fn validate_inputs(mut self, validate: Validate<I>) -> Self {
+        self.validate = Some(validate);
+        self
+    }
+    pub(super) fn shader_kind(mut self) -> Self {
+        self.element.kind = ElementKind::Shader;
+        self
+    }
     crate::view::modifiers::element_modifiers!(pub Self, crate::view::modifiers::configure);
     crate::view::modifiers::event_modifiers!(pub Self, crate::view::modifiers::configure_handler);
 
@@ -362,6 +381,7 @@ impl<I: Clone + PartialEq + 'static> View for Canvas<I> {
                 input,
                 draw: self.draw.clone(),
                 animation: self.animation,
+                validate: self.validate,
             }),
             view_box: self.view_box,
             schedule: self.schedule,
