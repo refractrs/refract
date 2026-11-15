@@ -77,10 +77,21 @@ pub fn with_prerender(html: &str, fragment: &str) -> Result<String> {
 }
 
 pub fn with_base_path(html: &str, base: &str) -> Result<String> {
+    insert_base_path(html, base, true)
+}
+
+/// Give development route fallbacks the entry page's asset base. An explicit
+/// application base takes precedence; HTML fragments need no explicit head.
+pub fn with_default_base_path(html: &str, base: &str) -> Result<String> {
+    insert_base_path(html, base, false)
+}
+
+fn insert_base_path(html: &str, base: &str, strict: bool) -> Result<String> {
     let lower = html.to_ascii_lowercase();
     let bytes = lower.as_bytes();
     let mut cursor = 0;
     let mut head = None;
+    let mut implicit_head = 0;
     let mut raw: Option<&str> = None;
     while let Some(relative) = lower[cursor..].find('<') {
         let start = cursor + relative;
@@ -126,8 +137,13 @@ pub fn with_base_path(html: &str, base: &str) -> Result<String> {
             break;
         }
         cursor = end + 1;
+        if head.is_none() && !closing && (name == "html" || lower[start..].starts_with("<!doctype"))
+        {
+            implicit_head = cursor;
+        }
         match (closing, name) {
             (false, "head") => head = Some(cursor),
+            (false, "base") if !strict => return Ok(html.into()),
             (false, "base") => return Err(
                 "--base-path requires removing the existing <base> element from public/index.html"
                     .into(),
@@ -145,6 +161,14 @@ pub fn with_base_path(html: &str, base: &str) -> Result<String> {
             (false, "script" | "style" | "title" | "textarea") => raw = Some(name),
             _ => {}
         }
+    }
+    if !strict {
+        let position = head.unwrap_or(implicit_head);
+        return Ok(format!(
+            "{}\n<base href=\"{base}\">{}",
+            &html[..position],
+            &html[position..]
+        ));
     }
     Err("--base-path requires an explicit <head>...</head> in public/index.html".into())
 }
@@ -178,5 +202,25 @@ mod tests {
         );
         assert!(with_base_path("<head><BASE href='/old/'></head>", "/new/").is_err());
         assert!(with_base_path("<body>no explicit head</body>", "/").is_err());
+    }
+
+    #[test]
+    fn default_base_preserves_explicit_bases_and_handles_implicit_heads() {
+        let explicit = "<!doctype html><head><BASE href='/assets/'></head><body>App</body>";
+        assert_eq!(with_default_base_path(explicit, "/").unwrap(), explicit);
+        let fragment = "<!doctype html><html><body>App</body></html>";
+        assert_eq!(
+            with_default_base_path(fragment, "/").unwrap(),
+            "<!doctype html><html>\n<base href=\"/\"><body>App</body></html>"
+        );
+        assert_eq!(
+            with_default_base_path("<!doctype html><main>App</main>", "/").unwrap(),
+            "<!doctype html>\n<base href=\"/\"><main>App</main>"
+        );
+        let html = "<!-- <base> --><head><script>const s = '<base>';</script></head>";
+        assert_eq!(
+            with_default_base_path(html, "/").unwrap(),
+            html.replacen("<head>", "<head>\n<base href=\"/\">", 1)
+        );
     }
 }
