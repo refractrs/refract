@@ -2342,6 +2342,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "refract-shader"
+version = "0.1.8"
+dependencies = [
+ "refract",
+ "refract-native",
+ "refract-test",
+ "refract-web",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "refract-test"
 version = "0.1.8"
 dependencies = [
