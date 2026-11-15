@@ -1,0 +1,105 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Shader conformance</title>
+<style>body{font:16px system-ui;padding:32px}pre{white-space:pre-wrap}</style>
+<div id="host"></div><pre id="results">Running…</pre>
+<script type="module">
+import init, {start_shader_fixture, shader_snapshot} from './shader_fixture.js';
+const output = document.querySelector('#results');
+const checks = [];
+const mode = new URLSearchParams(location.search).get('mode');
+function assert(value, message) {
+  if (!value) throw new Error(message);
+  checks.push(`PASS: ${message}`);
+}
+async function until(check) {
+  for (let i = 0; i < 200; i++) {
+    if (check()) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error('Timed out');
+}
+const samples = new WeakMap();
+function readPixel(canvas) {
+  const copy = document.createElement('canvas');
+  copy.width = canvas.width; copy.height = canvas.height;
+  const context = copy.getContext('2d');
+  context.drawImage(canvas, 0, 0);
+  return Array.from(context.getImageData(Math.floor(copy.width / 2), Math.floor(copy.height / 2), 1, 1).data);
+}
+function pixel(canvas) { return samples.get(canvas) || readPixel(canvas); }
+function close(pixel, expected) {
+  return pixel.every((v, i) => Math.abs(v - expected[i]) <= 4);
+}
+try {
+  if (mode === 'fallback') Object.defineProperty(navigator, 'gpu', {value: undefined, configurable: true});
+  // WebGPU presentation textures expire after compositing. Read pixels in the
+  // submission task, while the texture is current, without changing production code.
+  if (mode !== 'fallback' && globalThis.GPUQueue) {
+    const submit = GPUQueue.prototype.submit;
+    GPUQueue.prototype.submit = function(commands) {
+      const result = submit.call(this, commands);
+      for (const canvas of document.querySelector('#host').shadowRoot?.querySelectorAll('canvas') || []) {
+        samples.set(canvas, readPixel(canvas));
+      }
+      return result;
+    };
+  }
+  await init();
+  const host = document.querySelector('#host');
+  if (mode === 'hydrate') {
+    // Hydration supports unparsed declarative templates as well as shadow roots.
+    host.innerHTML = shader_snapshot();
+    assert(host.querySelector('template').content.querySelector('svg rect').getAttribute('fill') === 'rgba(11,22,33,1)', 'prerender emits fallback color');
+  }
+  const app = start_shader_fixture(host, mode === 'hydrate');
+  if (mode === 'hydrate') assert(app.hydrated(), 'hydration adopts the prerendered shader node');
+  const root = host.shadowRoot;
+  const find = () => root.querySelector('[aria-label="shader"]');
+  const button = label => [...root.querySelectorAll('[role="button"]')].find(e => e.textContent === label);
+  if (mode === 'dispose') {
+    app.dispose();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert(!root.querySelector('canvas'), 'dispose during initialization removes canvas');
+    const nextHost = document.createElement('div');
+    nextHost.id = 'host';
+    host.replaceWith(nextHost);
+    const next = start_shader_fixture(nextHost, false);
+    await until(() => nextHost.shadowRoot.querySelector('[data-refract-shader="ready"]'));
+    assert(true, 'new mount can acquire a device after early disposal');
+    next.dispose();
+  } else if (mode === 'fallback') {
+    await until(() => find()?.dataset.refractShader === 'unavailable');
+    assert(getComputedStyle(find().firstElementChild).backgroundColor === 'rgb(11, 22, 33)', 'unavailable WebGPU displays the fallback');
+    assert(getComputedStyle(find().querySelector('canvas')).display === 'none', 'fallback hides the GPU canvas');
+    app.dispose();
+  } else {
+    await until(() => find()?.dataset.refractShader === 'ready');
+    const node = find();
+    const canvas = node.querySelector('canvas');
+    assert(close(pixel(canvas), [204, 129, 51, 128]), `shader position, image, uniforms and alpha: ${pixel(canvas)}`);
+    assert(canvas.width === Math.ceil(64 * devicePixelRatio), 'backing dimensions follow device scale');
+    button('Update').click();
+    await until(() => close(pixel(canvas), [102, 129, 51, 128]));
+    assert(find() === node && find().querySelector('canvas') === canvas, 'uniform updates retain the surface');
+    button('Resize').click();
+    await until(() => canvas.width === Math.ceil(128 * devicePixelRatio));
+    assert(close(pixel(canvas), [102, 128, 51, 128]), 'resize retains normalized sampling');
+    button('Toggle').click();
+    await until(() => root.querySelector('[data-refract-exit] canvas'));
+    assert(close(pixel(root.querySelector('[data-refract-exit] canvas')), [102, 128, 51, 128]), 'exit snapshots retain shader pixels');
+    await until(() => !root.querySelector('[data-refract-exit]'));
+    button('Toggle').click();
+    await until(() => find()?.dataset.refractShader === 'ready');
+    assert(close(pixel(find().querySelector('canvas')), [102, 128, 51, 128]), 'remount recreates released GPU resources');
+    assert(!app.last_error(), 'host reports no rendering errors');
+    app.dispose();
+    assert(!root.querySelector('canvas'), 'disposal removes GPU surfaces');
+  }
+  output.textContent = checks.join('\n');
+  document.documentElement.dataset.result = 'pass';
+} catch (error) {
+  output.textContent = `${checks.join('\n')}\nFAIL: ${error.stack || error}`;
+  document.documentElement.dataset.result = 'fail';
+}
+</script>
