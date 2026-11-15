@@ -4,6 +4,14 @@ Notable changes to Refract, newest first.
 
 ## Unreleased
 
+- Add dedicated `shader` and `shader_with` views for application-owned WGSL
+  on desktop and WebGPU. Validate source and named uniforms, share image
+  inputs, and reuse canvas scheduling and presentation animation.
+- Retain GPU pipelines and surfaces, support browser fallback colors and
+  shader exit snapshots, and release resources on removal or disposal.
+- Add the shader example with pointer interaction, clock controls,
+  animated uniforms, and image distortion.
+
 - Reserve `refract-ui` for the default component collection. The crate and
   source catalog currently contain no components.
 - Add `refract ui add`, `list`, and `source add` for published default

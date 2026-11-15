@@ -83,6 +83,9 @@ See [Refract UI](crates/ui/README.md) for usage and the source catalog format.
 The [canvas example](examples/canvas/README.md) demonstrates portable vector
 drawing, reactive inputs, and presentation animation on web and desktop.
 
+The [shader example](examples/shader/README.md) renders application-owned WGSL
+with reactive uniforms, animation, and image sampling on native GPUs and WebGPU.
+
 ## License
 
 [MIT](https://github.com/refractrs/refract/blob/HEAD/LICENSE).

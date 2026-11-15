@@ -74,6 +74,7 @@ jobs:
           cargo build --locked --target wasm32-unknown-unknown
           -p refract-web -p refract-ui -p refract-counter -p refract-clock
           -p refract-gallery -p refract-chat -p refract-animation -p refract-canvas
+          -p refract-shader
           --features refract-counter/browser-tests,refract-gallery/browser-tests
           --lib --examples
 
