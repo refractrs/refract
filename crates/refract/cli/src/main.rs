@@ -7,6 +7,7 @@ mod process;
 mod project;
 mod scaffold;
 mod server;
+mod ui;
 mod watch;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -30,6 +31,8 @@ struct Cli {
 enum Commands {
     /// Create a counter app with shared web and desktop views.
     New(scaffold::NewOptions),
+    /// Install editable UI components from crates and repositories.
+    Ui(ui::Options),
     /// Watch, rebuild, and run an application (reloads reset application state).
     Dev(DevOptions),
     /// Build a distributable application without starting a server or window.
@@ -94,6 +97,7 @@ fn run() -> Result<()> {
     ctrlc::set_handler(move || signal.store(true, std::sync::atomic::Ordering::Relaxed))?;
     match cli.command {
         Commands::New(options) => scaffold::create(options),
+        Commands::Ui(options) => ui::run(options, &stopped),
         Commands::Dev(options) => dev::run(options, stopped),
         Commands::Build(options) => build::run(options, &stopped),
     }

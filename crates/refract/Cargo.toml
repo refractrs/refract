@@ -24,9 +24,18 @@ name = "cli_lifecycle"
 path = "tests/cli_lifecycle.rs"
 required-features = ["cli"]
 
+[[test]]
+name = "cli_ui"
+path = "tests/cli_ui.rs"
+required-features = ["cli"]
+
 [dependencies]
 refract-core.workspace = true
 refract-macros = { workspace = true, optional = true }
+semver = { version = "1", optional = true }
+syn = { version = "2", features = ["full"], optional = true }
+toml_edit = { version = "0.22", optional = true }
+ring = { version = "0.17", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 ctrlc = { version = "3", features = ["termination"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
@@ -42,7 +51,7 @@ libc = { version = "0.2", optional = true }
 [features]
 default = ["macros"]
 macros = ["dep:refract-macros"]
-cli = ["dep:clap", "dep:ctrlc", "dep:serde", "dep:serde_json", "dep:tiny_http", "dep:toml", "dep:libc", "dep:tempfile", "dep:wasmi"]
+cli = ["dep:semver", "dep:syn", "dep:toml_edit", "dep:ring", "dep:clap", "dep:ctrlc", "dep:serde", "dep:serde_json", "dep:tiny_http", "dep:toml", "dep:libc", "dep:tempfile", "dep:wasmi"]
 
 [dev-dependencies]
 refract-test.workspace = true

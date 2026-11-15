@@ -9,6 +9,8 @@ pub struct Target {
     pub name: String,
     pub kind: Vec<String>,
     pub crate_types: Vec<String>,
+    #[serde(default)]
+    pub src_path: PathBuf,
     #[serde(default, rename = "required-features")]
     pub required_features: Vec<String>,
 }
@@ -23,6 +25,10 @@ pub struct Package {
     pub targets: Vec<Target>,
     pub features: std::collections::BTreeMap<String, serde_json::Value>,
     pub default_run: Option<String>,
+    #[serde(default)]
+    pub dependencies: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -58,51 +64,12 @@ pub struct Project {
 
 impl Project {
     pub fn load(options: &ProjectOptions, stopped: &AtomicBool) -> Result<Self> {
-        // Select the package without resolving unrelated workspace dependencies or
-        // applying app features to a virtual workspace root.
-        let mut command = Command::new("cargo");
-        command.args(["metadata", "--format-version", "1", "--no-deps"]);
-        if let Some(path) = &options.manifest_path {
-            let path = path.canonicalize()?;
-            command.current_dir(path.parent().unwrap());
-            command.arg("--manifest-path").arg(path);
-        }
-        cargo_options(&mut command, options);
-        let metadata = read_metadata(&mut command, stopped)?;
-        let members: Vec<_> = metadata
-            .packages
-            .iter()
-            .filter(|p| metadata.workspace_members.contains(&p.id))
-            .collect();
-        let manifest = options
-            .manifest_path
-            .as_deref()
-            .map(Path::canonicalize)
-            .transpose()?;
-        let cwd = std::env::current_dir()?.canonicalize()?;
-        let selected = if let Some(name) = &options.package {
-            members.iter().copied().find(|p| &p.name == name)
-        } else {
-            let location = manifest.as_deref().and_then(Path::parent).unwrap_or(&cwd);
-            members
-                .iter()
-                .copied()
-                .filter(|p| location.starts_with(p.manifest_path.parent().unwrap()))
-                .max_by_key(|p| p.manifest_path.components().count())
-                .or_else(|| (members.len() == 1).then(|| members[0]))
-        };
-        let package = selected
-            .ok_or_else(|| {
-                format!(
-                    "select an application with --package <name>; workspace packages: {}",
-                    members
-                        .iter()
-                        .map(|p| p.name.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            })?
-            .clone();
+        let (package, workspace) = select_package(
+            options.package.as_deref(),
+            options.manifest_path.as_deref(),
+            options.offline,
+            stopped,
+        )?;
         let target = select_target(&package, options.platform, options.bin.as_deref())?;
         let mut features = options.features.clone();
         if options.platform == Platform::Native {
@@ -167,7 +134,7 @@ impl Project {
             package,
             packages: metadata.packages,
             root,
-            workspace: metadata.workspace_root,
+            workspace,
             target_dir: metadata.target_directory,
             target,
             features,
@@ -209,6 +176,59 @@ impl Project {
         roots.dedup();
         roots
     }
+}
+
+/// Select a package without choosing a rendering target or resolving dependencies.
+pub fn select_package(
+    package_name: Option<&str>,
+    manifest_path: Option<&Path>,
+    offline: bool,
+    stopped: &AtomicBool,
+) -> Result<(Package, PathBuf)> {
+    // Select the package without resolving unrelated workspace dependencies or
+    // applying app features to a virtual workspace root.
+    let mut command = Command::new("cargo");
+    command.args(["metadata", "--format-version", "1", "--no-deps"]);
+    if let Some(path) = manifest_path {
+        let path = path.canonicalize()?;
+        command.current_dir(path.parent().unwrap());
+        command.arg("--manifest-path").arg(path);
+    }
+    if offline {
+        command.arg("--offline");
+    }
+    let metadata = read_metadata(&mut command, stopped)?;
+    let members: Vec<_> = metadata
+        .packages
+        .iter()
+        .filter(|p| metadata.workspace_members.contains(&p.id))
+        .collect();
+    let manifest = manifest_path.map(Path::canonicalize).transpose()?;
+    let cwd = std::env::current_dir()?.canonicalize()?;
+    let selected = if let Some(name) = package_name {
+        members.iter().copied().find(|p| p.name == name)
+    } else {
+        let location = manifest.as_deref().and_then(Path::parent).unwrap_or(&cwd);
+        members
+            .iter()
+            .copied()
+            .filter(|p| location.starts_with(p.manifest_path.parent().unwrap()))
+            .max_by_key(|p| p.manifest_path.components().count())
+            .or_else(|| (members.len() == 1).then(|| members[0]))
+    };
+    let package = selected
+        .ok_or_else(|| {
+            format!(
+                "select an application with --package <name>; workspace packages: {}",
+                members
+                    .iter()
+                    .map(|p| p.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })?
+        .clone();
+    Ok((package, metadata.workspace_root))
 }
 
 fn select_target(package: &Package, platform: Platform, binary: Option<&str>) -> Result<Target> {

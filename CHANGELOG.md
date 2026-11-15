@@ -2,6 +2,19 @@
 
 Notable changes to Refract, newest first.
 
+## Unreleased
+
+- Reserve `refract-ui` for the default component collection. The crate and
+  source catalog currently contain no components.
+- Add `refract ui add`, `list`, and `source add` for published default
+  components, local collections, and Git repositories. Resolve component
+  dependencies, wire Rust modules, merge Cargo features, preserve licenses,
+  and record source revisions and file hashes in `refract-ui.lock`.
+- Support workspace package selection, dry runs, platform checks, and
+  explicit replacement of conflicting files. Preserve local edits when
+  adding unchanged components again, and reject unsafe paths and ambiguous
+  module layouts before changing project files.
+
 ## 0.1.8
 
 - Add `App::with_inputs` to initialize host-owned state before the first

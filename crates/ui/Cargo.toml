@@ -1,0 +1,18 @@
+[package]
+name = "refract-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+description = "Portable, customizable components for Refract applications"
+documentation = "https://docs.rs/refract-ui"
+keywords = ["gui", "ui", "components", "web", "desktop"]
+categories = ["gui"]
+include = ["/src/**", "/Cargo.toml", "/README.md", "/LICENSE", "/refract-ui.toml"]
+
+[package.metadata.docs.rs]
+all-features = true
