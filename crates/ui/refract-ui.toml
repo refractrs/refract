@@ -1,0 +1,9 @@
+schema = 1
+name = "refract-ui"
+license = "MIT"
+license-file = "LICENSE"
+
+[compatibility]
+refract = ">=0.1.8, <0.2.0"
+
+[items]

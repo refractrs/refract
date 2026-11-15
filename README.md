@@ -58,6 +58,26 @@ and `assets/` in `dist/desktop/`; run the executable from that directory.
 Use `--base-path /my-app/` when hosting under a URL prefix, or `--out-dir` to
 choose an output directory. Run `refract build --help` for all options.
 
+## UI components
+
+Copy components from a local or Git collection into your app and customize
+their source with `refract ui`:
+
+```sh
+refract ui list --from ../my-components
+refract ui add button --from ../my-components
+```
+
+`refract-ui` is reserved for the default collection and currently contains no
+components. Use `--from` or a registered source until components are available.
+
+Components are installed into `src/ui/` with shared dependencies, module
+declarations, licenses, and a `refract-ui.lock` provenance file. Existing local
+edits are preserved. Use `--dry-run` to inspect planned changes, `-p` to select
+a workspace package, and `--from` to install a local or Git collection.
+
+See [Refract UI](crates/ui/README.md) for usage and the source catalog format.
+
 ## Examples
 
 The [canvas example](examples/canvas/README.md) demonstrates portable vector
