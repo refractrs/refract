@@ -105,7 +105,7 @@ fn respond(request: Request, public: &Path, port: u16, state: &SharedState) {
     // Hold the generation until its file has been read, so a successful rebuild
     // cannot remove that generation between path lookup and read.
     let snapshot = state.lock().unwrap();
-    let path = if let Some(relative) = url.strip_prefix("/pkg/") {
+    let mut path = if let Some(relative) = url.strip_prefix("/pkg/") {
         snapshot
             .pkg
             .as_deref()
@@ -113,6 +113,10 @@ fn respond(request: Request, public: &Path, port: u16, state: &SharedState) {
     } else {
         resolve_path(public, url.trim_start_matches('/'))
     };
+    let fallback = path.is_none() && is_app_navigation(&request, url);
+    if fallback {
+        path = resolve_path(public, "index.html");
+    }
     let Some(path) = path else {
         send(request, 404, "text/plain", b"Not found".to_vec());
         return;
@@ -124,6 +128,17 @@ fn respond(request: Request, public: &Path, port: u16, state: &SharedState) {
     let content_type = mime(&path);
     if content_type == "text/html; charset=utf-8" {
         if let Ok(html) = String::from_utf8(body.clone()) {
+            let html = if fallback {
+                match crate::html::with_default_base_path(&html, "/") {
+                    Ok(html) => html,
+                    Err(error) => {
+                        send(request, 500, "text/plain", error.to_string().into_bytes());
+                        return;
+                    }
+                }
+            } else {
+                html
+            };
             let script = format!("<script src=\"/__refract/client.js\" data-session=\"{}\" data-revision=\"{}\" defer></script>", snapshot.session, snapshot.revision);
             let html = if let Some(position) = html.to_ascii_lowercase().find("</head>") {
                 format!("{}{script}{}", &html[..position], &html[position..])
@@ -137,6 +152,49 @@ fn respond(request: Request, public: &Path, port: u16, state: &SharedState) {
     send(request, 200, content_type, body);
 }
 
+fn is_app_navigation(request: &Request, url: &str) -> bool {
+    let Some(relative) = decode_path(url.trim_start_matches('/')) else {
+        return false;
+    };
+    if relative.extension().is_some()
+        || relative.starts_with("pkg")
+        || relative.starts_with("__refract")
+    {
+        return false;
+    }
+    if let Some(destination) = request
+        .headers()
+        .iter()
+        .find(|header| header.field.equiv("Sec-Fetch-Dest"))
+    {
+        if !matches!(destination.value.as_str(), "document" | "iframe" | "frame") {
+            return false;
+        }
+    }
+    request
+        .headers()
+        .iter()
+        .filter(|header| header.field.equiv("Accept"))
+        .any(|header| {
+            header.value.as_str().split(',').any(|range| {
+                let mut parts = range.split(';');
+                parts
+                    .next()
+                    .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("text/html"))
+                    && parts.all(|parameter| {
+                        let Some((name, value)) = parameter.trim().split_once('=') else {
+                            return true;
+                        };
+                        !name.trim().eq_ignore_ascii_case("q")
+                            || value
+                                .trim()
+                                .parse::<f32>()
+                                .is_ok_and(|q| q > 0.0 && q <= 1.0)
+                    })
+            })
+        })
+}
+
 fn send(request: Request, status: u16, mime: &str, body: Vec<u8>) {
     let response = Response::from_data(body)
         .with_status_code(StatusCode(status))
@@ -147,6 +205,17 @@ fn send(request: Request, status: u16, mime: &str, body: Vec<u8>) {
 }
 
 fn resolve_path(root: &Path, relative: &str) -> Option<PathBuf> {
+    let relative = decode_path(relative)?;
+    let root = root.canonicalize().ok()?;
+    let mut path = root.join(relative);
+    if path.is_dir() {
+        path.push("index.html");
+    }
+    let path = path.canonicalize().ok()?;
+    (path.starts_with(root) && path.is_file()).then_some(path)
+}
+
+fn decode_path(relative: &str) -> Option<PathBuf> {
     let bytes = relative.as_bytes();
     let mut decoded = Vec::new();
     let mut i = 0;
@@ -171,13 +240,7 @@ fn resolve_path(root: &Path, relative: &str) -> Option<PathBuf> {
     }) {
         return None;
     }
-    let root = root.canonicalize().ok()?;
-    let mut path = root.join(relative);
-    if path.is_dir() {
-        path.push("index.html");
-    }
-    let path = path.canonicalize().ok()?;
-    (path.starts_with(root) && path.is_file()).then_some(path)
+    Some(relative.into())
 }
 
 fn mime(path: &Path) -> &'static str {
@@ -210,6 +273,121 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpStream;
+
+    fn request(server: &DevServer, method: &str, path: &str, headers: &str) -> String {
+        let address = server.url.strip_prefix("http://").unwrap();
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        write!(
+            stream,
+            "{method} {path} HTTP/1.1\r\nHost: {address}\r\n{headers}Connection: close\r\n\r\n"
+        )
+        .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        response
+    }
+
+    fn state() -> SharedState {
+        Arc::new(Mutex::new(BuildState {
+            session: "test".into(),
+            revision: 3,
+            building: false,
+            error: None,
+            pkg: None,
+        }))
+    }
+
+    #[test]
+    fn serves_app_routes_with_root_relative_assets_and_reload_client() {
+        let temp = tempfile::tempdir().unwrap();
+        let html = include_str!("../templates/index.html");
+        fs::write(temp.path().join("index.html"), html).unwrap();
+        fs::write(temp.path().join("style.css"), "body {}").unwrap();
+        fs::create_dir(temp.path().join("docs")).unwrap();
+        fs::write(temp.path().join("docs/index.html"), "<head></head>Docs").unwrap();
+        let pkg = tempfile::tempdir().unwrap();
+        fs::write(pkg.path().join("app.js"), "export default {};").unwrap();
+        let state = state();
+        state.lock().unwrap().pkg = Some(pkg.path().into());
+        let server = DevServer::start(temp.path().into(), 0, state).unwrap();
+        let headers =
+            "Accept: text/html,application/xhtml+xml;q=0.9\r\nSec-Fetch-Dest: document\r\n";
+        for path in [
+            "/conversations/42",
+            "/conversations/42/?tab=messages",
+            "/caf%C3%A9/42",
+        ] {
+            let response = request(&server, "GET", path, headers);
+            assert!(response.starts_with("HTTP/1.1 200"), "{path}: {response}");
+            assert!(response.contains("text/html; charset=utf-8"));
+            assert!(response.contains("<base href=\"/\">"));
+            assert!(response.contains("import init, { start } from './pkg/"));
+            assert!(response.contains("data-revision=\"3\""));
+        }
+        let head = request(&server, "HEAD", "/conversations/42", headers);
+        assert!(head.starts_with("HTTP/1.1 200"));
+        assert!(head.ends_with("\r\n\r\n"));
+        assert!(request(&server, "GET", "/pkg/app.js", "").ends_with("export default {};"));
+        assert!(request(&server, "GET", "/style.css", headers).ends_with("body {}"));
+        let docs = request(&server, "GET", "/docs/", headers);
+        assert!(docs.ends_with("Docs"));
+        assert!(!docs.contains("<base"));
+        assert!(!request(&server, "GET", "/", headers).contains("<base"));
+        assert_eq!(
+            fs::read_to_string(temp.path().join("index.html")).unwrap(),
+            html
+        );
+    }
+
+    #[test]
+    fn fallback_does_not_mask_assets_endpoints_or_invalid_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("index.html"), "<head></head>App").unwrap();
+        let server = DevServer::start(temp.path().into(), 0, state()).unwrap();
+        for path in [
+            "/missing.js",
+            "/missing.css",
+            "/missing.wasm",
+            "/missing.png",
+            "/missing%2Ejs",
+            "/pkg/missing",
+            "/pkg",
+            "/%70kg/missing",
+            "/__refract/missing",
+            "/__refract",
+            "/%5f_refract/missing",
+            "/../secret",
+            "/%2e%2e/secret",
+            "/.env",
+            "/%zz",
+            "/%2fsecret",
+            "/bad%00path",
+            "/bad%5cpath",
+        ] {
+            let response = request(&server, "GET", path, "Accept: text/html\r\n");
+            assert!(response.starts_with("HTTP/1.1 404"), "{path}: {response}");
+        }
+        for headers in [
+            "",
+            "Accept: */*\r\n",
+            "Accept: application/json\r\n",
+            "Accept: text/html;q=0,*/*;q=1\r\n",
+            "Accept: text/html\r\nSec-Fetch-Dest: empty\r\n",
+            "Accept: text/html\r\nSec-Fetch-Dest: script\r\n",
+        ] {
+            assert!(request(&server, "GET", "/missing", headers).starts_with("HTTP/1.1 404"));
+        }
+        assert!(
+            request(&server, "POST", "/missing", "Accept: text/html\r\n")
+                .starts_with("HTTP/1.1 405")
+        );
+        fs::remove_file(temp.path().join("index.html")).unwrap();
+        assert!(request(&server, "GET", "/missing", "Accept: text/html\r\n")
+            .starts_with("HTTP/1.1 404"));
+    }
 
     #[test]
     fn refuses_traversal_and_symlinks_outside_public() {

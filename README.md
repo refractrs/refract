@@ -40,6 +40,11 @@ The CLI watches for changes and rebuilds your app. To create a new project again
 this checkout, run `refract new ../my-app --framework-path .`, then `cd ../my-app`
 and `refract dev --open`.
 
+The web development server serves `public/index.html` when opening or refreshing
+an extensionless client-side route. Missing assets and development endpoints
+still return 404. Route fallback pages use `/` as the asset base unless the page
+defines its own `<base>` element, so relative scripts and styles load correctly.
+
 ### Build for distribution
 
 ```sh
