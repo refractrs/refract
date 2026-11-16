@@ -2202,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "refract"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "clap",
  "ctrlc",
@@ -2225,7 +2225,7 @@ dependencies = [
 
 [[package]]
 name = "refract-animation"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "refract",
  "refract-native",
@@ -2237,7 +2237,7 @@ dependencies = [
 
 [[package]]
 name = "refract-canvas"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "refract",
  "refract-native",
@@ -2249,7 +2249,7 @@ dependencies = [
 
 [[package]]
 name = "refract-chat"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "futures-util",
  "js-sys",
@@ -2264,7 +2264,7 @@ dependencies = [
 
 [[package]]
 name = "refract-clock"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "chrono",
  "js-sys",
@@ -2278,7 +2278,7 @@ dependencies = [
 
 [[package]]
 name = "refract-core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "naga",
  "refract-graph",
@@ -2287,7 +2287,7 @@ dependencies = [
 
 [[package]]
 name = "refract-counter"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "refract",
  "refract-native",
@@ -2298,7 +2298,7 @@ dependencies = [
 
 [[package]]
 name = "refract-gallery"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "refract",
  "refract-native",
@@ -2310,11 +2310,11 @@ dependencies = [
 
 [[package]]
 name = "refract-graph"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "refract-macros"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2323,7 +2323,7 @@ dependencies = [
 
 [[package]]
 name = "refract-native"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "arboard",
  "image",
@@ -2343,7 +2343,7 @@ dependencies = [
 
 [[package]]
 name = "refract-shader"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "refract",
  "refract-native",
@@ -2355,18 +2355,18 @@ dependencies = [
 
 [[package]]
 name = "refract-test"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "refract-core",
 ]
 
 [[package]]
 name = "refract-ui"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "refract-web"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
  "js-sys",
