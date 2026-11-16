@@ -725,3 +725,152 @@ fn deep_dependencies_with_shared_inputs_do_not_recurse_through_computations() {
     rt.collect();
     assert_eq!(rt.stats().attributes, 0);
 }
+
+#[test]
+fn settlement_skips_clean_ancestor_subgraphs() {
+    for depth in [10, 1000, 10_000] {
+        let mut rt = Runtime::new();
+        let stable = State::new(&mut rt, 7);
+        let clean = identity_chain(&mut rt, &stable, depth);
+        let source = State::new(&mut rt, 0);
+        let changing = identity_chain(&mut rt, &source, 4);
+        let joined = Derived::new(&mut rt, move |rt| *changing.get(rt) + *clean.get(rt));
+        for value in 1..=3 {
+            let validations = rt.validations;
+            source.set(&mut rt, value);
+            assert_eq!(*joined.get(&rt), value + 7);
+            assert_eq!(rt.validations - validations, 5);
+        }
+        // The skipped branch must still participate when its own source changes.
+        stable.set(&mut rt, 8);
+        assert_eq!(*joined.get(&rt), 11);
+    }
+}
+
+#[test]
+fn equal_outputs_stop_validation_of_downstream_chains() {
+    let mut rt = Runtime::new();
+    let source = State::new(&mut rt, 0);
+    let mut last = Derived::distinct(&mut rt, {
+        let source = source.clone();
+        move |rt| *source.get(rt) % 2
+    });
+    for _ in 0..10_000 {
+        last = Derived::new(&mut rt, move |rt| *last.get(rt));
+    }
+    for value in [2, 4, 6] {
+        let validations = rt.validations;
+        source.set(&mut rt, value);
+        assert_eq!(*last.get(&rt), 0);
+        assert_eq!(rt.validations - validations, 1);
+    }
+    source.set(&mut rt, 7);
+    assert_eq!(*last.get(&rt), 1);
+}
+
+#[test]
+fn settlement_retry_restores_nodes_still_waiting_in_the_work_queue() {
+    let mut rt = Runtime::new();
+    let source = State::new(&mut rt, 0);
+    let fail = Rc::new(std::cell::Cell::new(false));
+    let first = Derived::new(&mut rt, {
+        let source = source.clone();
+        let fail = fail.clone();
+        move |rt| {
+            assert!(!fail.get(), "computation failed");
+            *source.get(rt)
+        }
+    });
+    let second = identity_chain(&mut rt, &source, 4);
+    fail.set(true);
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| source.set(&mut rt, 1))).is_err()
+    );
+    fail.set(false);
+    rt.batch(|_| {});
+    assert_eq!(*first.get(&rt), 1);
+    assert_eq!(*second.get(&rt), 1);
+    assert_eq!(rt.stats().computations, 5);
+}
+
+#[test]
+fn changed_dependency_levels_reach_existing_readers() {
+    let mut rt = Runtime::new();
+    let select = State::new(&mut rt, false);
+    let source = State::new(&mut rt, 0);
+    let later = Rc::new(std::cell::RefCell::new(None::<Derived<i32>>));
+    let selected = Derived::distinct(&mut rt, {
+        let select = select.clone();
+        let later = later.clone();
+        move |rt| {
+            if *select.get(rt) {
+                *later.borrow().as_ref().unwrap().get(rt)
+            } else {
+                0
+            }
+        }
+    });
+    let first_reader = Derived::new(&mut rt, {
+        let selected = selected.clone();
+        move |rt| *selected.get(rt)
+    });
+    let last_reader = Derived::new(&mut rt, move |rt| *first_reader.get(rt));
+    *later.borrow_mut() = Some(identity_chain(&mut rt, &source, 64));
+    // The equal result changes topology without scheduling either reader.
+    select.set(&mut rt, true);
+    let before = rt.stats().computations;
+    source.set(&mut rt, 1);
+    assert_eq!(*last_reader.get(&rt), 1);
+    assert_eq!(rt.stats().computations - before, 67);
+    // Retire nodes while their level updates are still pending.
+    *later.borrow_mut() = Some(identity_chain(&mut rt, &source, 128));
+    select.set(&mut rt, true);
+    drop((selected, last_reader));
+    later.borrow_mut().take();
+    rt.collect();
+    source.set(&mut rt, 2);
+    assert_eq!(rt.stats().attributes, 2);
+}
+
+#[test]
+fn mixed_depth_conditional_branches_remain_consistent_across_batches() {
+    let mut rt = Runtime::new();
+    let source = State::new(&mut rt, 0);
+    let choose = State::new(&mut rt, false);
+    let mut nodes = vec![identity_chain(&mut rt, &source, 1)];
+    let mut seed = 0x1234_5678u64;
+    for index in 1..64 {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let short = nodes[(seed as usize) % index].clone();
+        let long = nodes[index - 1].clone();
+        nodes.push(Derived::distinct(&mut rt, {
+            let choose = choose.clone();
+            move |rt| {
+                if *choose.get(rt) {
+                    *short.get(rt)
+                } else {
+                    *long.get(rt)
+                }
+            }
+        }));
+    }
+    let difference = Derived::distinct(&mut rt, {
+        let last = nodes.last().unwrap().clone();
+        let source = source.clone();
+        move |rt| *last.get(rt) - *source.get(rt)
+    });
+    let observer = rt.observer();
+    let (_, deps) = rt.capture(|rt| *difference.get(rt));
+    rt.accept(&observer, deps);
+    for value in 1..=32 {
+        let computations = rt.stats().computations;
+        rt.batch(|rt| {
+            choose.set(rt, value % 2 == 0);
+            source.set(rt, value);
+        });
+        assert!(nodes.iter().all(|node| *node.get(&rt) == value));
+        assert_eq!(*difference.get(&rt), 0);
+        assert!(!observer.is_dirty(&rt));
+        assert_eq!(rt.stats().computations - computations, 65);
+    }
+}

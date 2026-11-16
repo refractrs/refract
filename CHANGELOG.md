@@ -4,6 +4,9 @@ Notable changes to Refract, newest first.
 
 ## Unreleased
 
+- Skip clean ancestor subgraphs during propagation using dependency levels.
+  Reuse evaluation and scheduling storage, retaining distinct-result early
+  exits and consistent reads across dynamic dependency changes.
 - Settle derived inputs before reading them, including newly selected
   conditional dependencies. Uneven dependency paths no longer publish
   intermediate values or invalidate observers of unchanged distinct results.

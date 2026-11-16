@@ -4,7 +4,8 @@ use crate::{handle::Handle, AttributeId, Dependencies, Observer};
 use std::{
     any::Any,
     cell::{Cell, OnceCell, RefCell},
-    collections::{HashMap, HashSet, VecDeque},
+    cmp::Reverse,
+    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
     rc::Rc,
 };
 
@@ -23,18 +24,37 @@ struct Attribute {
     revision: u64,
     sources: Vec<AttributeId>,
     readers: HashSet<AttributeId>,
-    compute: Option<Computation>,
+    compute: Option<Box<DerivedAttribute>>,
     observer: bool,
     dirty: bool,
     cause: Option<MutationContext>,
     notified_epoch: u64,
+}
+
+// Keep evaluation storage with the computation so each settlement can stage
+// a result without allocating another box. State and observer nodes stay small.
+struct DerivedAttribute {
+    computation: Computation,
+    // A conservative topological level. Removing edges need not lower it.
+    level: u64,
     evaluating: Cell<EvaluationState>,
-    evaluation: OnceCell<Box<Evaluation>>,
+    evaluation: OnceCell<Evaluation>,
+}
+
+impl Attribute {
+    fn level(&self) -> u64 {
+        self.compute.as_ref().map_or(0, |derived| derived.level)
+    }
+
+    fn evaluation(&self) -> Option<&Evaluation> {
+        self.compute.as_ref()?.evaluation.get()
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
 enum EvaluationState {
     Idle,
+    Scheduled,
     Checking,
     Computing,
 }
@@ -45,6 +65,51 @@ struct Evaluation {
     value: Option<Box<dyn Any>>,
     dependencies: Option<Dependencies>,
     cause: Option<MutationContext>,
+}
+
+type EvaluationFrame = (AttributeId, Option<usize>, bool);
+
+#[derive(Default)]
+struct WorkQueue {
+    level: u64,
+    ready: Vec<AttributeId>,
+    later: BinaryHeap<Reverse<(u64, AttributeId)>>,
+}
+
+impl WorkQueue {
+    fn push(&mut self, level: u64, id: AttributeId) {
+        // Chains and same-level fan-outs use a reusable vector. Only work at
+        // other levels needs heap ordering; ties do not need to be sorted.
+        if self.ready.is_empty() && self.later.is_empty() {
+            self.level = level;
+        } else if level < self.level {
+            self.later
+                .extend(self.ready.drain(..).map(|id| Reverse((self.level, id))));
+            self.level = level;
+        }
+        if level == self.level {
+            self.ready.push(id);
+        } else {
+            self.later.push(Reverse((level, id)));
+        }
+    }
+
+    fn pop(&mut self) -> Option<(u64, AttributeId)> {
+        if let Some(id) = self.ready.pop() {
+            return Some((self.level, id));
+        }
+        let Reverse((level, id)) = self.later.pop()?;
+        self.level = level;
+        while self
+            .later
+            .peek()
+            .is_some_and(|Reverse((next, _))| *next == level)
+        {
+            let Reverse((_, id)) = self.later.pop().unwrap();
+            self.ready.push(id);
+        }
+        Some((level, id))
+    }
 }
 
 /// Opaque context of the latest mutation affecting an observer. The graph does
@@ -91,6 +156,12 @@ pub struct Runtime {
     queued: HashSet<AttributeId>,
     settling: bool,
     evaluated: RefCell<Vec<AttributeId>>,
+    evaluation_stack: RefCell<Vec<EvaluationFrame>>,
+    work: WorkQueue,
+    level_updates: Vec<AttributeId>,
+    settling_level: Cell<u64>,
+    #[cfg(test)]
+    pub(crate) validations: usize,
     batch_depth: usize,
     mutation_context: Option<Rc<dyn Any>>,
 
@@ -120,6 +191,12 @@ impl Runtime {
             queued: HashSet::new(),
             settling: false,
             evaluated: RefCell::new(Vec::new()),
+            evaluation_stack: RefCell::new(Vec::new()),
+            work: WorkQueue::default(),
+            level_updates: Vec::new(),
+            settling_level: Cell::new(0),
+            #[cfg(test)]
+            validations: 0,
             batch_depth: 0,
             mutation_context: None,
             epoch: 0,
@@ -143,13 +220,18 @@ impl Runtime {
                 revision: 0,
                 sources: Vec::new(),
                 readers: HashSet::new(),
-                compute,
+                compute: compute.map(|computation| {
+                    Box::new(DerivedAttribute {
+                        computation,
+                        level: 0,
+                        evaluating: Cell::new(EvaluationState::Idle),
+                        evaluation: OnceCell::new(),
+                    })
+                }),
                 observer: false,
                 dirty: false,
                 cause: None,
                 notified_epoch: 0,
-                evaluating: Cell::new(EvaluationState::Idle),
-                evaluation: OnceCell::new(),
             },
         );
         Handle::new(id, Rc::downgrade(&self.retired))
@@ -189,11 +271,7 @@ impl Runtime {
             .expect("attribute belongs to another or disposed runtime");
         if self.settling && attr.compute.is_some() {
             self.evaluate(id);
-            if let Some(value) = attr
-                .evaluation
-                .get()
-                .and_then(|result| result.value.as_ref())
-            {
+            if let Some(value) = attr.evaluation().and_then(|result| result.value.as_ref()) {
                 return value.downcast_ref().expect("attribute type mismatch");
             }
         }
@@ -324,6 +402,34 @@ impl Runtime {
                 .readers
                 .insert(target);
         }
+        self.update_level(target);
+    }
+
+    fn update_level(&mut self, id: AttributeId) {
+        let Some(attr) = self.attributes.get(&id) else {
+            return;
+        };
+        if attr.compute.is_none() {
+            return;
+        }
+        let level = attr
+            .sources
+            .iter()
+            .map(|id| self.attributes[id].level())
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .expect("dependency level exhausted");
+        if level > attr.level() {
+            self.level_updates.extend(&attr.readers);
+            self.attributes
+                .get_mut(&id)
+                .unwrap()
+                .compute
+                .as_mut()
+                .unwrap()
+                .level = level;
+        }
     }
 
     fn enqueue_readers(&mut self, source: AttributeId) {
@@ -359,14 +465,17 @@ impl Runtime {
     // evaluation without mutating the published attribute storage.
     fn evaluate(&self, id: AttributeId) {
         let attr = &self.attributes[&id];
-        if attr.compute.is_none() || attr.evaluation.get().is_some() {
+        let Some(derived) = &attr.compute else {
+            return;
+        };
+        if derived.evaluation.get().is_some() || attr.level() < self.settling_level.get() {
             return;
         }
         assert!(
-            attr.evaluating.get() != EvaluationState::Computing,
+            derived.evaluating.get() != EvaluationState::Computing,
             "attribute graph dependency cycle at {id:?}"
         );
-        if attr.evaluating.get() == EvaluationState::Checking {
+        if derived.evaluating.get() == EvaluationState::Checking {
             // A new read can reverse an accepted edge. Resolve actual reads
             // now; only reentering a computation proves a current cycle.
             self.compute(id);
@@ -374,26 +483,35 @@ impl Runtime {
         }
         // Validate existing edges iteratively, even for directly queued nodes,
         // so deep chains with shared inputs do not recurse through closures.
-        let mut stack = vec![(id, None, false)];
+        let mut stack = std::mem::take(&mut *self.evaluation_stack.borrow_mut());
+        stack.push((id, None, false));
         'evaluate: while let Some((id, next_source, mut needs_compute)) = stack.pop() {
             let attr = &self.attributes[&id];
-            if attr.evaluation.get().is_some() {
+            let derived = attr.compute.as_ref().unwrap();
+            if derived.evaluation.get().is_some() {
                 continue;
             }
             if next_source.is_none() {
-                attr.evaluating.set(EvaluationState::Checking);
+                needs_compute |= derived.evaluating.get() == EvaluationState::Scheduled;
+                derived.evaluating.set(EvaluationState::Checking);
                 self.evaluated.borrow_mut().push(id);
             }
-            needs_compute |= self.queued.contains(&id);
             for index in next_source.unwrap_or(0)..attr.sources.len() {
                 let source = attr.sources[index];
                 let input = &self.attributes[&source];
                 if input.compute.is_none() {
                     continue;
                 }
-                if let Some(result) = input.evaluation.get() {
+                if let Some(result) = input.evaluation() {
                     needs_compute |= result.value.is_some();
-                } else if input.evaluating.get() != EvaluationState::Idle {
+                } else if input.level() < self.settling_level.get() {
+                    // All pending work below the current level has settled.
+                    // No changed input can still reach this clean ancestor.
+                    continue;
+                } else if matches!(
+                    input.compute.as_ref().unwrap().evaluating.get(),
+                    EvaluationState::Checking | EvaluationState::Computing
+                ) {
                     // This old edge may disappear on the new branch. Let the
                     // computation decide whether it still reads that input.
                     needs_compute = true;
@@ -407,26 +525,32 @@ impl Runtime {
             if needs_compute {
                 self.compute(id);
             } else {
-                assert!(attr
+                assert!(derived
                     .evaluation
-                    .set(Box::new(Evaluation {
+                    .set(Evaluation {
                         value: None,
                         dependencies: None,
                         cause: attr.cause.clone(),
-                    }))
+                    })
                     .is_ok());
-                attr.evaluating.set(EvaluationState::Idle);
+                derived.evaluating.set(EvaluationState::Idle);
             }
+        }
+        // Nested reads may have returned a smaller stack while this one was
+        // in use. Retain the larger allocation for the next evaluation.
+        let mut spare = self.evaluation_stack.borrow_mut();
+        if spare.capacity() < stack.capacity() {
+            *spare = stack;
         }
     }
 
     fn compute(&self, id: AttributeId) {
         let attr = &self.attributes[&id];
-        attr.evaluating.set(EvaluationState::Computing);
+        let derived = attr.compute.as_ref().unwrap();
+        derived.evaluating.set(EvaluationState::Computing);
         let changed = |source: &AttributeId| {
             self.attributes[source]
-                .evaluation
-                .get()
+                .evaluation()
                 .filter(|result| result.value.is_some())
         };
         let mut result = Evaluation {
@@ -434,7 +558,7 @@ impl Runtime {
             dependencies: None,
             cause: attr.cause.clone(),
         };
-        let computation = attr.compute.as_ref().unwrap();
+        let computation = &derived.computation;
         let (value, dependencies) = self.capture(|rt| (computation.compute)(rt));
         // Newly selected inputs can carry a later mutation context too.
         let new_sources = if attr.sources == dependencies.sources {
@@ -461,16 +585,39 @@ impl Runtime {
             result.value = Some(value);
         }
         result.dependencies = Some(dependencies);
-        assert!(attr.evaluation.set(Box::new(result)).is_ok());
-        attr.evaluating.set(EvaluationState::Idle);
+        assert!(derived.evaluation.set(result).is_ok());
+        derived.evaluating.set(EvaluationState::Idle);
+    }
+
+    fn schedule(&self, id: AttributeId, work: &mut WorkQueue) {
+        let attr = &self.attributes[&id];
+        if let Some(derived) = &attr.compute {
+            if derived.evaluation.get().is_none()
+                && derived.evaluating.get() == EvaluationState::Idle
+            {
+                derived.evaluating.set(EvaluationState::Scheduled);
+                work.push(attr.level(), id);
+            }
+        }
     }
 
     fn settle(&mut self) {
+        // Dependency replacement can temporarily reverse accepted edges.
+        // Repair downstream levels only after all replacements are published.
+        while let Some(id) = self.level_updates.pop() {
+            self.update_level(id);
+        }
         self.settling = true;
+        self.settling_level.set(0);
+        let mut work = std::mem::take(&mut self.work);
+        for id in &self.queue {
+            self.schedule(*id, &mut work);
+        }
         let evaluated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut work: Vec<_> = self.queue.iter().copied().collect();
             let mut propagated = 0;
-            while let Some(id) = work.pop() {
+            while let Some((level, id)) = work.pop() {
+                debug_assert!(level >= self.settling_level.get());
+                self.settling_level.set(level);
                 self.evaluate(id);
                 // Evaluation may resolve more than this node. Propagate every
                 // changed result once, and stop at equal outputs. Reads pull
@@ -478,30 +625,51 @@ impl Runtime {
                 let evaluated = self.evaluated.borrow();
                 for id in &evaluated[propagated..] {
                     let attr = &self.attributes[id];
-                    if attr.evaluation.get().unwrap().value.is_some() {
-                        work.extend(&attr.readers);
+                    if attr.evaluation().unwrap().value.is_some() {
+                        for reader in &attr.readers {
+                            self.schedule(*reader, &mut work);
+                        }
                     }
                 }
                 propagated = evaluated.len();
             }
         }));
         self.settling = false;
-        let touched = std::mem::take(self.evaluated.get_mut());
+        let mut touched = std::mem::take(self.evaluated.get_mut());
+        #[cfg(test)]
+        {
+            self.validations += touched.len();
+        }
         if let Err(error) = evaluated {
-            for id in touched {
-                let attr = self.attributes.get_mut(&id).unwrap();
-                attr.evaluation.take();
-                attr.evaluating.set(EvaluationState::Idle);
+            while let Some((_, id)) = work.pop() {
+                self.attributes[&id]
+                    .compute
+                    .as_ref()
+                    .unwrap()
+                    .evaluating
+                    .set(EvaluationState::Idle);
             }
+            self.work = work;
+            for id in touched.drain(..) {
+                let attr = self.attributes.get_mut(&id).unwrap();
+                let derived = attr.compute.as_mut().unwrap();
+                derived.evaluation.take();
+                derived.evaluating.set(EvaluationState::Idle);
+            }
+            *self.evaluated.get_mut() = touched;
             // Keep the original work queued so a later settlement can retry.
             std::panic::resume_unwind(error);
         }
+        self.work = work;
 
         let mut changed = Vec::new();
-        for id in touched {
+        for id in touched.drain(..) {
             let result = self
                 .attributes
                 .get_mut(&id)
+                .unwrap()
+                .compute
+                .as_mut()
                 .unwrap()
                 .evaluation
                 .take()
@@ -518,6 +686,7 @@ impl Runtime {
                 changed.push(id);
             }
         }
+        *self.evaluated.get_mut() = touched;
         for id in changed {
             self.enqueue_readers(id);
         }
