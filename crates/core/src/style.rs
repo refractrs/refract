@@ -472,6 +472,9 @@ pub struct Style {
     /// Main-axis stack distribution, or horizontal child alignment in an overlay.
     pub justify: Alignment,
 
+    /// Sibling paint order, back to front. Equal indices retain declaration order.
+    /// Each subtree stays together; this does not affect layout or keyboard order.
+    pub z_index: i32,
     pub background: Option<Color>,
     /// Painted over the background color, inside the same rounded border box.
     /// Convert a `LinearGradient` or `RadialGradient` with `.into()` when setting directly.

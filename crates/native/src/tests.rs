@@ -716,6 +716,159 @@ fn resizing_reflows_text_without_reshaping() {
 }
 
 #[test]
+fn z_index_orders_siblings_and_roots_without_changing_layout_or_focus_order() {
+    for roots in [false, true] {
+        let content = |index| {
+            let children = [
+                view()
+                    .width(40.0)
+                    .height(40.0)
+                    .background(Color::BLUE)
+                    .label("first")
+                    .z_index(index)
+                    .on_press(|_| {}),
+                view()
+                    .width(40.0)
+                    .height(40.0)
+                    .background(Color::WHITE)
+                    .label("second")
+                    .offset(0.0, -40.0)
+                    .on_press(|_| {}),
+            ];
+            if roots {
+                fragment(children).into_any()
+            } else {
+                v_stack().children(children).into_any()
+            }
+        };
+        let mut app = App::new(content(0));
+        let mut host = Host::new().unwrap();
+        flush(&mut app, &mut host);
+        let ids: Vec<_> = app.elements().iter().map(|(id, _)| *id).collect();
+        let first = app
+            .elements()
+            .iter()
+            .find(|(_, e)| e.label.as_deref() == Some("first"))
+            .unwrap()
+            .0;
+        let second = app
+            .elements()
+            .iter()
+            .find(|(_, e)| e.label.as_deref() == Some("second"))
+            .unwrap()
+            .0;
+        host.frame(40.0, 80.0, 1.0, Color::BLACK).unwrap();
+        let layouts = host.stats().layout_passes;
+        for (index, front) in [
+            (1, first),
+            (-1, second),
+            (0, second),
+            (i32::MAX, first),
+            (i32::MIN, second),
+        ] {
+            app.set_view(content(index));
+            flush(&mut app, &mut host);
+            let rendered = host.frame(40.0, 80.0, 1.0, Color::BLACK).unwrap();
+            let fills: Vec<_> = rendered
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Fill { rect, color, .. }
+                        if *color == Color::BLUE || *color == Color::WHITE =>
+                    {
+                        Some((*rect, *color))
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(fills.len(), 2);
+            assert_eq!(
+                fills[1].1,
+                if front == first {
+                    Color::BLUE
+                } else {
+                    Color::WHITE
+                }
+            );
+            for (rect, color) in fills {
+                assert_eq!(
+                    (rect.x, rect.y, rect.width, rect.height),
+                    (
+                        0.0,
+                        if color == Color::BLUE { 0.0 } else { 40.0 },
+                        40.0,
+                        40.0
+                    )
+                );
+            }
+            assert_eq!(host.hit_test(Point { x: 1.0, y: 1.0 }), Some(front));
+            assert_eq!(host.stats().layout_passes, layouts);
+            assert_eq!(
+                app.elements().iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+                ids
+            );
+            host.set_focus(None);
+            host.focus_next(false);
+            assert_eq!(host.focus, Some(first));
+            host.focus_next(false);
+            assert_eq!(host.focus, Some(second));
+        }
+    }
+}
+
+#[test]
+fn z_index_keeps_descendants_above_their_background_and_within_their_subtree() {
+    for index in [-100, 100] {
+        let mut app = App::new(
+            h_stack()
+                .child(
+                    view()
+                        .width(40.0)
+                        .height(40.0)
+                        .background(Color::BLACK)
+                        .child(
+                            view()
+                                .width(40.0)
+                                .height(40.0)
+                                .background(Color::BLUE)
+                                .z_index(index)
+                                .on_press(|_| {}),
+                        ),
+                )
+                .child(
+                    view()
+                        .width(40.0)
+                        .height(40.0)
+                        .background(Color::WHITE)
+                        .offset(-40.0, 0.0)
+                        .z_index(1)
+                        .label("front")
+                        .on_press(|_| {}),
+                ),
+        );
+        let mut host = Host::new().unwrap();
+        flush(&mut app, &mut host);
+        let rendered = host.frame(80.0, 40.0, 1.0, Color::BLACK).unwrap();
+        let colors: Vec<_> = rendered
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Fill { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(colors, [Color::BLACK, Color::BLUE, Color::WHITE]);
+        let front = app
+            .elements()
+            .iter()
+            .find(|(_, e)| e.label.as_deref() == Some("front"))
+            .unwrap()
+            .0;
+        assert_eq!(host.hit_test(Point { x: 1.0, y: 1.0 }), Some(front));
+    }
+}
+
+#[test]
 fn overlay_alignment_moves_children_without_reordering_or_remounting() {
     let content = |horizontal, vertical| {
         z_stack()

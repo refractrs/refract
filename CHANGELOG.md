@@ -4,6 +4,9 @@ Notable changes to Refract, newest first.
 
 ## Unreleased
 
+- Add `z_index()` to order sibling views in every container on web and
+  desktop. Higher values paint in front and receive pointer input first;
+  equal values retain declaration order. Preserve layout and keyboard order.
 - Skip clean ancestor subgraphs during propagation using dependency levels.
   Reuse evaluation and scheduling storage, retaining distinct-result early
   exits and consistent reads across dynamic dependency changes.

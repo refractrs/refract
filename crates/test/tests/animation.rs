@@ -3,6 +3,42 @@ use refract_test::TestHost;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 #[test]
+fn z_index_changes_immediately_while_presentation_is_animating() {
+    let saved = Rc::new(RefCell::new(None));
+    let mut app = App::new(view_fn({
+        let saved = saved.clone();
+        move |cx| {
+            let index = cx.state("index", || 0);
+            *saved.borrow_mut() = Some(index.clone());
+            let value = cx.read(&index);
+            Ok(text("Badge").z_index(value).offset(value as f32, 0.0))
+        }
+    }));
+    let mut host = TestHost::default();
+    host.flush(&mut app).unwrap();
+    let id = app.elements()[0].0;
+    let index = saved.borrow().clone().unwrap();
+    for value in [100, -100, 0] {
+        with_animation(
+            app.runtime_mut(),
+            Animation::linear(Duration::from_secs(1)),
+            |rt| {
+                index.set(rt, value);
+            },
+        );
+        host.flush(&mut app).unwrap();
+        assert!(host.presentation.is_animating());
+        assert_eq!(host.presented(id).unwrap().style.z_index, value);
+        host.advance_time(Duration::from_millis(500));
+        assert_eq!(host.presented(id).unwrap().style.z_index, value);
+        assert_ne!(
+            host.presented(id).unwrap().style.transform.offset_x,
+            value as f32
+        );
+    }
+}
+
+#[test]
 fn explicit_context_survives_discard_and_stays_in_its_branch() {
     let saved = Rc::new(RefCell::new(Vec::new()));
     let mut app = App::new(view_fn({

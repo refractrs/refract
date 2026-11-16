@@ -274,6 +274,21 @@ mod tests {
     }
 
     #[test]
+    fn z_index_is_prerendered_without_reordering_markup() {
+        let html = prerender(
+            view()
+                .child(text("First").z_index(2))
+                .child(text("Second").z_index(-1)),
+            PrerenderOptions::default(),
+        )
+        .unwrap();
+        assert!(html.contains("z-index:0;"));
+        assert!(html.contains("z-index:2;"));
+        assert!(html.contains("z-index:-1;"));
+        assert!(html.find("First").unwrap() < html.find("Second").unwrap());
+    }
+
+    #[test]
     fn overlay_alignment_is_included_in_the_initial_html() {
         let html = prerender(
             refract_core::z_stack()

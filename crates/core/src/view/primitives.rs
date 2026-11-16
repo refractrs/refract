@@ -156,7 +156,8 @@ container_builder!(
     Stack
 );
 container_builder!(
-    /// Children layered in declaration order; later children appear in front.
+    /// Children layered in declaration order; later children appear in front
+    /// unless their `z_index` modifiers specify a different order.
     ///
     /// ```compile_fail
     /// use refract_core::prelude::*;
@@ -287,7 +288,8 @@ pub fn v_stack() -> Stack {
     stack()
 }
 
-/// Create an overlay stack; later children appear in front of earlier children.
+/// Create an overlay stack; later children appear in front by default.
+/// Use `z_index` on children to override their paint order.
 /// Children share one cell and stretch by default. Use [`Overlay::alignment`]
 /// to position smaller children independently along the horizontal and vertical axes.
 pub fn z_stack() -> Overlay {

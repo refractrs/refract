@@ -1,4 +1,4 @@
-//! Overlay alignment, live updates, and prerender adoption in a real browser.
+//! Alignment, sibling stacking, live updates, and prerender adoption in a browser.
 #![cfg(target_arch = "wasm32")]
 use refract_core::prelude::*;
 use refract_web::{Mount, MountOptions, PrerenderOptions};
@@ -25,6 +25,8 @@ impl LayoutFixture {
 fn application() -> impl View {
     view_fn(|cx| {
         let step = cx.state("step", || 0_usize);
+        let stacking = cx.state("stacking", || 0_usize);
+        let z_index = [2, -2, 0][cx.read(&stacking) % 3];
         let alignments = [Alignment::Start, Alignment::Center, Alignment::End];
         let index = cx.read(&step) % 9;
         Ok(v_stack()
@@ -69,6 +71,61 @@ fn application() -> impl View {
                             .background(Color::WHITE)
                             .label("sized"),
                     ),
+            )
+            .child(
+                h_stack()
+                    .label("stacking")
+                    .child(
+                        view()
+                            .width(40.0)
+                            .height(40.0)
+                            .background(Color::BLUE)
+                            .label("stack-first")
+                            .z_index(z_index)
+                            .on_press(|_| {}),
+                    )
+                    .child(
+                        view()
+                            .width(40.0)
+                            .height(40.0)
+                            .background(Color::WHITE)
+                            .label("stack-second")
+                            .offset(-40.0, 0.0)
+                            .on_press(|_| {}),
+                    ),
+            )
+            .child(
+                h_stack()
+                    .child(
+                        view()
+                            .width(80.0)
+                            .height(40.0)
+                            .background(Color::BLACK)
+                            .child(
+                                view()
+                                    .width(80.0)
+                                    .height(40.0)
+                                    .background(Color::BLUE)
+                                    .label("nested-child")
+                                    .z_index(z_index * 100)
+                                    .on_press(|_| {}),
+                            ),
+                    )
+                    .child(
+                        view()
+                            .width(40.0)
+                            .height(40.0)
+                            .background(Color::WHITE)
+                            .label("nested-front")
+                            .offset(-40.0, 0.0)
+                            .z_index(1)
+                            .on_press(|_| {}),
+                    ),
+            )
+            .child(
+                text("Next stacking order")
+                    .label("next-stacking")
+                    .on_press(move |cx| stacking.update(cx.runtime(), |n| *n += 1)),
             )
             .child(
                 text("Next alignment")

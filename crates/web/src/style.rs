@@ -6,6 +6,9 @@ use std::collections::BTreeMap;
 pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
     let s = &e.style;
     let mut out = BTreeMap::new();
+    // Every positioned node establishes a stacking context, including zero, so
+    // descendants cannot escape their sibling subtree's native paint order.
+    out.insert("z-index", s.z_index.to_string());
     let t = s.transform;
     if t != Transform::default() {
         out.insert("transform", format!("translate({}px, {}px) rotate({}deg) scale({}, {})", t.offset_x, t.offset_y, t.rotation, t.scale_x, t.scale_y));
@@ -268,6 +271,17 @@ pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn z_index_establishes_a_stacking_context_even_when_reset_to_zero() {
+        let Some(Description::Element(mut element, _, _)) = view().describe() else {
+            panic!("element")
+        };
+        for index in [0, i32::MIN, i32::MAX, 0] {
+            element.style.z_index = index;
+            assert_eq!(css(&element)["z-index"], index.to_string());
+        }
+    }
 
     #[test]
     fn blur_filters_replace_and_remove_independently() {
