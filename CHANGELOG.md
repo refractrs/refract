@@ -2,6 +2,14 @@
 
 Notable changes to Refract, newest first.
 
+## Unreleased
+
+- Settle derived inputs before reading them, including newly selected
+  conditional dependencies. Uneven dependency paths no longer publish
+  intermediate values or invalidate observers of unchanged distinct results.
+- Detect dependency cycles during evaluation and discard staged derived
+  results on panic, retaining queued work for a later settlement attempt.
+
 ## 0.1.9
 
 - Add dedicated `shader` and `shader_with` views for application-owned WGSL

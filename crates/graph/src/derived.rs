@@ -24,6 +24,8 @@ impl<T: 'static> Derived<T> {
 
     /// Propagate only when the computed value changes according to `PartialEq`.
     /// Dependencies are still replaced when the result compares equal.
+    /// Inputs settle before they are read, so unequal dependency path lengths
+    /// do not publish intermediate values or spuriously invalidate observers.
     pub fn distinct(rt: &mut Runtime, f: impl Fn(&Runtime) -> T + 'static) -> Self
     where
         T: PartialEq,

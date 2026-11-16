@@ -480,3 +480,248 @@ fn nested_mutation_context_restores_after_unwind() {
     a.set(&mut rt, 3);
     assert_eq!(rt.observer_context(&observer).unwrap().get::<&str>(), None);
 }
+
+fn identity_chain(rt: &mut Runtime, source: &State<i32>, depth: usize) -> Derived<i32> {
+    let mut value = Derived::new(rt, {
+        let source = source.clone();
+        move |rt| *source.get(rt)
+    });
+    for _ in 1..depth {
+        value = Derived::new(rt, move |rt| *value.get(rt));
+    }
+    value
+}
+
+#[test]
+fn uneven_diamonds_settle_once_without_invalidating_equal_outputs() {
+    for depth in [2, 3, 16] {
+        let mut rt = Runtime::new();
+        let source = State::new(&mut rt, 1);
+        let short = identity_chain(&mut rt, &source, 1);
+        let long = identity_chain(&mut rt, &source, depth);
+        let difference = Derived::distinct(&mut rt, move |rt| *short.get(rt) - *long.get(rt));
+        let downstream = Derived::new(&mut rt, move |rt| *difference.get(rt));
+        let observers: Vec<_> = (0..1000)
+            .map(|_| {
+                let observer = rt.observer();
+                let (_, deps) = rt.capture(|rt| *downstream.get(rt));
+                rt.accept(&observer, deps);
+                observer
+            })
+            .collect();
+        let wakes = Rc::new(std::cell::Cell::new(0));
+        rt.set_waker({
+            let wakes = wakes.clone();
+            move || wakes.set(wakes.get() + 1)
+        });
+        for value in 2..10 {
+            let before = rt.stats().computations;
+            rt.batch(|rt| {
+                source.set(rt, value - 1);
+                rt.batch(|rt| source.set(rt, value));
+            });
+            assert_eq!(*downstream.get(&rt), 0);
+            assert_eq!(rt.stats().computations - before, depth as u64 + 2);
+            assert!(observers.iter().all(|observer| !observer.is_dirty(&rt)));
+            assert!(rt.take_dirty_observers().is_empty());
+        }
+        assert_eq!(rt.stats().invalidations, 0);
+        assert_eq!(wakes.get(), 0);
+    }
+}
+
+#[test]
+fn derived_computations_never_receive_mixed_diamond_inputs() {
+    let mut rt = Runtime::new();
+    let source = State::new(&mut rt, 1);
+    let short = identity_chain(&mut rt, &source, 1);
+    let long = identity_chain(&mut rt, &source, 3);
+    let quotient = Derived::new(&mut rt, move |rt| {
+        // Both branches represent the same value. A stale long branch would
+        // make this denominator zero when the source changes from 1 to 2.
+        10 / (*long.get(rt) - *short.get(rt) + 1)
+    });
+    source.set(&mut rt, 2);
+    assert_eq!(*quotient.get(&rt), 10);
+    assert_eq!(rt.stats().computations, 5);
+}
+
+#[test]
+fn newly_selected_dependencies_settle_and_preserve_mutation_context() {
+    let mut rt = Runtime::new();
+    let choose = State::new(&mut rt, false);
+    let source = State::new(&mut rt, 1);
+    let selected = Rc::new(std::cell::RefCell::new(None::<Derived<i32>>));
+    // Allocate the reader before its conditional dependency to rule out
+    // creation order as a substitute for dependency-aware settlement.
+    let value = Derived::distinct(&mut rt, {
+        let choose = choose.clone();
+        let selected = selected.clone();
+        move |rt| {
+            if *choose.get(rt) {
+                *selected.borrow().as_ref().unwrap().get(rt)
+            } else {
+                0
+            }
+        }
+    });
+    *selected.borrow_mut() = Some(identity_chain(&mut rt, &source, 16));
+    let observer = rt.observer();
+    let (_, deps) = rt.capture(|rt| *value.get(rt));
+    rt.accept(&observer, deps);
+    rt.batch(|rt| {
+        rt.with_mutation_context("selection", |rt| choose.set(rt, true));
+        rt.with_mutation_context("source", |rt| source.set(rt, 2));
+    });
+    assert_eq!(*value.get(&rt), 2);
+    assert_eq!(rt.stats().computations, 17);
+    assert_eq!(
+        rt.observer_context(&observer).unwrap().get::<&str>(),
+        Some(&"source")
+    );
+    rt.mark_clean(&observer);
+    source.set(&mut rt, 3);
+    assert_eq!(*value.get(&rt), 3);
+    assert!(observer.is_dirty(&rt));
+    assert_eq!(rt.observer_context(&observer).unwrap().get::<&str>(), None);
+    choose.set(&mut rt, false);
+    rt.mark_clean(&observer);
+    source.set(&mut rt, 4);
+    assert_eq!(*value.get(&rt), 0);
+    assert!(!observer.is_dirty(&rt));
+}
+
+#[test]
+fn conditional_dependencies_can_reverse_direction() {
+    let mut rt = Runtime::new();
+    let choose = State::new(&mut rt, true);
+    let selector = Derived::new(&mut rt, {
+        let choose = choose.clone();
+        move |rt| *choose.get(rt)
+    });
+    let source = State::new(&mut rt, 1);
+    let later = Rc::new(std::cell::RefCell::new(None::<Derived<i32>>));
+    let a = Derived::new(&mut rt, {
+        let choose = selector.clone();
+        let source = source.clone();
+        let later = later.clone();
+        move |rt| {
+            if *choose.get(rt) {
+                *source.get(rt)
+            } else {
+                *later.borrow().as_ref().unwrap().get(rt)
+            }
+        }
+    });
+    let b = Derived::new(&mut rt, {
+        let choose = selector.clone();
+        let source = source.clone();
+        let a = a.clone();
+        move |rt| {
+            if *choose.get(rt) {
+                *a.get(rt)
+            } else {
+                *source.get(rt)
+            }
+        }
+    });
+    *later.borrow_mut() = Some(b.clone());
+    for value in 2..10 {
+        choose.set(&mut rt, value % 2 == 1);
+        source.set(&mut rt, value);
+        assert_eq!(*a.get(&rt), value);
+        assert_eq!(*b.get(&rt), value);
+    }
+    later.borrow_mut().take();
+}
+
+#[test]
+fn long_chains_settle_without_recursive_dependency_walks() {
+    let mut rt = Runtime::new();
+    let source = State::new(&mut rt, 1);
+    let last = identity_chain(&mut rt, &source, 10_000);
+    source.set(&mut rt, 2);
+    assert_eq!(*last.get(&rt), 2);
+    assert_eq!(rt.stats().computations, 10_000);
+    drop((source, last));
+    rt.collect();
+    assert_eq!(rt.stats().attributes, 0);
+}
+
+#[test]
+fn panicking_computation_discards_staged_values_and_can_retry() {
+    let mut rt = Runtime::new();
+    let source = State::new(&mut rt, 1);
+    let upstream = identity_chain(&mut rt, &source, 3);
+    let fail = Rc::new(std::cell::Cell::new(false));
+    let value = Derived::new(&mut rt, {
+        let fail = fail.clone();
+        let upstream = upstream.clone();
+        move |rt| {
+            let value = *upstream.get(rt);
+            assert!(!fail.get(), "computation failed");
+            value
+        }
+    });
+    let observer = rt.observer();
+    let (_, deps) = rt.capture(|rt| *value.get(rt));
+    rt.accept(&observer, deps);
+    fail.set(true);
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| source.set(&mut rt, 2))).is_err()
+    );
+    assert_eq!(*source.get(&rt), 2);
+    assert_eq!(*upstream.get(&rt), 1);
+    assert_eq!(*value.get(&rt), 1);
+    assert!(!observer.is_dirty(&rt));
+    fail.set(false);
+    rt.batch(|_| {});
+    assert_eq!(*upstream.get(&rt), 2);
+    assert_eq!(*value.get(&rt), 2);
+    assert!(observer.is_dirty(&rt));
+}
+
+#[test]
+fn dynamic_cycles_report_the_dependency_and_allow_retry() {
+    let mut rt = Runtime::new();
+    let choose = State::new(&mut rt, false);
+    let recursive = Rc::new(std::cell::RefCell::new(None::<Derived<i32>>));
+    let value = Derived::new(&mut rt, {
+        let choose = choose.clone();
+        let recursive = recursive.clone();
+        move |rt| {
+            if *choose.get(rt) {
+                *recursive.borrow().as_ref().unwrap().get(rt)
+            } else {
+                1
+            }
+        }
+    });
+    *recursive.borrow_mut() = Some(value.clone());
+    let error =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| choose.set(&mut rt, true)))
+            .unwrap_err();
+    let message = error.downcast_ref::<String>().unwrap();
+    assert!(message.contains("attribute graph dependency cycle at AttributeId("));
+    choose.set(&mut rt, false);
+    assert_eq!(*value.get(&rt), 1);
+    recursive.borrow_mut().take();
+}
+
+#[test]
+fn deep_dependencies_with_shared_inputs_do_not_recurse_through_computations() {
+    let mut rt = Runtime::new();
+    let source = State::new(&mut rt, 0);
+    let shared = identity_chain(&mut rt, &source, 1);
+    let mut last = shared.clone();
+    for _ in 0..10_000 {
+        let shared = shared.clone();
+        last = Derived::new(&mut rt, move |rt| *shared.get(rt) + *last.get(rt));
+    }
+    source.set(&mut rt, 1);
+    assert_eq!(*last.get(&rt), 10_001);
+    assert_eq!(rt.stats().computations, 10_001);
+    drop((last, shared, source));
+    rt.collect();
+    assert_eq!(rt.stats().attributes, 0);
+}
