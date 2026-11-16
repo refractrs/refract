@@ -129,7 +129,7 @@ fn dry_run_conflicts_and_unknown_items_leave_project_untouched() {
     let root = project.path();
     let before = snapshot(root);
     let output = succeeds(custom(root, source.path(), &["hello", "--dry-run"]));
-    assert!(output.contains("src/ui/hello.rs"));
+    assert!(output.replace('\\', "/").contains("src/ui/hello.rs"));
     assert_eq!(snapshot(root), before);
     fails(
         custom(root, source.path(), &["missing"]),

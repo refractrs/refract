@@ -85,7 +85,7 @@ impl Source {
     }
 
     pub fn read(&self, path: &str, stopped: &AtomicBool) -> Result<Vec<u8>> {
-        catalog::relative(Path::new(path))?;
+        catalog::portable_relative(Path::new(path))?;
         if stopped.load(Ordering::Relaxed) {
             return Err("interrupted".into());
         }

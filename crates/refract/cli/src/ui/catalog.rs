@@ -62,12 +62,13 @@ pub fn identifier(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Validate a native filesystem path, including Windows path separators.
 pub fn relative(path: &Path) -> Result<()> {
     if path.as_os_str().is_empty()
-        || path.to_string_lossy().contains(['\\', ':'])
-        || path
-            .components()
-            .any(|c| !matches!(c, Component::Normal(_)))
+        || path.components().any(|c| match c {
+            Component::Normal(part) => part.to_string_lossy().contains(['\\', ':']),
+            _ => true,
+        })
     {
         return Err(format!(
             "expected a relative path without traversal: {}",
@@ -76,6 +77,18 @@ pub fn relative(path: &Path) -> Result<()> {
         .into());
     }
     Ok(())
+}
+
+/// Catalog and Git paths use forward slashes on every host.
+pub fn portable_relative(path: &Path) -> Result<()> {
+    if path.to_string_lossy().contains('\\') {
+        return Err(format!(
+            "expected a relative path without traversal: {}",
+            path.display()
+        )
+        .into());
+    }
+    relative(path)
 }
 
 impl Catalog {
@@ -95,7 +108,7 @@ impl Catalog {
         if catalog.license.trim().is_empty() {
             return Err("catalog license is required".into());
         }
-        relative(Path::new(&catalog.license_file))?;
+        portable_relative(Path::new(&catalog.license_file))?;
         semver::VersionReq::parse(&catalog.compatibility.refract)?;
         for (name, item) in &catalog.items {
             identifier(name)?;
@@ -108,8 +121,8 @@ impl Catalog {
                 return Err(format!("{name} must declare web and/or desktop support").into());
             }
             for file in &item.files {
-                relative(Path::new(&file.source))?;
-                relative(Path::new(&file.target))?;
+                portable_relative(Path::new(&file.source))?;
+                portable_relative(Path::new(&file.target))?;
                 if file.target == "mod.rs" || file.target.starts_with("licenses/") {
                     return Err(format!("reserved UI destination: {}", file.target).into());
                 }
@@ -163,5 +176,40 @@ impl Catalog {
             visit(self, name, &mut visiting, &mut done, &mut order)?;
         }
         Ok(order)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_native_relative_paths_but_keeps_catalog_paths_portable() {
+        relative(&Path::new("src").join("lib.rs")).unwrap();
+        relative(&Path::new("src").join("ui").join("button.rs")).unwrap();
+        portable_relative(Path::new("src/ui/button.rs")).unwrap();
+        assert!(portable_relative(Path::new(r"src\ui\button.rs")).is_err());
+        assert_eq!(relative(Path::new(r"src\lib.rs")).is_ok(), cfg!(windows));
+    }
+
+    #[test]
+    fn rejects_unsafe_relative_paths_on_every_host() {
+        for path in [
+            "",
+            ".",
+            "../outside",
+            "src/../outside",
+            "/absolute",
+            "C:/absolute",
+            r"C:\absolute",
+            "C:relative",
+            r"\rooted",
+            r"\\server\share",
+            r"src\..\outside",
+            "src/file:stream",
+        ] {
+            assert!(relative(Path::new(path)).is_err(), "{path:?}");
+            assert!(portable_relative(Path::new(path)).is_err(), "{path:?}");
+        }
     }
 }
