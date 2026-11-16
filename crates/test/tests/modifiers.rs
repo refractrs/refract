@@ -3,6 +3,32 @@ use refract_test::TestHost;
 use std::{cell::RefCell, rc::Rc};
 
 #[test]
+fn z_index_preserves_builders_and_updates_without_reordering_children() {
+    let content = |index| {
+        let title: Text = text("Badge").z_index(index).heading(2);
+        let stack: Stack = h_stack().z_index(-1).child(title).child(text("Body"));
+        stack.child(view_fn(|_| Ok(text("Composed"))).padding(8.0).z_index(3))
+    };
+    let mut app = App::new(content(1));
+    let mut host = TestHost::default();
+    host.flush(&mut app).unwrap();
+    let root = host.children[&None][0];
+    let children = host.children[&Some(root)].clone();
+    assert_eq!(host.elements.len(), 5, "only padding adds a wrapper");
+    assert_eq!(host.elements[&root].style.z_index, -1);
+    assert_eq!(host.elements[&children[2]].style.z_index, 3);
+    assert_eq!(host.elements[&children[1]].style.z_index, 0);
+    for index in [i32::MIN, i32::MAX, 0] {
+        app.set_view(content(index));
+        host.flush(&mut app).unwrap();
+        assert_eq!(host.children[&Some(root)], children);
+        assert_eq!(host.elements[&children[0]].style.z_index, index);
+        assert!(matches!(host.updates.last().unwrap().patches.as_slice(),
+            [refract_core::Patch::Update(id, _)] if *id == children[0]));
+    }
+}
+
+#[test]
 fn typography_preserves_text_and_field_builders_and_rejects_invalid_updates() {
     let make_view = |spacing| {
         view_fn(move |cx| {

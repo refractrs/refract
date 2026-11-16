@@ -13,6 +13,18 @@ macro_rules! element_modifiers {
         $visibility fn transition(self, transition: $crate::Transition) -> $output {
             $apply(self, move |e| e.transition = Some(transition))
         }
+        /// Set paint order among siblings in any container. Higher values appear
+        /// in front; equal values retain declaration order. The default is zero,
+        /// and negative values are supported. Descendants stay within their
+        /// parent's stacking order, above its background.
+        ///
+        /// This changes pointer targeting, but not layout or keyboard order.
+        /// Changes take effect immediately, even in animated transactions.
+        /// Apply after structural modifiers such as `padding` or `frame` to
+        /// order the entire wrapped view: `text("Badge").padding(8.0).z_index(1)`.
+        $visibility fn z_index(self, value: i32) -> $output {
+            $apply(self, move |e| e.style.z_index = value)
+        }
         /// Translate presentation in logical pixels without changing layout.
         $visibility fn offset(self, x: f32, y: f32) -> $output {
             $apply(self, move |e| { e.style.transform.offset_x = x; e.style.transform.offset_y = y; })

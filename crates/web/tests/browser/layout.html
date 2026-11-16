@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Overlay alignment fixture</title>
+<title>Alignment and stacking fixture</title>
 <style>body{font:16px system-ui;padding:32px}#host{width:320px}pre{white-space:pre-wrap}</style>
 <div id="host"></div><pre id="results">Running…</pre>
 <script type="module">
@@ -41,6 +41,22 @@ try {
   await until(() => getComputedStyle(parent).justifyItems === 'start');
   assert(near(rect(find('stretched')).width, 200) && near(rect(find('stretched')).height, 100), 'default alignment stretches unsized children');
   assert(near(rect(find('sized')).width, 40) && near(rect(find('sized')).height, 20), 'default alignment preserves explicit sizes');
+  const first = find('stack-first'), second = find('stack-second');
+  const firstBounds = rect(first), secondBounds = rect(second);
+  const hit = (element, dx = 1) => {
+    const bounds = rect(element);
+    return host.shadowRoot.elementFromPoint(bounds.x + dx, bounds.y + 1);
+  };
+  for (const index of [2, -2, 0, 2]) {
+    await until(() => getComputedStyle(first).zIndex === String(index));
+    assert(hit(first) === (index > 0 ? first : second), `z-index ${index} controls pointer targeting outside overlays`);
+    assert(first === find('stack-first') && second === find('stack-second'), `z-index ${index} preserves identity`);
+    assert(rect(first).x === firstBounds.x && rect(first).y === firstBounds.y && rect(second).x === secondBounds.x && rect(second).y === secondBounds.y, `z-index ${index} preserves geometry`);
+    assert(find('stacking').children[0] === first && find('stacking').children[1] === second && first.tabIndex === 0 && second.tabIndex === 0, `z-index ${index} preserves keyboard order`);
+    assert(hit(find('nested-child')) === find('nested-child'), `nested z-index ${index * 100} stays above its parent background`);
+    assert(hit(find('nested-front')) === find('nested-front'), `nested z-index ${index * 100} stays within its parent stacking context`);
+    find('next-stacking').click();
+  }
   assert(!app.last_error(), 'updates complete without host errors');
   results.textContent = checks.join('\n');
   document.documentElement.dataset.result = 'pass';

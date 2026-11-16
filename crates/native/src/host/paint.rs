@@ -115,7 +115,9 @@ impl Host {
             width,
             height,
         };
-        for id in self.roots.clone() {
+        let mut roots = self.roots.clone();
+        roots.sort_by_key(|id| self.entries[id].element.style.z_index);
+        for id in roots {
             self.paint(
                 id,
                 Point::default(),
@@ -392,7 +394,7 @@ impl Host {
             x: rect.x - entry.scroll.x,
             y: rect.y - entry.scroll.y,
         };
-        let children = entry.children.clone();
+        let mut children = entry.children.clone();
         // A translucent black tint matches the web button's subtle darkening.
         // Paint it after descendants so image/text content gets feedback too.
         let feedback = (self.hover == Some(id) && !entry.element.disabled)
@@ -408,6 +410,9 @@ impl Host {
             None
         };
         let radius = s.radius;
+        // Sort only the paint traversal, stably: layout and keyboard order keep
+        // the declared children, while hit testing follows reverse paint order.
+        children.sort_by_key(|id| self.entries[id].element.style.z_index);
         for child in children {
             self.paint(child, origin, clip, world_transform, canvas_time, frame)?;
         }
