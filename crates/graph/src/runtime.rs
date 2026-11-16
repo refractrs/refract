@@ -3,7 +3,7 @@
 use crate::{handle::Handle, AttributeId, Dependencies, Observer};
 use std::{
     any::Any,
-    cell::RefCell,
+    cell::{Cell, OnceCell, RefCell},
     collections::{HashMap, HashSet, VecDeque},
     rc::Rc,
 };
@@ -28,6 +28,23 @@ struct Attribute {
     dirty: bool,
     cause: Option<MutationContext>,
     notified_epoch: u64,
+    evaluating: Cell<EvaluationState>,
+    evaluation: OnceCell<Box<Evaluation>>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum EvaluationState {
+    Idle,
+    Checking,
+    Computing,
+}
+
+struct Evaluation {
+    // Only changed values replace storage. Equal computations still publish
+    // their dependencies, while skipped computations publish neither.
+    value: Option<Box<dyn Any>>,
+    dependencies: Option<Dependencies>,
+    cause: Option<MutationContext>,
 }
 
 /// Opaque context of the latest mutation affecting an observer. The graph does
@@ -50,7 +67,7 @@ impl MutationContext {
 pub struct GraphStats {
     pub attributes: usize,
     pub edges: usize,
-    /// Derived recomputations after their initial allocation.
+    /// Successfully published derived recomputations after initial allocation.
     pub computations: u64,
     /// Observer transitions from clean to dirty.
     pub invalidations: u64,
@@ -68,10 +85,12 @@ pub struct Runtime {
     tracking: RefCell<Vec<Dependencies>>,
     retired: Rc<RefCell<Vec<AttributeId>>>,
 
-    // `queued` deduplicates pending work, but a processed node can be enqueued
-    // again if another input changes before propagation finishes.
+    // Writes enqueue immediate readers. Settlement stages the affected derived
+    // subgraph before publishing any values or invalidating observers.
     queue: VecDeque<AttributeId>,
     queued: HashSet<AttributeId>,
+    settling: bool,
+    evaluated: RefCell<Vec<AttributeId>>,
     batch_depth: usize,
     mutation_context: Option<Rc<dyn Any>>,
 
@@ -99,6 +118,8 @@ impl Runtime {
             retired: Rc::default(),
             queue: VecDeque::new(),
             queued: HashSet::new(),
+            settling: false,
+            evaluated: RefCell::new(Vec::new()),
             batch_depth: 0,
             mutation_context: None,
             epoch: 0,
@@ -127,6 +148,8 @@ impl Runtime {
                 dirty: false,
                 cause: None,
                 notified_epoch: 0,
+                evaluating: Cell::new(EvaluationState::Idle),
+                evaluation: OnceCell::new(),
             },
         );
         Handle::new(id, Rc::downgrade(&self.retired))
@@ -160,12 +183,21 @@ impl Runtime {
     }
 
     pub(crate) fn read_untracked<T: 'static>(&self, id: AttributeId) -> &T {
-        self.attributes
+        let attr = self
+            .attributes
             .get(&id)
-            .expect("attribute belongs to another or disposed runtime")
-            .value
-            .downcast_ref()
-            .expect("attribute type mismatch")
+            .expect("attribute belongs to another or disposed runtime");
+        if self.settling && attr.compute.is_some() {
+            self.evaluate(id);
+            if let Some(value) = attr
+                .evaluation
+                .get()
+                .and_then(|result| result.value.as_ref())
+            {
+                return value.downcast_ref().expect("attribute type mismatch");
+            }
+        }
+        attr.value.downcast_ref().expect("attribute type mismatch")
     }
 
     pub(crate) fn read<T: 'static>(&self, id: AttributeId) -> &T {
@@ -296,7 +328,15 @@ impl Runtime {
 
     fn enqueue_readers(&mut self, source: AttributeId) {
         let cause = self.attributes[&source].cause.clone();
-        let readers: Vec<_> = self.attributes[&source].readers.iter().copied().collect();
+        // Derived results are published only after all computations settle.
+        // Their derived readers have already resolved these changes on reads.
+        let settled = self.attributes[&source].compute.is_some();
+        let readers: Vec<_> = self.attributes[&source]
+            .readers
+            .iter()
+            .copied()
+            .filter(|id| !settled || self.attributes[id].observer)
+            .collect();
         for id in readers {
             if let Some(cause) = &cause {
                 let attr = self.attributes.get_mut(&id).unwrap();
@@ -314,18 +354,177 @@ impl Runtime {
         }
     }
 
-    fn settle(&mut self) {
-        let mut visits = HashMap::<AttributeId, usize>::new();
-        let mut wake = false;
+    // Resolve accepted dependencies first, then let reads resolve any newly
+    // selected dependencies. OnceCell keeps borrowed values stable throughout
+    // evaluation without mutating the published attribute storage.
+    fn evaluate(&self, id: AttributeId) {
+        let attr = &self.attributes[&id];
+        if attr.compute.is_none() || attr.evaluation.get().is_some() {
+            return;
+        }
+        assert!(
+            attr.evaluating.get() != EvaluationState::Computing,
+            "attribute graph dependency cycle at {id:?}"
+        );
+        if attr.evaluating.get() == EvaluationState::Checking {
+            // A new read can reverse an accepted edge. Resolve actual reads
+            // now; only reentering a computation proves a current cycle.
+            self.compute(id);
+            return;
+        }
+        // Validate existing edges iteratively, even for directly queued nodes,
+        // so deep chains with shared inputs do not recurse through closures.
+        let mut stack = vec![(id, None, false)];
+        'evaluate: while let Some((id, next_source, mut needs_compute)) = stack.pop() {
+            let attr = &self.attributes[&id];
+            if attr.evaluation.get().is_some() {
+                continue;
+            }
+            if next_source.is_none() {
+                attr.evaluating.set(EvaluationState::Checking);
+                self.evaluated.borrow_mut().push(id);
+            }
+            needs_compute |= self.queued.contains(&id);
+            for index in next_source.unwrap_or(0)..attr.sources.len() {
+                let source = attr.sources[index];
+                let input = &self.attributes[&source];
+                if input.compute.is_none() {
+                    continue;
+                }
+                if let Some(result) = input.evaluation.get() {
+                    needs_compute |= result.value.is_some();
+                } else if input.evaluating.get() != EvaluationState::Idle {
+                    // This old edge may disappear on the new branch. Let the
+                    // computation decide whether it still reads that input.
+                    needs_compute = true;
+                    break;
+                } else {
+                    stack.push((id, Some(index), needs_compute));
+                    stack.push((source, None, false));
+                    continue 'evaluate;
+                }
+            }
+            if needs_compute {
+                self.compute(id);
+            } else {
+                assert!(attr
+                    .evaluation
+                    .set(Box::new(Evaluation {
+                        value: None,
+                        dependencies: None,
+                        cause: attr.cause.clone(),
+                    }))
+                    .is_ok());
+                attr.evaluating.set(EvaluationState::Idle);
+            }
+        }
+    }
 
+    fn compute(&self, id: AttributeId) {
+        let attr = &self.attributes[&id];
+        attr.evaluating.set(EvaluationState::Computing);
+        let changed = |source: &AttributeId| {
+            self.attributes[source]
+                .evaluation
+                .get()
+                .filter(|result| result.value.is_some())
+        };
+        let mut result = Evaluation {
+            value: None,
+            dependencies: None,
+            cause: attr.cause.clone(),
+        };
+        let computation = attr.compute.as_ref().unwrap();
+        let (value, dependencies) = self.capture(|rt| (computation.compute)(rt));
+        // Newly selected inputs can carry a later mutation context too.
+        let new_sources = if attr.sources == dependencies.sources {
+            &[][..]
+        } else {
+            &dependencies.sources[..]
+        };
+        for source in attr.sources.iter().chain(new_sources) {
+            if let Some(cause) = changed(source).and_then(|result| result.cause.as_ref()) {
+                if result
+                    .cause
+                    .as_ref()
+                    .is_none_or(|old| old.epoch < cause.epoch)
+                {
+                    result.cause = Some(cause.clone());
+                }
+            }
+        }
+        if computation
+            .equal
+            .as_ref()
+            .is_none_or(|eq| !eq(attr.value.as_ref(), value.as_ref()))
+        {
+            result.value = Some(value);
+        }
+        result.dependencies = Some(dependencies);
+        assert!(attr.evaluation.set(Box::new(result)).is_ok());
+        attr.evaluating.set(EvaluationState::Idle);
+    }
+
+    fn settle(&mut self) {
+        self.settling = true;
+        let evaluated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut work: Vec<_> = self.queue.iter().copied().collect();
+            let mut propagated = 0;
+            while let Some(id) = work.pop() {
+                self.evaluate(id);
+                // Evaluation may resolve more than this node. Propagate every
+                // changed result once, and stop at equal outputs. Reads pull
+                // any dependencies that have not reached the worklist yet.
+                let evaluated = self.evaluated.borrow();
+                for id in &evaluated[propagated..] {
+                    let attr = &self.attributes[id];
+                    if attr.evaluation.get().unwrap().value.is_some() {
+                        work.extend(&attr.readers);
+                    }
+                }
+                propagated = evaluated.len();
+            }
+        }));
+        self.settling = false;
+        let touched = std::mem::take(self.evaluated.get_mut());
+        if let Err(error) = evaluated {
+            for id in touched {
+                let attr = self.attributes.get_mut(&id).unwrap();
+                attr.evaluation.take();
+                attr.evaluating.set(EvaluationState::Idle);
+            }
+            // Keep the original work queued so a later settlement can retry.
+            std::panic::resume_unwind(error);
+        }
+
+        let mut changed = Vec::new();
+        for id in touched {
+            let result = self
+                .attributes
+                .get_mut(&id)
+                .unwrap()
+                .evaluation
+                .take()
+                .unwrap();
+            if let Some(dependencies) = result.dependencies {
+                self.replace_dependencies(id, dependencies);
+                self.computations += 1;
+            }
+            let attr = self.attributes.get_mut(&id).unwrap();
+            attr.cause = result.cause;
+            if let Some(value) = result.value {
+                attr.value = value;
+                attr.revision = attr.revision.checked_add(1).expect("revision exhausted");
+                changed.push(id);
+            }
+        }
+        for id in changed {
+            self.enqueue_readers(id);
+        }
+
+        let mut wake = false;
         while let Some(id) = self.queue.pop_front() {
             self.queued.remove(&id);
-            let n = visits.entry(id).or_default();
-            *n += 1;
-            assert!(
-                *n <= 1024,
-                "attribute graph did not settle; possible dependency cycle at {id:?}"
-            );
             let Some(attr) = self.attributes.get(&id) else {
                 continue;
             };
@@ -347,22 +546,6 @@ impl Runtime {
                 attr.notified_epoch = epoch;
                 wake = true;
                 self.enqueue_readers(id);
-            } else if let Some(compute) = &attr.compute {
-                let f = compute.compute.clone();
-                let equal = compute.equal.clone();
-                let (value, deps) = self.capture(|rt| f(rt));
-                // Equal output can still come from different inputs after a
-                // conditional branch, so dependency replacement is unconditional.
-                let changed =
-                    equal.is_none_or(|eq| !eq(self.attributes[&id].value.as_ref(), value.as_ref()));
-                self.replace_dependencies(id, deps);
-                self.computations += 1;
-                if changed {
-                    let attr = self.attributes.get_mut(&id).unwrap();
-                    attr.value = value;
-                    attr.revision = attr.revision.checked_add(1).expect("revision exhausted");
-                    self.enqueue_readers(id);
-                }
             }
         }
 

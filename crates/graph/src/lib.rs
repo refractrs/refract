@@ -9,6 +9,9 @@
 //! Reads inside [`Runtime::capture`] collect dependencies. Derived computations
 //! publish those dependencies immediately; observers publish them separately with
 //! [`Runtime::accept`], so speculative UI work can be discarded safely.
+//! During propagation, derived reads resolve their inputs before returning a
+//! value. Each computation runs at most once per settlement, and observers are
+//! invalidated only after the resulting values and dependencies are published.
 //!
 //! Background results enter through [`Runtime::channel`]. Only owned messages
 //! cross threads; registered callbacks write state in a batch when the host calls
