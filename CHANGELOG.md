@@ -2,7 +2,7 @@
 
 Notable changes to Refract, newest first.
 
-## Unreleased
+## 0.1.9
 
 - Add dedicated `shader` and `shader_with` views for application-owned WGSL
   on desktop and WebGPU. Validate source and named uniforms, share image
@@ -11,7 +11,6 @@ Notable changes to Refract, newest first.
   shader exit snapshots, and release resources on removal or disposal.
 - Add the shader example with pointer interaction, clock controls,
   animated uniforms, and image distortion.
-
 - Reserve `refract-ui` for the default component collection. The crate and
   source catalog currently contain no components.
 - Add `refract ui add`, `list`, and `source add` for published default
@@ -22,6 +21,10 @@ Notable changes to Refract, newest first.
   explicit replacement of conflicting files. Preserve local edits when
   adding unchanged components again, and reject unsafe paths and ambiguous
   module layouts before changing project files.
+- Serve client-side routes in the development server by falling back to
+  `index.html` for HTML navigation to extensionless paths. Resolve relative
+  assets from the application root unless an explicit base is configured,
+  while preserving static-file precedence and missing-asset errors.
 
 ## 0.1.8
 
