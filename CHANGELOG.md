@@ -4,6 +4,9 @@ Notable changes to Refract, newest first.
 
 ## Unreleased
 
+- Vendor Parley 0.12.0 with externally supplied editor style ranges;
+  retain upstream licenses and document the patch scope.
+
 - Constrain native overlay tracks to the viewport so tall documents
   overflow their scroll container instead of expanding it.
 

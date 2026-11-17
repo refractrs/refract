@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["vendor/parley"]
 default-members = ["crates/*"]
 members = ["crates/*", "examples/counter", "examples/clock", "examples/gallery", "examples/chat", "examples/animation", "examples/canvas", "examples/shader"]
 
