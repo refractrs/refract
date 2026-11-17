@@ -162,6 +162,15 @@ impl Host {
         }
     }
 
+    /// Return a changed host selection and acknowledge it before model updates.
+    pub fn editor_selection(&mut self) -> Option<refract_core::TextSelection> {
+        self.entries
+            .get_mut(&self.focus?)?
+            .editor
+            .as_mut()?
+            .observe_selection_change()
+    }
+
     pub fn editor_key(
         &mut self,
         event: &winit::event::KeyEvent,

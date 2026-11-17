@@ -12,7 +12,7 @@ use crate::{
     text::{glyph_runs, TextBlock, TextSystem, Typography},
 };
 use parley::{PlainEditor, StyleProperty};
-use refract_core::{Color, Element, Event};
+use refract_core::{Color, Event, TextHighlight, TextInputProperties};
 use winit::{
     event::Ime,
     keyboard::{Key, ModifiersState, NamedKey},
@@ -22,6 +22,11 @@ pub(crate) struct TextEditor {
     pub buffer: PlainEditor<()>,
     multiline: bool,
     model_value: String,
+    model_spans: Vec<refract_core::TextSpan>,
+    span_value: String,
+    model_selection: Option<refract_core::TextSelection>,
+    selection_visible: bool,
+    highlight: Option<TextHighlight>,
     pending_value: Option<String>,
     composition: Option<(String, parley::editing::Selection)>,
     typography: Option<Typography>,
@@ -34,18 +39,99 @@ pub(crate) struct TextEditor {
 }
 
 impl TextEditor {
-    pub fn is_composing(&self) -> bool { self.buffer.is_composing() }
+    /// Mark a native observation as already applied before publishing it to the
+    /// model. Its binding echo must not rewind the caret after the next edit.
+    pub fn observe_selection(&mut self) -> refract_core::TextSelection {
+        let selection = self.selection();
+        self.model_selection = Some(selection);
+        selection
+    }
 
-    pub fn new(element: &Element) -> Self {
+    /// Acknowledge user selection changes before model callbacks can request a
+    /// different caret. Programmatic selections and IME preedit are not echoed.
+    pub fn observe_selection_change(&mut self) -> Option<refract_core::TextSelection> {
+        if self.is_composing() {
+            return None;
+        }
+        let selection = self.selection();
+        if self.model_selection == Some(selection) {
+            return None;
+        }
+        Some(self.observe_selection())
+    }
+
+    /// Translate Parley's byte offsets to the portable UTF-16 selection contract.
+    pub fn selection(&self) -> refract_core::TextSelection {
+        let text = self.buffer.raw_text();
+        let range = self.buffer.raw_selection();
+        let offset = |byte: usize| text[..byte.min(text.len())].encode_utf16().count() as u32;
+        refract_core::TextSelection {
+            anchor: offset(range.anchor().index()),
+            focus: offset(range.focus().index()),
+        }
+    }
+
+    fn sync_selection(
+        &mut self,
+        requested: Option<refract_core::TextSelection>,
+        text: &mut TextSystem,
+    ) {
+        if self.buffer.is_composing() || self.model_selection == requested {
+            return;
+        }
+        self.model_selection = requested;
+        let Some(requested) = requested else {
+            return;
+        };
+        let value = self.buffer.raw_text();
+        let byte_offset = |target: u32| {
+            let mut utf16 = 0;
+            for (byte, ch) in value.char_indices() {
+                if utf16 >= target {
+                    return byte;
+                }
+                utf16 += ch.len_utf16() as u32;
+            }
+            value.len()
+        };
+        let (anchor, focus) = (byte_offset(requested.anchor), byte_offset(requested.focus));
+        let mut driver = self.buffer.driver(&mut text.fonts, &mut text.context);
+        let layout = driver.layout();
+        let range = parley::editing::Selection::new(
+            parley::editing::Cursor::from_byte_index(
+                layout,
+                anchor,
+                parley::layout::Affinity::Downstream,
+            ),
+            parley::editing::Cursor::from_byte_index(
+                layout,
+                focus,
+                parley::layout::Affinity::Downstream,
+            ),
+        );
+        driver.set_selection(range);
+        self.reveal_caret = true;
+    }
+
+    pub fn is_composing(&self) -> bool {
+        self.buffer.is_composing()
+    }
+
+    pub fn new(input: &TextInputProperties) -> Self {
         let mut buffer = PlainEditor::new(14.0);
         // Match TextBlock's fractional metrics; the renderer applies display
         // scale later. Rounding only editable text shifts its placeholder baseline.
         buffer.set_quantize(false);
-        buffer.set_text(&element.value);
+        buffer.set_text(&input.value);
         Self {
             buffer,
-            multiline: element.multiline,
-            model_value: element.value.clone(),
+            multiline: input.multiline,
+            model_value: input.value.clone(),
+            model_spans: Vec::new(),
+            span_value: String::new(),
+            model_selection: None,
+            selection_visible: input.selection_visible,
+            highlight: input.highlight,
             pending_value: None,
             composition: None,
             typography: None,
@@ -58,13 +144,20 @@ impl TextEditor {
         }
     }
 
-    pub fn sync(&mut self, element: &Element, typography: &Typography, text: &mut TextSystem) {
-        if self.model_value != element.value {
-            self.model_value.clone_from(&element.value);
+    pub fn sync(
+        &mut self,
+        input: &TextInputProperties,
+        typography: &Typography,
+        text: &mut TextSystem,
+    ) {
+        self.highlight = input.highlight;
+        self.selection_visible = input.selection_visible;
+        if self.model_value != input.value {
+            self.model_value.clone_from(&input.value);
             if self.buffer.is_composing() {
-                self.pending_value = Some(element.value.clone());
-            } else if self.buffer.raw_text() != element.value {
-                self.buffer.set_text(&element.value);
+                self.pending_value = Some(input.value.clone());
+            } else if self.buffer.raw_text() != input.value {
+                self.buffer.set_text(&input.value);
                 self.history.clear();
                 self.reveal_caret = true;
             }
@@ -86,12 +179,46 @@ impl TextEditor {
             )));
             self.typography = Some(typography.clone());
         }
+        if self.model_spans != input.spans || self.span_value != input.value {
+            self.model_spans.clone_from(&input.spans);
+            self.span_value.clone_from(&input.value);
+            let byte = |target: u32| {
+                let mut units = 0;
+                for (index, ch) in input.value.char_indices() {
+                    if units >= target {
+                        return index;
+                    }
+                    units += ch.len_utf16() as u32;
+                }
+                input.value.len()
+            };
+            let mut styles = Vec::new();
+            for span in &input.spans {
+                let range = byte(span.start)..byte(span.end);
+                if span.bold {
+                    styles.push((
+                        range.clone(),
+                        StyleProperty::FontWeight(parley::FontWeight::BOLD),
+                    ));
+                }
+                if span.italic {
+                    styles.push((
+                        range.clone(),
+                        StyleProperty::FontStyle(parley::FontStyle::Italic),
+                    ));
+                }
+                if span.underline {
+                    styles.push((range, StyleProperty::Underline(true)));
+                }
+            }
+            self.buffer.set_ranged_styles(styles);
+        }
+        self.sync_selection(input.selection, text);
         // Placeholder and editable text must share line metrics so the baseline
         // does not jump when the first character replaces the placeholder.
         let mut placeholder_typography = typography.clone();
-        placeholder_typography.line_height =
-            Some(typography.line_height.unwrap_or(typography.size * 1.5));
-        let placeholder = element.placeholder.as_deref().unwrap_or("");
+        placeholder_typography.line_height = Some(typography.line_height.unwrap_or(typography.size * 1.5));
+        let placeholder = input.placeholder.as_deref().unwrap_or("");
         if self
             .placeholder
             .as_ref()
@@ -99,6 +226,20 @@ impl TextEditor {
         {
             self.placeholder = Some(text.shape(placeholder, &placeholder_typography));
         }
+    }
+
+    pub fn hit_offset(&self, point: Point) -> Option<u32> {
+        let origin = self.text_origin();
+        let cursor = parley::editing::Cursor::from_point(
+            self.buffer.try_layout()?,
+            point.x - origin.x,
+            point.y - origin.y,
+        );
+        Some(
+            self.buffer.raw_text()[..cursor.index()]
+                .encode_utf16()
+                .count() as u32,
+        )
     }
 
     /// Pointer coordinates are transformed into the editor's scrolled text space.
@@ -319,7 +460,40 @@ impl TextEditor {
             width: b.x1 as f32 - b.x0 as f32,
             height: b.y1 as f32 - b.y0 as f32,
         };
-        if focused {
+        if let (Some(highlight), Some(layout)) = (self.highlight, self.buffer.try_layout()) {
+            let cursor = |target: u32| {
+                let mut offset = 0;
+                let byte = self
+                    .buffer
+                    .raw_text()
+                    .char_indices()
+                    .find_map(|(byte, ch)| {
+                        if offset >= target {
+                            return Some(byte);
+                        }
+                        offset += ch.len_utf16() as u32;
+                        None
+                    })
+                    .unwrap_or(self.buffer.raw_text().len());
+                parley::editing::Cursor::from_byte_index(
+                    layout,
+                    byte,
+                    parley::layout::Affinity::Downstream,
+                )
+            };
+            let range = parley::editing::Selection::new(
+                cursor(highlight.range.anchor),
+                cursor(highlight.range.focus),
+            );
+            for (selection, _) in range.geometry(layout) {
+                frame.commands.push(DrawCommand::Fill {
+                    rect: rect(selection),
+                    radius: 0.0.into(),
+                    color: highlight.color,
+                });
+            }
+        }
+        if focused && self.selection_visible {
             for (selection, _) in self.buffer.selection_geometry() {
                 frame.commands.push(DrawCommand::Fill {
                     rect: rect(selection),
@@ -347,7 +521,31 @@ impl TextEditor {
                     .push(DrawCommand::Glyphs { origin, color, run });
             }
         }
-        if focused {
+        // Decorations use the same shaped runs as glyphs and selection geometry.
+        if let Some(layout) = self.buffer.try_layout() {
+            for line in layout.lines() {
+                for item in line.items() {
+                    if let parley::PositionedLayoutItem::GlyphRun(run) = item {
+                        if let Some(decoration) = &run.style().underline {
+                            let size = decoration
+                                .size
+                                .unwrap_or((run.run().font_size() / 14.0).max(1.0));
+                            frame.commands.push(DrawCommand::Fill {
+                                rect: Rect {
+                                    x: origin.x + run.offset(),
+                                    y: origin.y + run.baseline() + decoration.offset.unwrap_or(2.0),
+                                    width: run.advance(),
+                                    height: size,
+                                },
+                                radius: 0.0.into(),
+                                color,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        if focused && self.selection_visible {
             if let Some(caret) = self.buffer.cursor_geometry(1.5) {
                 frame.commands.push(DrawCommand::Fill {
                     rect: rect(caret),
@@ -410,30 +608,89 @@ impl TextEditor {
 mod tests {
     use super::*;
 
-    fn setup(multiline: bool) -> (TextEditor, TextSystem, Element) {
-        use refract_core::View;
-        let refract_core::Description::Element(element, _, _) =
-            refract_core::text("").describe().unwrap()
-        else {
-            unreachable!()
+    fn setup(multiline: bool) -> (TextEditor, TextSystem, TextInputProperties) {
+        let input = TextInputProperties {
+            value: "café 👩‍💻".into(),
+            multiline,
+            ..Default::default()
         };
-        let mut element = *element;
-        element.kind = refract_core::ElementKind::TextInput;
-        element.multiline = multiline;
-        element.value = "café 👩‍💻".into();
-        let mut editor = TextEditor::new(&element);
+        let mut editor = TextEditor::new(&input);
         let mut text = TextSystem::default();
-        editor.sync(&element, &Typography::default(), &mut text);
+        editor.sync(&input, &Typography::default(), &mut text);
         editor
             .buffer
             .driver(&mut text.fonts, &mut text.context)
             .move_to_text_end();
-        (editor, text, element)
+        (editor, text, input)
+    }
+
+    #[test]
+    fn selection_observation_tracks_user_moves_without_echoing_requests_or_composition() {
+        let (mut editor, mut text, mut input) = setup(true);
+        let end = editor.observe_selection_change().unwrap();
+        assert_eq!(end.anchor, input.value.encode_utf16().count() as u32);
+        assert_eq!(editor.observe_selection_change(), None);
+        input.selection = Some(refract_core::TextSelection::caret(2));
+        editor.sync(&input, &Typography::default(), &mut text);
+        assert_eq!(editor.observe_selection_change(), None);
+        editor.key(
+            &Key::Named(NamedKey::ArrowLeft),
+            None,
+            ModifiersState::empty(),
+            &mut None,
+            &mut text,
+        );
+        assert_eq!(
+            editor.observe_selection_change(),
+            Some(refract_core::TextSelection::caret(1))
+        );
+        assert_eq!(editor.observe_selection_change(), None);
+        editor.ime(&Ime::Preedit("未".into(), Some((0, 3))), &mut text);
+        assert_eq!(editor.observe_selection_change(), None);
+        editor.ime(&Ime::Commit("未".into()), &mut text);
+        assert!(editor.observe_selection_change().is_some());
+    }
+
+    #[test]
+    fn highlights_preserve_selection_and_host_presentation_is_explicit() {
+        let (mut editor, mut text, mut input) = setup(true);
+        let range = refract_core::TextSelection {
+            anchor: 0,
+            focus: 2,
+        };
+        input.selection = Some(range);
+        input.highlight = Some(TextHighlight {
+            range,
+            color: Color::rgb(255, 200, 0),
+        });
+        let bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 300.0,
+            height: 40.0,
+        };
+        for visible in [true, false, true] {
+            input.selection_visible = visible;
+            editor.sync(&input, &Typography::default(), &mut text);
+            let mut frame = Frame {
+                commands: vec![],
+                background: Color::WHITE,
+                scale_factor: 1.0,
+            };
+            editor.paint(bounds, true, &mut text, &mut frame);
+            assert_eq!(editor.selection(), range);
+            let filled = |color| {
+                frame.commands.iter().any(|c| matches!(c, crate::renderer::DrawCommand::Fill { color: c, .. } if *c == color))
+            };
+            assert!(filled(input.highlight.unwrap().color));
+            assert_eq!(filled(Color::rgb(220, 232, 251)), visible);
+            assert_eq!(editor.observe_selection_change(), None);
+        }
     }
 
     #[test]
     fn edits_preserve_unicode_and_bound_values_do_not_reset_selection() {
-        let (mut editor, mut text, mut element) = setup(true);
+        let (mut editor, mut text, mut input) = setup(true);
         let message = editor.key(
             &Key::Named(NamedKey::Backspace),
             None,
@@ -442,8 +699,8 @@ mod tests {
             &mut text,
         );
         assert!(matches!(message, Some(Event::Input(ref value)) if value == "café "));
-        element.value = "café ".into();
-        editor.sync(&element, &Typography::default(), &mut text);
+        input.value = "café ".into();
+        editor.sync(&input, &Typography::default(), &mut text);
         editor.key(
             &Key::Named(NamedKey::ArrowLeft),
             None,
@@ -475,7 +732,7 @@ mod tests {
 
     #[test]
     fn preedit_is_local_commit_is_an_input_and_external_updates_are_deferred() {
-        let (mut editor, mut text, mut element) = setup(true);
+        let (mut editor, mut text, mut input) = setup(true);
         assert!(editor
             .ime(&Ime::Preedit("に".into(), Some((3, 3))), &mut text)
             .is_none());
@@ -492,8 +749,8 @@ mod tests {
         let message = editor.ime(&Ime::Commit("日本".into()), &mut text);
         assert!(matches!(message, Some(Event::Input(ref value)) if value == "café 👩‍💻日本"));
         editor.ime(&Ime::Preedit("語".into(), Some((3, 3))), &mut text);
-        element.value = "external".into();
-        editor.sync(&element, &Typography::default(), &mut text);
+        input.value = "external".into();
+        editor.sync(&input, &Typography::default(), &mut text);
         assert!(editor.buffer.is_composing());
         let message = editor.ime(&Ime::Commit("語".into()), &mut text);
         assert!(matches!(message, Some(Event::Input(ref value)) if value == "external"));
@@ -573,7 +830,7 @@ mod tests {
 
     #[test]
     fn commands_preserve_selection_and_echoes_but_external_values_reset_history() {
-        let (mut editor, mut text, mut element) = setup(true);
+        let (mut editor, mut text, mut input) = setup(true);
         let original = editor.buffer.raw_text().to_owned();
         let mut clipboard = MemoryClipboard::default();
         editor.command(EditCommand::SelectAll, &mut clipboard, &mut text);
@@ -586,8 +843,8 @@ mod tests {
         assert!(
             matches!(editor.command(EditCommand::Cut, &mut clipboard, &mut text), Some(Event::Input(v)) if v.is_empty())
         );
-        element.value.clear();
-        editor.sync(&element, &Typography::default(), &mut text);
+        input.value.clear();
+        editor.sync(&input, &Typography::default(), &mut text);
         editor.command(EditCommand::Undo, &mut clipboard, &mut text);
         assert_eq!(editor.buffer.raw_text(), original);
         assert_eq!(editor.buffer.selected_text(), Some(original.as_str()));
@@ -596,8 +853,8 @@ mod tests {
         editor.command(EditCommand::Paste, &mut clipboard, &mut text);
         assert_eq!(editor.buffer.raw_text(), original);
         assert!(!editor.can_command(EditCommand::Redo));
-        element.value = "replacement".into();
-        editor.sync(&element, &Typography::default(), &mut text);
+        input.value = "replacement".into();
+        editor.sync(&input, &Typography::default(), &mut text);
         assert!(!editor.can_command(EditCommand::Undo));
     }
 
@@ -654,9 +911,9 @@ mod tests {
 
     #[test]
     fn single_line_centering_keeps_placeholder_caret_selection_and_ime_aligned() {
-        let (mut editor, mut text, mut element) = setup(false);
-        element.value.clear();
-        element.placeholder = Some("Search conversations".into());
+        let (mut editor, mut text, mut input) = setup(false);
+        input.value.clear();
+        input.placeholder = Some("Search conversations".into());
         let typography = Typography {
             size: 12.0,
             italic: true,
@@ -664,7 +921,7 @@ mod tests {
             word_spacing: 2.0,
             ..Typography::default()
         };
-        editor.sync(&element, &typography, &mut text);
+        editor.sync(&input, &typography, &mut text);
         let mut frame = Frame {
             commands: vec![],
             background: Color::WHITE,
@@ -695,8 +952,8 @@ mod tests {
         assert!(line_height < bounds.height);
         assert!((placeholder.1 - (bounds.y + (bounds.height - line_height) / 2.0)).abs() < 0.001);
 
-        element.value = "Search conversations".into();
-        editor.sync(&element, &typography, &mut text);
+        input.value = "Search conversations".into();
+        editor.sync(&input, &typography, &mut text);
         frame.commands.clear();
         editor.paint(bounds, true, &mut text, &mut frame);
         let value = glyph_position(&frame);
@@ -763,7 +1020,7 @@ mod tests {
         );
         let spaced_width = editor.buffer.try_layout().unwrap().width();
         editor.sync(
-            &element,
+            &input,
             &Typography {
                 size: 12.0,
                 ..Default::default()
@@ -775,5 +1032,47 @@ mod tests {
         assert!(editor.buffer.try_layout().unwrap().width() < spaced_width);
         assert_eq!(editor.buffer.selected_text(), Some("Search conversations"));
         assert_eq!(editor.buffer.raw_text(), "Search conversations");
+    }
+    #[test]
+    fn italic_spans_shape_utf16_ranges_and_reset_without_changing_text() {
+        let (mut editor, mut text, mut properties) = setup(false);
+        properties.value = "😀italic plain".into();
+        properties.spans = vec![refract_core::TextSpan {
+            start: 2,
+            end: 8,
+            italic: true,
+            ..Default::default()
+        }];
+        editor.sync(&properties, &Typography::default(), &mut text);
+        {
+            let mut driver = editor.buffer.driver(&mut text.fonts, &mut text.context);
+            let runs: Vec<_> = driver
+                .layout()
+                .lines()
+                .flat_map(|line| line.runs())
+                .map(|run| (run.text_range(), run.font_attrs().style))
+                .collect();
+            let italic: Vec<_> = runs
+                .iter()
+                .filter(|(_, style)| *style == parley::FontStyle::Italic)
+                .map(|(range, _)| range.clone())
+                .collect();
+            assert_eq!(italic, [4..10]);
+            assert!(runs
+                .iter()
+                .filter(|(range, _)| range.end <= 4 || range.start >= 10)
+                .all(|(_, style)| *style == parley::FontStyle::Normal));
+        }
+        let selection = editor.selection();
+        properties.spans.clear();
+        editor.sync(&properties, &Typography::default(), &mut text);
+        assert_eq!(editor.buffer.raw_text(), "😀italic plain");
+        assert_eq!(editor.selection(), selection);
+        let mut driver = editor.buffer.driver(&mut text.fonts, &mut text.context);
+        assert!(driver
+            .layout()
+            .lines()
+            .flat_map(|line| line.runs())
+            .all(|run| run.font_attrs().style == parley::FontStyle::Normal));
     }
 }

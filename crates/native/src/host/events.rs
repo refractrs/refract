@@ -16,7 +16,18 @@ impl Host {
     pub fn geometry(&self, id: ElementId) -> Option<refract_core::ElementGeometry> {
         let entry = self.entries.get(&id)?;
         let rect = entry.rect;
+        let text_offset = self.input.active.values().next().and_then(|pointer| {
+            let point = self.local_point(
+                id,
+                Point {
+                    x: pointer.position.x as f32,
+                    y: pointer.position.y as f32,
+                },
+            )?;
+            entry.editor.as_ref()?.hit_offset(point)
+        });
         Some(refract_core::ElementGeometry {
+            text_offset,
             bounds: refract_core::Rect::new(0.0, 0.0, rect.width.into(), rect.height.into()),
             transform: entry.transform.then(refract_core::Affine2d([
                 1.0,

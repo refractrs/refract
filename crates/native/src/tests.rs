@@ -116,6 +116,9 @@ fn input_mode_changes_reset_focused_composition_and_reconfigure_the_editor() {
                 .find(|(i, _)| *i == next)
                 .unwrap()
                 .1
+                .input
+                .as_ref()
+                .unwrap()
                 .value,
             "draft"
         );

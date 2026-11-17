@@ -47,13 +47,23 @@ pub(super) fn send(inner: &Rc<Inner>, id: ElementId, event: UiEvent) -> EventRes
                 }
             }
             Some(Queued::Event(id, event)) => {
-                app.dispatch(id, event);
+                let point = match &event {
+                    UiEvent::Pointer(pointer) => Some(pointer.position),
+                    _ => None,
+                };
+                app.dispatch_event_with_geometry(id, event, |id| {
+                    inner.dom.borrow().geometry_at(id, point)
+                });
             }
             Some(Queued::Focus(target)) => app.observe_focus(target),
             None => break,
         }
     }
-    app.dispatch_event_with_geometry(id, event, |id| inner.dom.borrow().geometry(id))
+    let point = match &event {
+        UiEvent::Pointer(pointer) => Some(pointer.position),
+        _ => None,
+    };
+    app.dispatch_event_with_geometry(id, event, |id| inner.dom.borrow().geometry_at(id, point))
 }
 
 fn apply(inner: &Rc<Inner>, native: &web_sys::Event, response: EventResponse) {
@@ -98,10 +108,16 @@ pub(super) fn dispatch(inner: &Rc<Inner>, native: &web_sys::Event) -> bool {
         return true;
     };
     let name = native.type_();
+    if name == "select" {
+        publish_selection(inner, id);
+        return true;
+    }
     if matches!(name.as_str(), "keydown" | "keyup") {
         let Some(key) = native.dyn_ref::<web_sys::KeyboardEvent>() else {
             return true;
         };
+        // Publish the native caret before application key handlers run.
+        publish_selection(inner, id);
         let event = KeyEvent {
             key: Key::from_name(&key.key()),
             code: key.code(),
@@ -270,6 +286,48 @@ pub(super) fn dispatch(inner: &Rc<Inner>, native: &web_sys::Event) -> bool {
     false
 }
 
+// Observe the host caret before commands without echoing an older selection
+// back into the field during the resulting model update.
+pub(super) fn publish_selection(inner: &Rc<Inner>, id: ElementId) {
+    let selection = {
+        let Ok(mut dom) = inner.dom.try_borrow_mut() else {
+            return;
+        };
+        let Some(entry) = dom.entries.get_mut(&id) else {
+            return;
+        };
+        if entry.composing || entry.element.disabled {
+            return;
+        }
+        let Some(input) = &mut entry.element.input else {
+            return;
+        };
+        let selection = super::input_selection(&entry.node);
+        if selection.is_none() || selection == input.selection {
+            return;
+        }
+        if let Some(selection) = selection {
+            input.selection = Some(selection);
+        }
+        selection
+    };
+    if let Some(selection) = selection {
+        send(inner, id, UiEvent::TextSelection(selection));
+    }
+}
+
+/// Observe only the focused control belonging to this mount. Document selection
+/// notifications can originate in other mounts or during programmatic updates.
+pub(super) fn observe_selection(inner: &Rc<Inner>) {
+    if !inner.active.get() {
+        return;
+    }
+    let id = inner.dom.try_borrow().ok().and_then(|dom| dom.focused_id());
+    if let Some(id) = id {
+        publish_selection(inner, id);
+    }
+}
+
 pub(super) fn reconcile_capture(inner: &Inner) {
     let invalid: Vec<_> = inner
         .captures
@@ -292,7 +350,15 @@ pub(super) fn reconcile_capture(inner: &Inner) {
 }
 
 impl Dom {
-    fn geometry(&self, id: ElementId) -> Option<refract_core::ElementGeometry> {
+    pub(super) fn geometry(&self, id: ElementId) -> Option<refract_core::ElementGeometry> {
+        self.geometry_at(id, None)
+    }
+
+    fn geometry_at(
+        &self,
+        id: ElementId,
+        point: Option<EventPoint>,
+    ) -> Option<refract_core::ElementGeometry> {
         let entry = self.entries.get(&id)?;
         let width = f64::from(entry.node.offset_width());
         let height = f64::from(entry.node.offset_height());
@@ -322,7 +388,18 @@ impl Dom {
         let root = self.root.get_bounding_client_rect();
         linear.0[4] = actual.left() - root.left() - projected.x;
         linear.0[5] = actual.top() - root.top() - projected.y;
+        let text_offset = point.and_then(|p| {
+            entry
+                .element
+                .input
+                .as_ref()
+                .filter(|input| input.rich_text)
+                .and_then(|_| {
+                    crate::rich_text::hit_offset(&entry.node, p.x + root.left(), p.y + root.top())
+                })
+        });
         Some(refract_core::ElementGeometry {
+            text_offset,
             bounds,
             transform: linear,
         })

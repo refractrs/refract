@@ -559,6 +559,22 @@ fn mount_inner(
         capture: true,
     });
 
+    let weak = Rc::downgrade(&inner);
+    let callback = Closure::new(move |_: web_sys::Event| {
+        if let Some(inner) = weak.upgrade() {
+            events::observe_selection(&inner);
+        }
+    });
+    let target: web_sys::EventTarget = inner.dom.borrow().document.clone().into();
+    target
+        .add_event_listener_with_callback("selectionchange", callback.as_ref().unchecked_ref())?;
+    inner.listeners.borrow_mut().push(Listener {
+        root: target,
+        name: "selectionchange",
+        callback,
+        capture: false,
+    });
+
     // Delegate input from the root. Scroll uses capture because native scroll
     // events do not bubble, and its geometry reads are batched separately.
     for name in [
@@ -578,6 +594,7 @@ fn mount_inner(
         "lostpointercapture",
         "compositionend",
         "scroll",
+        "select",
     ] {
         let weak = Rc::downgrade(&inner);
         let callback = Closure::new(move |event: web_sys::Event| {
@@ -593,7 +610,7 @@ fn mount_inner(
         if let Err(error) = root.add_event_listener_with_callback_and_bool(
             name,
             callback.as_ref().unchecked_ref(),
-            matches!(name, "scroll" | "pointerenter" | "pointerleave"),
+            matches!(name, "scroll" | "pointerenter" | "pointerleave" | "select"),
         ) {
             dispose(&inner);
             return Err(error);
@@ -603,7 +620,7 @@ fn mount_inner(
             root: root.clone().into(),
             name,
             callback,
-            capture: matches!(name, "scroll" | "pointerenter" | "pointerleave"),
+            capture: matches!(name, "scroll" | "pointerenter" | "pointerleave" | "select"),
         });
     }
 
@@ -751,7 +768,7 @@ fn flush(inner: &Rc<Inner>) -> Result<(), JsValue> {
                 }
             }
             Some(Queued::Event(id, event)) => {
-                app.dispatch(id, event);
+                app.dispatch_event_with_geometry(id, event, |id| inner.dom.borrow().geometry(id));
             }
             Some(Queued::Focus(target)) => app.observe_focus(target),
             None => break,
@@ -902,7 +919,13 @@ fn dispatch(inner: &Rc<Inner>, event: &web_sys::Event) {
                         let submit = key.key() == "Enter"
                             && !key.is_composing()
                             && entry.element.kind == ElementKind::TextInput
-                            && (!entry.element.multiline || key.meta_key() || key.ctrl_key());
+                            && (entry
+                                .element
+                                .input
+                                .as_ref()
+                                .is_some_and(|input| !input.multiline)
+                                || key.meta_key()
+                                || key.ctrl_key());
                         if submit {
                             key.prevent_default();
                             (!key.repeat()).then_some(UiEvent::Submit)
@@ -911,12 +934,12 @@ fn dispatch(inner: &Rc<Inner>, event: &web_sys::Event) {
                         }
                     })
                 }
-                "compositionstart" => {
+                "compositionstart" if entry.element.input.is_some() => {
                     entry.composing = true;
                     entry.pending_value = None;
                     None
                 }
-                "compositionend" => {
+                "compositionend" if entry.element.input.is_some() => {
                     entry.composing = false;
                     // A model write during composition wins over provisional
                     // browser text; otherwise publish the completed IME edit.
@@ -924,7 +947,13 @@ fn dispatch(inner: &Rc<Inner>, event: &web_sys::Event) {
                         .pending_value
                         .take()
                         .unwrap_or_else(|| input_value(&node));
-                    set_value(&node, &value);
+                    let input = entry.element.input.as_ref().expect("composing input");
+                    if input.rich_text {
+                        let _ =
+                            crate::rich_text::render(&node, &value, &input.spans, input.highlight);
+                    } else {
+                        set_value(&node, &value);
+                    }
                     Some(UiEvent::Input(value))
                 }
                 "input" if entry.element.kind == ElementKind::TextInput && !entry.composing => {
@@ -936,10 +965,20 @@ fn dispatch(inner: &Rc<Inner>, event: &web_sys::Event) {
 
         // Dispatch immediately when possible, preserving FIFO order if work is queued.
         if let Some(message) = message {
+            if matches!(message, UiEvent::Input(_)) {
+                events::publish_selection(inner, id);
+            }
             if inner.queue.borrow().is_empty() {
                 if let Ok(mut app) = inner.app.try_borrow_mut() {
                     if let Some(app) = app.as_mut() {
-                        if app.dispatch(id, message) {
+                        // Input handlers need the same scroll-aware geometry as
+                        // pointer/key handlers (for example, inline suggestions).
+                        if app
+                            .dispatch_event_with_geometry(id, message, |id| {
+                                inner.dom.borrow().geometry(id)
+                            })
+                            .handled
+                        {
                             break;
                         }
                     }
@@ -963,6 +1002,9 @@ fn dispatch(inner: &Rc<Inner>, event: &web_sys::Event) {
 }
 
 fn input_value(node: &HtmlElement) -> String {
+    if node.has_attribute("data-refract-rich") {
+        return crate::rich_text::value(node);
+    }
     if let Some(input) = node.dyn_ref::<HtmlInputElement>() {
         input.value()
     } else if let Some(input) = node.dyn_ref::<HtmlTextAreaElement>() {
@@ -972,8 +1014,59 @@ fn input_value(node: &HtmlElement) -> String {
     }
 }
 
+/// Browser controls and the public field API use UTF-16 offsets.
+pub(super) fn input_selection(node: &HtmlElement) -> Option<refract_core::TextSelection> {
+    if node.has_attribute("data-refract-rich") {
+        return crate::rich_text::selection(node);
+    }
+    let (start, end, direction) = if let Some(input) = node.dyn_ref::<web_sys::HtmlInputElement>() {
+        (
+            input.selection_start().ok().flatten()?,
+            input.selection_end().ok().flatten()?,
+            input.selection_direction().ok().flatten(),
+        )
+    } else if let Some(input) = node.dyn_ref::<web_sys::HtmlTextAreaElement>() {
+        (
+            input.selection_start().ok().flatten()?,
+            input.selection_end().ok().flatten()?,
+            input.selection_direction().ok().flatten(),
+        )
+    } else {
+        return None;
+    };
+    let (anchor, focus) = if direction.as_deref() == Some("backward") {
+        (end, start)
+    } else {
+        (start, end)
+    };
+    Some(refract_core::TextSelection { anchor, focus })
+}
+
+fn set_input_selection(node: &HtmlElement, selection: refract_core::TextSelection) {
+    if node.has_attribute("data-refract-rich") {
+        crate::rich_text::set_selection(node, selection);
+        return;
+    }
+    let start = selection.anchor.min(selection.focus);
+    let end = selection.anchor.max(selection.focus);
+    let direction = if selection.anchor > selection.focus {
+        "backward"
+    } else {
+        "forward"
+    };
+    if let Some(input) = node.dyn_ref::<web_sys::HtmlInputElement>() {
+        let _ = input.set_selection_range_with_direction(start, end, direction);
+    } else if let Some(input) = node.dyn_ref::<web_sys::HtmlTextAreaElement>() {
+        let _ = input.set_selection_range_with_direction(start, end, direction);
+    }
+}
+
 /// Preserve selection when applying model text; equal values leave the editor alone.
 fn set_value(node: &HtmlElement, value: &str) {
+    if node.has_attribute("data-refract-rich") {
+        let _ = crate::rich_text::render(node, value, &[], None);
+        return;
+    }
     // Browser selection offsets count UTF-16 code units, not Rust UTF-8 bytes.
     let length = value.encode_utf16().count() as u32;
     if let Some(input) = node.dyn_ref::<HtmlInputElement>() {
@@ -1050,7 +1143,11 @@ impl Dom {
                 {
                     return Ok(false);
                 }
-                if element.kind == ElementKind::TextInput && input_value(&node) != element.value {
+                if element
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| input_value(&node) != input.value)
+                {
                     // V1 has no event replay: a modified form value cannot silently
                     // become a different initial Rust model. Remount consistently.
                     return Ok(false);
@@ -1095,9 +1192,14 @@ impl Dom {
             let text_leaf = parent.is_some_and(|id| {
                 let element = &entries[&id].element;
                 element.kind == ElementKind::Text
-                    || (element.kind == ElementKind::TextInput && element.multiline)
+                    || element.input.as_ref().is_some_and(|input| input.multiline)
             });
-            if parent.is_some_and(|id| matches!(entries[&id].element.kind, ElementKind::Canvas | ElementKind::Shader)) {
+            if parent.is_some_and(|id| {
+                matches!(
+                    entries[&id].element.kind,
+                    ElementKind::Canvas | ElementKind::Shader
+                )
+            }) {
                 if !expected.is_empty()
                     || actual.length() != 1
                     || !node.first_element_child().is_some_and(|svg| {
@@ -1180,6 +1282,11 @@ impl Dom {
         if let Some(id) = target {
             if let Some(entry) = self.entries.get(&id).filter(|e| !e.element.disabled) {
                 entry.node.focus()?;
+                if let Some(input) = entry.element.input.as_ref().filter(|input| input.rich_text) {
+                    if let Some(selection) = input.selection {
+                        set_input_selection(&entry.node, selection);
+                    }
+                }
             }
         } else if let Some(id) = self.focused_id() {
             self.entries[&id].node.blur()?;
@@ -1302,25 +1409,46 @@ impl Dom {
 
         let active_id = active.as_ref().and_then(|node| {
             let id = ElementId(node.get_attribute("data-refract-id")?.parse().ok()?);
-            self.entries.get(&id).filter(|entry| entry.node.is_same_node(Some(node))).map(|_| id)
+            self.entries
+                .get(&id)
+                .filter(|entry| entry.node.is_same_node(Some(node)))
+                .map(|_| id)
         });
-        let recover = active_id.filter(|focused| update.patches.iter().any(|patch| match patch {
-            Patch::Remove(id) => id == focused,
-            Patch::Update(id, element) => id == focused && (element.disabled
-                || (self.entries[id].element.is_focusable() && !element.is_focusable())),
-            _ => false,
-        }));
+        let recover = active_id.filter(|focused| {
+            update.patches.iter().any(|patch| match patch {
+                Patch::Remove(id) => id == focused,
+                Patch::Update(id, element) => {
+                    id == focused
+                        && (element.disabled
+                            || (self.entries[id].element.is_focusable() && !element.is_focusable()))
+                }
+                _ => false,
+            })
+        });
         let candidates = if let Some(focused) = recover {
             // DOM order is tab order for Refract's zero/-one tab indices.
             let nodes = self.root.query_selector_all("[data-refract-id]")?;
-            let order: Vec<_> = (0..nodes.length()).filter_map(|i| {
-                let node = nodes.item(i)?.dyn_into::<HtmlElement>().ok()?;
-                let id = ElementId(node.get_attribute("data-refract-id")?.parse().ok()?);
-                self.entries.get(&id).filter(|entry| entry.node == node).map(|_| id)
-            }).collect();
-            order.iter().position(|id| *id == focused).map(|index| {
-                order[index + 1..].iter().chain(order[..index].iter().rev()).copied().collect::<Vec<_>>()
-            }).unwrap_or_default()
+            let order: Vec<_> = (0..nodes.length())
+                .filter_map(|i| {
+                    let node = nodes.item(i)?.dyn_into::<HtmlElement>().ok()?;
+                    let id = ElementId(node.get_attribute("data-refract-id")?.parse().ok()?);
+                    self.entries
+                        .get(&id)
+                        .filter(|entry| entry.node == node)
+                        .map(|_| id)
+                })
+                .collect();
+            order
+                .iter()
+                .position(|id| *id == focused)
+                .map(|index| {
+                    order[index + 1..]
+                        .iter()
+                        .chain(order[..index].iter().rev())
+                        .copied()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
         } else {
             Vec::new()
         };
@@ -1437,8 +1565,12 @@ fn apply_properties(entry: &mut Entry, new: &Element, initial: bool) -> Result<u
         ("role", new.role.as_deref(), old.role.as_deref()),
         (
             "placeholder",
-            new.placeholder.as_deref(),
-            old.placeholder.as_deref(),
+            new.input
+                .as_ref()
+                .and_then(|input| input.placeholder.as_deref()),
+            old.input
+                .as_ref()
+                .and_then(|input| input.placeholder.as_deref()),
         ),
     ] {
         if initial || value != previous {
@@ -1482,7 +1614,27 @@ fn apply_properties(entry: &mut Entry, new: &Element, initial: bool) -> Result<u
     }
 
     // Native text controls and activatable elements use different disabled semantics.
-    if new.kind == ElementKind::TextInput && (initial || new.disabled != old.disabled) {
+    if let Some(input) = new
+        .input
+        .as_ref()
+        .filter(|_| initial || new.disabled != old.disabled)
+    {
+        if input.rich_text {
+            node.set_attribute(
+                "contenteditable",
+                if new.disabled {
+                    "false"
+                } else {
+                    "plaintext-only"
+                },
+            )?;
+            node.set_attribute("data-refract-rich", "")?;
+            node.set_attribute("role", "textbox")?;
+            node.set_attribute(
+                "aria-multiline",
+                if input.multiline { "true" } else { "false" },
+            )?;
+        }
         if new.disabled {
             node.set_attribute("disabled", "")?;
         } else {
@@ -1528,13 +1680,40 @@ fn apply_properties(entry: &mut Entry, new: &Element, initial: bool) -> Result<u
         }
     }
 
-    if new.kind == ElementKind::TextInput && (initial || new.value != old.value) {
-        if entry.composing {
-            // Defer model writes until compositionend so the IME can finish editing.
-            entry.pending_value = Some(new.value.clone());
-        } else if input_value(node) != new.value {
-            set_value(node, &new.value);
+    if let Some(input) = &new.input {
+        // Identity changes replace the control, so retained inputs have the same mode.
+        let previous = old.input.as_ref().expect("retained input");
+        if initial || input.selection_visible != previous.selection_visible {
+            if input.selection_visible {
+                node.remove_attribute("data-refract-selection-hidden")?;
+            } else {
+                node.set_attribute("data-refract-selection-hidden", "")?;
+            }
             calls += 1;
+        }
+
+        if initial
+            || input.value != previous.value
+            || input.spans != previous.spans
+            || input.highlight != previous.highlight
+        {
+            if entry.composing {
+                // Defer model writes until compositionend so the IME can finish editing.
+                entry.pending_value = Some(input.value.clone());
+            } else if input.rich_text {
+                crate::rich_text::render(node, &input.value, &input.spans, input.highlight)?;
+                calls += 1;
+            } else if input_value(node) != input.value {
+                set_value(node, &input.value);
+                calls += 1;
+            }
+        }
+
+        if !entry.composing && (initial || input.selection != previous.selection) {
+            if let Some(selection) = input.selection {
+                set_input_selection(node, selection);
+                calls += 1;
+            }
         }
     }
 

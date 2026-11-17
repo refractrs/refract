@@ -31,57 +31,132 @@ pub(crate) struct ElementIdentity {
     kind: ElementKind,
     interaction: Option<Interaction>,
     multiline: bool,
+    rich_text: bool,
+}
+
+/// Inline formatting over a half-open UTF-16 range, shared by both renderers.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TextSpan {
+    /// Inclusive start offset in UTF-16 code units.
+    pub start: u32,
+    /// Exclusive end offset in UTF-16 code units.
+    pub end: u32,
+    /// Apply bold weight within the range.
+    pub bold: bool,
+    /// Apply italic style within the range.
+    pub italic: bool,
+    /// Underline text within the range.
+    pub underline: bool,
+}
+
+/// Properties owned only by text inputs, stored separately from common elements.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextInputProperties {
+    /// Model text displayed and edited by the control.
+    pub value: String,
+    /// Hint displayed while the value is empty.
+    pub placeholder: Option<String>,
+    /// Allow line breaks; defaults to false. Changing this remounts the control.
+    pub multiline: bool,
+    /// Requested UTF-16 selection; `None` leaves the range under host control.
+    pub selection: Option<crate::TextSelection>,
+    /// Paint the host caret and selection; defaults to true. Does not change the range.
+    pub selection_visible: bool,
+    /// Use a styled editor; defaults to false. Changing this remounts the control.
+    pub rich_text: bool,
+    /// Application-owned formatting over UTF-16 text ranges.
+    pub spans: Vec<TextSpan>,
+    /// A visual text decoration independent of the host selection.
+    pub highlight: Option<TextHighlight>,
+}
+
+impl Default for TextInputProperties {
+    fn default() -> Self {
+        Self {
+            value: String::new(),
+            placeholder: None,
+            multiline: false,
+            selection: None,
+            selection_visible: true,
+            rich_text: false,
+            spans: Vec::new(),
+            highlight: None,
+        }
+    }
+}
+
+/// An application-colored decoration over a UTF-16 text range.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextHighlight {
+    /// UTF-16 range to decorate, independent of selection direction.
+    pub range: crate::TextSelection,
+    /// Background color painted behind the decorated text.
+    pub color: crate::Color,
 }
 
 /// A complete host-element description. Adapters diff properties on update.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Element {
+    /// Semantic primitive created by the host adapter.
     pub kind: ElementKind,
-    pub interaction: Option<Interaction>,
+    /// Layout, typography, and visual properties.
     pub style: Style,
+    /// Optional insertion and removal effects.
     pub transition: Option<crate::Transition>,
+    /// Scroll behavior for an element with a scroll layout.
     pub scroll: Option<ScrollOptions>,
+
+    /// Display content for a `Text` element.
     pub text: String,
-    pub value: String,
-    /// Allow line breaks in a `TextInput`. Defaults to false.
-    /// Changing this remounts the host control, resetting native editing state.
-    pub multiline: bool,
-    pub checked: Option<bool>,
+    /// Editing properties, present exactly when `kind` is `TextInput`.
+    pub input: Option<Box<TextInputProperties>>,
+    /// Image content supplied as a URL or embedded bytes.
+    pub source: Option<ImageSource>,
+    /// Drawing content, present exactly for `Canvas` and `Shader` elements.
+    pub canvas: Option<crate::CanvasContent>,
+
+    /// Native interaction semantics independent of the primitive kind.
+    pub interaction: Option<Interaction>,
+    /// Suppress interaction and focus; defaults to false.
     pub disabled: bool,
     /// Override keyboard tab participation; fields and activatable elements default to true.
     pub focusable: Option<bool>,
     /// Host capability for a bound focus target; does not add a tab stop.
     #[doc(hidden)]
     pub focus_target: bool,
+
+    /// Accessible name, also used as alternative text for images.
     pub label: Option<String>,
+    /// Explicit accessibility role.
     pub role: Option<String>,
+    /// Accessibility hierarchy level, such as a heading level.
     pub level: Option<u8>,
-    pub placeholder: Option<String>,
-    pub source: Option<ImageSource>,
-    pub canvas: Option<crate::CanvasContent>,
+    /// Accessibility checked state; `None` leaves it unspecified.
+    pub checked: Option<bool>,
+    /// Opt into geometry snapshots during pointer dispatch without adding semantics.
+    pub geometry_tag: Option<String>,
 }
 
 impl Element {
     pub(crate) fn new(kind: ElementKind) -> Self {
         Self {
             kind,
-            interaction: None,
             style: Style::default(),
             transition: None,
             scroll: None,
             text: String::new(),
-            value: String::new(),
-            multiline: false,
-            checked: None,
+            input: (kind == ElementKind::TextInput).then(Box::default),
+            source: None,
+            canvas: None,
+            interaction: None,
             disabled: false,
             focusable: None,
             focus_target: false,
             label: None,
             role: None,
             level: None,
-            placeholder: None,
-            source: None,
-            canvas: None,
+            checked: None,
+            geometry_tag: None,
         }
     }
 
@@ -97,13 +172,16 @@ impl Element {
         ElementIdentity {
             kind: self.kind,
             interaction: self.interaction,
-            multiline: self.multiline,
+            multiline: self.input.as_ref().is_some_and(|input| input.multiline),
+            rich_text: self.input.as_ref().is_some_and(|input| input.rich_text),
         }
     }
 
     /// Validate portable styles and supported image URL schemes before host mutation.
     pub fn validate(&self) -> Result<(), ViewError> {
-        if let Some(transition) = self.transition { transition.validate()?; }
+        if let Some(transition) = self.transition {
+            transition.validate()?;
+        }
         self.style.validate()?;
         if let Some(canvas) = &self.canvas {
             canvas.validate()?;
@@ -111,8 +189,10 @@ impl Element {
         if self.canvas.is_some() != matches!(self.kind, ElementKind::Canvas | ElementKind::Shader) {
             return Err(ViewError::new("canvas content requires a canvas element"));
         }
-        if self.multiline && self.kind != ElementKind::TextInput {
-            return Err(ViewError::new("multiline requires a text input"));
+        if self.input.is_some() != (self.kind == ElementKind::TextInput) {
+            return Err(ViewError::new(
+                "input properties require a text input and vice versa",
+            ));
         }
         if self.interaction == Some(Interaction::Activate) && self.kind == ElementKind::TextInput {
             return Err(ViewError::new("activation requires a non-editable element"));
@@ -182,12 +262,15 @@ pub(crate) fn add_press_handler(
 pub struct ElementGeometry {
     pub bounds: crate::Rect,
     pub transform: crate::Affine2d,
+    /// UTF-16 hit position for the current pointer, when this is a text field.
+    pub text_offset: Option<u32>,
 }
 
 /// Access to graph mutation and inherited values during event dispatch.
 pub struct ActionContext<'a> {
     pub(crate) runtime: &'a mut Runtime,
     pub(crate) geometry: Option<ElementGeometry>,
+    pub(crate) tagged_geometry: &'a [(String, ElementGeometry)],
     pub(crate) environment: &'a Environment,
     pub(crate) target: ElementId,
     pub(crate) current_target: ElementId,
@@ -196,6 +279,12 @@ pub struct ActionContext<'a> {
 }
 
 impl ActionContext<'_> {
+    /// Geometry of explicitly tagged elements at the last presented layout.
+    /// Available during pointer and scroll dispatch; includes presentation transforms.
+    pub fn tagged_geometry(&self) -> &[(String, ElementGeometry)] {
+        self.tagged_geometry
+    }
+
     /// Convert a surface point into the current handler's local border box.
     /// Returns None before layout or for a non-invertible transform.
     pub fn local_position(&self, point: crate::EventPoint) -> Option<crate::Point> {
@@ -204,6 +293,12 @@ impl ActionContext<'_> {
             a * point.x + c * point.y + e,
             b * point.x + d * point.y + f,
         ))
+    }
+
+    /// Border box and transform of the current handler at the last presented
+    /// layout. Use this to anchor UI to the control that initiated an action.
+    pub fn geometry(&self) -> Option<ElementGeometry> {
+        self.geometry
     }
 
     pub fn local_bounds(&self) -> Option<crate::Rect> {

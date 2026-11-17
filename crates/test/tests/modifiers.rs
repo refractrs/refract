@@ -63,7 +63,10 @@ fn typography_preserves_text_and_field_builders_and_rejects_invalid_updates() {
     app.set_view(make_view(1.0));
     host.flush(&mut app).unwrap();
     assert_eq!(host.children[&Some(root)], children);
-    assert_eq!(host.elements[&children[1]].value, "Edited");
+    assert_eq!(
+        host.elements[&children[1]].input.as_ref().unwrap().value,
+        "Edited"
+    );
     app.set_view(make_view(f32::NAN));
     assert!(app.prepare().is_err());
     assert_eq!(host.elements[&children[0]].style.letter_spacing, Some(1.0));
@@ -121,9 +124,12 @@ fn field_modifiers_preserve_the_builder_and_style_the_editable_element() {
         let id = host.children[&Some(wrapper)][0];
         let element = &host.elements[&id];
         assert_eq!(element.kind, ElementKind::TextInput);
-        assert!(element.multiline);
+        assert!(element.input.as_ref().unwrap().multiline);
         assert_eq!(element.label.as_deref(), Some("Notes"));
-        assert_eq!(element.placeholder.as_deref(), Some("Write a note"));
+        assert_eq!(
+            element.input.as_ref().unwrap().placeholder.as_deref(),
+            Some("Write a note")
+        );
         assert_eq!(element.disabled, disabled);
         assert_eq!(element.style.width, Some(280.0));
         assert_eq!(element.style.height, Some(160.0));
@@ -137,7 +143,7 @@ fn field_modifiers_preserve_the_builder_and_style_the_editable_element() {
         host.flush(&mut app).unwrap();
         assert_eq!(host.children[&Some(wrapper)], [id]);
         assert_eq!(
-            host.elements[&id].value,
+            host.elements[&id].input.as_ref().unwrap().value,
             if disabled { "initial" } else { "edited" }
         );
         assert_eq!(app.dispatch(id, Event::Submit), !disabled);
@@ -350,7 +356,10 @@ fn changing_stack_direction_preserves_children_and_their_state() {
         host.flush(&mut app).unwrap();
         assert_eq!(host.children[&None], [root]);
         assert_eq!(host.children[&Some(root)], children);
-        assert_eq!(host.elements[&input].value, "edited");
+        assert_eq!(
+            host.elements[&input].input.as_ref().unwrap().value,
+            "edited"
+        );
         let element = &host.elements[&root];
         let expected = match direction {
             Direction::Horizontal => refract_core::Layout::Row,

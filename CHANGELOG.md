@@ -4,6 +4,10 @@ Notable changes to Refract, newest first.
 
 ## Unreleased
 
+- Add field selection bindings, bold/italic/underline spans, and independent
+  text highlights with UTF-16 offsets on both hosts. Expose tagged
+  geometry and text hit offsets for multi-field editor interactions.
+
 - Vendor Parley 0.12.0 with externally supplied editor style ranges;
   retain upstream licenses and document the patch scope.
 

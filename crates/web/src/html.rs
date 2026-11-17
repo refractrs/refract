@@ -9,7 +9,12 @@ pub(crate) fn tag(element: &Element) -> &'static str {
     match element.kind {
         ElementKind::Box | ElementKind::Canvas | ElementKind::Shader => "div",
         ElementKind::Text => "span",
-        ElementKind::TextInput if element.multiline => "textarea",
+        ElementKind::TextInput if element.input.as_ref().is_some_and(|input| input.rich_text) => {
+            "div"
+        }
+        ElementKind::TextInput if element.input.as_ref().is_some_and(|input| input.multiline) => {
+            "textarea"
+        }
         ElementKind::TextInput => "input",
         ElementKind::Image => "img",
     }
@@ -46,11 +51,7 @@ pub(crate) fn attributes(id: ElementId, e: &Element) -> BTreeMap<&'static str, S
                 .collect(),
         ),
     ]);
-    for (key, value) in [
-        ("aria-label", &e.label),
-        ("role", &e.role),
-        ("placeholder", &e.placeholder),
-    ] {
+    for (key, value) in [("aria-label", &e.label), ("role", &e.role)] {
         if let Some(value) = value {
             attrs.insert(key, value.clone());
         }
@@ -78,12 +79,32 @@ pub(crate) fn attributes(id: ElementId, e: &Element) -> BTreeMap<&'static str, S
         attrs.insert("data-refract-activate", String::new());
         attrs.insert("aria-disabled", e.disabled.to_string());
     }
-    if e.kind == ElementKind::TextInput {
+    if let Some(input) = &e.input {
+        if let Some(placeholder) = &input.placeholder {
+            attrs.insert("placeholder", placeholder.clone());
+        }
+        if !input.selection_visible {
+            attrs.insert("data-refract-selection-hidden", String::new());
+        }
+        if input.rich_text {
+            attrs.insert(
+                "contenteditable",
+                if e.disabled {
+                    "false"
+                } else {
+                    "plaintext-only"
+                }
+                .into(),
+            );
+            attrs.insert("data-refract-rich", String::new());
+            attrs.insert("role", "textbox".into());
+            attrs.insert("aria-multiline", input.multiline.to_string());
+        }
         if e.disabled {
             attrs.insert("disabled", String::new());
         }
-        if !e.multiline {
-            attrs.insert("value", e.value.clone());
+        if !input.multiline {
+            attrs.insert("value", input.value.clone());
         }
     }
     if e.kind == ElementKind::Image {

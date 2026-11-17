@@ -183,7 +183,8 @@ impl NativeApp {
         self.app.observe_focus(self.host.focus);
         for (id, event) in self.host.take_input_events() {
             if !matches!(event, refract_core::Event::Focus(_)) {
-                self.app.dispatch(id, event);
+                self.app
+                    .dispatch_event_with_geometry(id, event, |id| self.host.geometry(id));
             }
         }
         self.needs_frame |= self.host.poll_images()?;
@@ -214,7 +215,9 @@ impl NativeApp {
                 // Core publishes the complete transition; discard legacy host pairs.
                 for (id, event) in self.host.take_input_events() {
                     if !matches!(event, refract_core::Event::Focus(_)) {
-                        self.app.dispatch(id, event);
+                        self.publish_editor_selection();
+                        self.app
+                            .dispatch_event_with_geometry(id, event, |id| self.host.geometry(id));
                     }
                 }
             } else {
@@ -234,7 +237,8 @@ impl NativeApp {
 
     fn activate(&mut self, id: ElementId) {
         if let Some(event) = self.host.activation(id) {
-            self.app.dispatch(id, event);
+            self.app
+                .dispatch_event_with_geometry(id, event, |id| self.host.geometry(id));
         }
     }
 
@@ -328,7 +332,8 @@ impl NativeApp {
         // Dispatch only after the frame has finished borrowing host/renderer.
         // App dispatch itself does not dirty views; only callback state writes do.
         for (id, event) in self.host.take_scroll_events() {
-            self.app.dispatch(id, event);
+            self.app
+                .dispatch_event_with_geometry(id, event, |id| self.host.geometry(id));
         }
 
         Ok(())
@@ -450,6 +455,7 @@ impl ApplicationHandler<()> for NativeApp {
                 self.needs_frame |= self.host.set_hover(self.host.hit_test(self.cursor));
                 if self.pressed.is_some_and(|id| self.host.is_editor(id)) {
                     self.host.editor_pointer(self.cursor, true);
+                    self.publish_editor_selection();
                     self.needs_frame = true;
                 }
                 window.set_cursor(
@@ -480,7 +486,9 @@ impl ApplicationHandler<()> for NativeApp {
                     if let Some((id, event)) =
                         self.host.menu_click(self.cursor, &mut self.clipboard)
                     {
-                        self.app.dispatch(id, event);
+                        self.publish_editor_selection();
+                        self.app
+                            .dispatch_event_with_geometry(id, event, |id| self.host.geometry(id));
                     }
                     self.needs_frame = true;
                     return;
@@ -514,6 +522,7 @@ impl ApplicationHandler<()> for NativeApp {
                     self.host.focus_pointer(target);
                     self.host
                         .editor_pointer(self.cursor, self.modifiers.shift_key());
+                    self.publish_editor_selection();
                     self.needs_frame = true;
                 } else {
                     self.needs_frame |= self.host.set_pressed(None);
@@ -573,8 +582,11 @@ impl ApplicationHandler<()> for NativeApp {
                     return;
                 }
                 if let Some(id) = self.host.focus {
-                    if let Some(event) = self.host.editor_ime(&event) {
-                        self.app.dispatch(id, event);
+                    let message = self.host.editor_ime(&event);
+                    self.publish_editor_selection();
+                    if let Some(event) = message {
+                        self.app
+                            .dispatch_event_with_geometry(id, event, |id| self.host.geometry(id));
                     }
                     self.needs_frame = true;
                 }
@@ -585,7 +597,9 @@ impl ApplicationHandler<()> for NativeApp {
                         self.host
                             .menu_key(&event.logical_key, self.modifiers, &mut self.clipboard)
                     {
-                        self.app.dispatch(id, message);
+                        self.publish_editor_selection();
+                        self.app
+                            .dispatch_event_with_geometry(id, message, |id| self.host.geometry(id));
                     }
                     self.needs_frame = true;
                     return;
@@ -609,12 +623,15 @@ impl ApplicationHandler<()> for NativeApp {
                     && self.host.focus.is_some_and(|id| self.host.is_editor(id))
                 {
                     let id = self.host.focus.unwrap();
-                    if let Some(message) =
-                        self.host
-                            .editor_key(&event, self.modifiers, &mut self.clipboard)
-                    {
+                    let message = self
+                        .host
+                        .editor_key(&event, self.modifiers, &mut self.clipboard);
+                    self.publish_editor_selection();
+                    if let Some(message) = message {
                         if !event.repeat || !matches!(message, refract_core::Event::Submit) {
-                            self.app.dispatch(id, message);
+                            self.app.dispatch_event_with_geometry(id, message, |id| {
+                                self.host.geometry(id)
+                            });
                         }
                     }
                     self.needs_frame = true;

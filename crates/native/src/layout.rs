@@ -70,7 +70,13 @@ pub(crate) fn style(element: &Element) -> Style {
             result.size.width = Dimension::length(200.0);
         }
         if source.height.is_none() && !source.fill_height {
-            result.size.height = Dimension::length(if element.multiline { 96.0 } else { 36.0 });
+            result.size.height = Dimension::length(
+                if element.input.as_ref().is_some_and(|input| input.multiline) {
+                    96.0
+                } else {
+                    36.0
+                },
+            );
         }
     }
     if source.layout == Layout::Overlay {

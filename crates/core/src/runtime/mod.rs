@@ -485,12 +485,25 @@ impl App {
             }
             cursor = if event.bubbles() { mount.parent } else { None };
         }
+        // Scroll handlers need the freshly moved geometry to extend active drags.
+        let tagged_geometry: Vec<_> = if matches!(event, Event::Pointer(_) | Event::Scroll(_)) {
+            self.mounts
+                .iter()
+                .filter_map(|(id, mount)| {
+                    let tag = mount.element.as_ref()?.geometry_tag.as_ref()?;
+                    Some((tag.clone(), geometry(*id)?))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         self.runtime.batch(|runtime| {
             for (current_target, handler, environment, geometry) in route {
                 response.handled = true;
                 handler(
                     &mut ActionContext {
                         geometry,
+                        tagged_geometry: &tagged_geometry,
                         runtime,
                         environment: &environment,
                         target: id,

@@ -63,6 +63,9 @@ impl NativeApp {
                 let Some(id) = self.host.focus else {
                     return false;
                 };
+                if let Some(selection) = self.host.editor_selection() {
+                    self.app.dispatch(id, Event::TextSelection(selection));
+                }
                 let key = match &event.logical_key {
                     Key::Character(value) if value == " " => LogicalKey::Space,
                     Key::Character(value) => LogicalKey::Character(value.to_string()),
@@ -158,6 +161,8 @@ impl NativeApp {
                         let target = self.host.hit_test(point);
                         self.touch_presses.insert(touch.id, (target, point));
                         self.host.focus_pointer(target);
+                        self.host.editor_pointer(point, false);
+                        self.publish_editor_selection();
                     }
                     PointerPhase::Move => {
                         if self.touch_presses.get(&touch.id).is_some_and(|(_, start)| {
@@ -193,4 +198,11 @@ impl NativeApp {
             _ => false,
         }
     }
+
+    pub(super) fn publish_editor_selection(&mut self) {
+        if let (Some(id), Some(selection)) = (self.host.focus, self.host.editor_selection()) {
+            self.app.dispatch(id, Event::TextSelection(selection));
+        }
+    }
+
 }

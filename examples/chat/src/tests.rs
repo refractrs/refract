@@ -144,9 +144,9 @@ fn drafts_survive_switching_and_background_streams_remain_owned() {
     let editor = host
         .elements
         .values()
-        .find(|e| e.kind == ElementKind::TextInput && e.multiline)
+        .find(|e| e.input.as_ref().is_some_and(|input| input.multiline))
         .unwrap();
-    assert_eq!(editor.value, "my unfinished draft");
+    assert_eq!(editor.input.as_ref().unwrap().value, "my unfinished draft");
     let revision = host.revision;
     tick(&mut app, &mut host, &workers, 0);
     assert_eq!(
@@ -429,10 +429,10 @@ fn host_theme_updates_preserve_drafts_nodes_and_active_streams() {
             .collect::<std::collections::HashSet<_>>(),
         ids
     );
-    assert!(host
-        .elements
-        .values()
-        .any(|element| element.value == "Keep this draft"));
+    assert!(host.elements.values().any(|element| element
+        .input
+        .as_ref()
+        .is_some_and(|input| input.value == "Keep this draft")));
     assert!(host
         .elements
         .values()
@@ -448,10 +448,10 @@ fn host_theme_updates_preserve_drafts_nodes_and_active_streams() {
     assert!(host.text().contains("In this example"));
     app.mutate(|rt| inputs.dark.set_if_changed(rt, false));
     host.flush(&mut app).unwrap();
-    assert!(host
-        .elements
-        .values()
-        .any(|element| element.value == "Keep this draft"));
+    assert!(host.elements.values().any(|element| element
+        .input
+        .as_ref()
+        .is_some_and(|input| input.value == "Keep this draft")));
     assert_eq!(workers.active.get(), 1);
 }
 
@@ -469,8 +469,8 @@ fn native_entry_initializes_theme_and_retains_drafts() {
     host.press(&mut app, "Open A weekend away").unwrap();
     host.press(&mut app, "Open A calmer kind of workspace")
         .unwrap();
-    assert!(host
-        .elements
-        .values()
-        .any(|element| element.value == "Native draft"));
+    assert!(host.elements.values().any(|element| element
+        .input
+        .as_ref()
+        .is_some_and(|input| input.value == "Native draft")));
 }
