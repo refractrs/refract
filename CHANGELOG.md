@@ -2,7 +2,7 @@
 
 Notable changes to Refract, newest first.
 
-## Unreleased
+## 0.1.10
 
 - Add `z_index()` to order sibling views in every container on web and
   desktop. Higher values paint in front and receive pointer input first;
