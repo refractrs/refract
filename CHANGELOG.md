@@ -2,6 +2,11 @@
 
 Notable changes to Refract, newest first.
 
+## Unreleased
+
+- Constrain native overlay tracks to the viewport so tall documents
+  overflow their scroll container instead of expanding it.
+
 ## 0.1.10
 
 - Add `z_index()` to order sibling views in every container on web and
