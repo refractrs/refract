@@ -25,14 +25,17 @@ impl ScrollObserver {
         let observer = web_sys::ResizeObserver::new(resize_callback.as_ref().unchecked_ref())?;
 
         let weak = Rc::downgrade(inner);
-        let frame_callback = Closure::new(move |_: f64| {
+        let frame_callback = Closure::new(move |timestamp: f64| {
             let Some(inner) = weak.upgrade().filter(|inner| inner.active.get()) else {
                 return;
             };
             if let Some(scroll) = inner.scroll.borrow().as_ref() {
                 scroll.frame_id.set(None);
             }
-            sample(&inner);
+            sample(
+                &inner,
+                std::time::Duration::from_secs_f64(timestamp / 1000.0),
+            );
         });
         Ok(Self {
             observer,
@@ -143,7 +146,7 @@ fn metrics(node: &HtmlElement) -> ScrollMetrics {
     metrics
 }
 
-fn sample(inner: &Rc<Inner>) {
+fn sample(inner: &Rc<Inner>, now: std::time::Duration) {
     let mut dom = inner.dom.borrow_mut();
     // Read all geometry before policy writes, avoiding a layout read/write loop.
     let samples: Vec<_> = dom
@@ -154,6 +157,7 @@ fn sample(inner: &Rc<Inner>) {
         .collect();
 
     let mut events = Vec::new();
+    let mut moving = false;
     for (id, before) in samples {
         let entry = dom.entries.get_mut(&id).unwrap();
         let Layout::Scroll(axis) = entry.element.style.layout else {
@@ -161,6 +165,9 @@ fn sample(inner: &Rc<Inner>) {
         };
         let options = entry.element.scroll.unwrap();
         let resolved = entry.scroll_tracker.resolve(options, axis, before);
+        let advanced = entry.scroll_tracker.advance(options, axis, resolved, now);
+        moving |= advanced.offset != resolved.offset;
+        let resolved = advanced;
         if resolved.offset != before.offset {
             // Numeric assignment is immediate; CSS smooth scrolling isn't enabled.
             let _ = js_sys::Reflect::set(
@@ -187,6 +194,9 @@ fn sample(inner: &Rc<Inner>) {
     }
 
     drop(dom);
+    if moving {
+        request(inner);
+    }
     if !events.is_empty() {
         inner.queue.borrow_mut().extend(events);
         schedule(inner);
