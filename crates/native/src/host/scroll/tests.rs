@@ -1,5 +1,5 @@
-use crate::renderer::Point;
 use super::*;
+use crate::renderer::Point;
 use refract::prelude::*;
 use refract_core::App;
 
@@ -315,4 +315,55 @@ fn resize_and_thumb_animation_rebase_capture_without_moving_content() {
     let final_bar = host.scrolling.bars[0];
     let expected = final_bar.track.height * 300.0 / (300.0 + final_bar.max);
     assert!((final_bar.thumb.height - expected).abs() < 0.001);
+}
+
+#[test]
+fn document_shell_scrolls_over_inline_fields_and_page_margins() {
+    let document = refract::view_fn(|cx| {
+        let value = cx.state("text", || "An inline block".to_string());
+        Ok(v_stack()
+            .child(text("Page title").height(80.0))
+            .children((0..30).map(|i| field(value.clone()).multiline(true).height(30.0).key(i)))
+            .padding(40.0)
+            .scrollable()
+            .label("Document viewport")
+            .fill_width()
+            .fill_height())
+    });
+    let (_, mut host) = setup(
+        z_stack()
+            .alignment(Alignment::Start, Alignment::Start)
+            .child(
+                h_stack()
+                    .child(v_stack().width(150.0).fill_height())
+                    .child(
+                        v_stack()
+                            .child(text("Toolbar").height(48.0))
+                            .child(document.grow(1.0).min_height(0.0))
+                            .grow(1.0)
+                            .min_width(0.0)
+                            .fill_height(),
+                    )
+                    .fill_width()
+                    .fill_height(),
+            )
+            .fill_width()
+            .fill_height()
+            .focusable(true),
+    );
+    let viewport = *host
+        .entries
+        .iter()
+        .find(|(_, e)| e.element.label.as_deref() == Some("Document viewport"))
+        .unwrap()
+        .0;
+    assert!(
+        host.entries[&viewport].scroll_max.y > 400.0,
+        "document should overflow: {:?}",
+        host.entries[&viewport].scroll_max
+    );
+    assert!(host.scroll(Point { x: 170.0, y: 250.0 }, Point { x: 0.0, y: -50.0 }));
+    assert_eq!(host.entries[&viewport].scroll.y, 50.0);
+    assert!(host.scroll(Point { x: 250.0, y: 250.0 }, Point { x: 0.0, y: -50.0 }));
+    assert!(host.entries[&viewport].scroll.y >= 50.0);
 }

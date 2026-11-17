@@ -70,16 +70,14 @@ pub(crate) fn style(element: &Element) -> Style {
             result.size.width = Dimension::length(200.0);
         }
         if source.height.is_none() && !source.fill_height {
-            result.size.height = Dimension::length(if element.multiline {
-                96.0
-            } else {
-                36.0
-            });
+            result.size.height = Dimension::length(if element.multiline { 96.0 } else { 36.0 });
         }
     }
     if source.layout == Layout::Overlay {
-        result.grid_template_columns = vec![fr(1.0)];
-        result.grid_template_rows = vec![fr(1.0)];
+        // Match the web host's minmax(0, 1fr): an intrinsic content minimum
+        // must not expand the overlay beyond its viewport and disable scrolling.
+        result.grid_template_columns = vec![flex(1.0)];
+        result.grid_template_rows = vec![flex(1.0)];
         result.justify_items = align(source.justify);
     }
     // All children of an overlay use its single grid cell. These placement values
