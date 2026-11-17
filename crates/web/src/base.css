@@ -97,3 +97,25 @@
 .refract-root[data-refract-active="false"] .refract-node:focus-within {
   outline: none;
 }
+
+/* Empty rich fields use the same placeholder contract as native controls. */
+.refract-root [data-refract-rich]:empty::before {
+  content: attr(placeholder);
+  color: #7d7d78;
+  pointer-events: none;
+}
+.refract-root [data-refract-rich] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Applications can replace selection presentation without clearing the shared
+   browser selection or affecting another field or mount. */
+.refract-root [data-refract-selection-hidden] {
+  caret-color: transparent;
+}
+.refract-root [data-refract-selection-hidden]::selection,
+.refract-root [data-refract-selection-hidden] *::selection {
+  background: transparent;
+  color: inherit;
+}

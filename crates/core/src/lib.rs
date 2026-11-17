@@ -18,7 +18,10 @@ mod style;
 mod view;
 
 pub use drawing::*;
-pub use element::{ActionContext, Element, ElementGeometry, ElementKind, Handler, Interaction};
+pub use element::{
+    ActionContext, Element, ElementGeometry, ElementKind, Handler, Interaction, TextHighlight,
+    TextInputProperties, TextSpan,
+};
 pub use events::*;
 pub use image::{ImageFit, ImageFormat, ImageSource};
 pub use presentation::*;

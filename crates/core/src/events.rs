@@ -80,6 +80,26 @@ pub struct KeyEvent {
     pub is_composing: bool,
 }
 
+/// A directional text range expressed in UTF-16 code units on every host.
+/// Hosts clamp requested offsets to valid character boundaries.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TextSelection {
+    pub anchor: u32,
+    pub focus: u32,
+}
+
+impl TextSelection {
+    pub const fn caret(offset: u32) -> Self {
+        Self {
+            anchor: offset,
+            focus: offset,
+        }
+    }
+    pub fn is_collapsed(self) -> bool {
+        self.anchor == self.focus
+    }
+}
+
 /// The kind of pointing device that produced a pointer event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerKind {
@@ -177,6 +197,8 @@ pub struct PointerEvent {
 pub enum Event {
     Press,
     Input(String),
+    /// Current host selection, published before keyboard commands.
+    TextSelection(TextSelection),
     Submit,
     Key(KeyEvent),
     Pointer(PointerEvent),

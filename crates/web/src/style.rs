@@ -231,8 +231,20 @@ pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
             .into(),
         );
     }
-    if e.kind == ElementKind::TextInput && e.multiline {
-        out.insert("resize", "none".into());
+    if let Some(input) = &e.input {
+        if input.multiline {
+            out.insert("resize", "none".into());
+        }
+        if input.rich_text {
+            out.insert("display", "block".into());
+            out.insert(
+                "white-space",
+                if input.multiline { "pre-wrap" } else { "pre" }.into(),
+            );
+            out.insert("overflow-wrap", "anywhere".into());
+            out.insert("overflow", "auto".into());
+            out.insert("cursor", "text".into());
+        }
     }
     // Explicit follow policies own scroll anchoring for this viewport.
     if e.scroll

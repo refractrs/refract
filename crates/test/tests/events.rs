@@ -97,7 +97,7 @@ fn field_updates_binding_before_callbacks_and_does_not_observe_programmatic_writ
         .iter()
         .find(|(_, e)| e.kind == ElementKind::TextInput)
         .unwrap();
-    assert!(element.multiline);
+    assert!(element.input.as_ref().unwrap().multiline);
     app.dispatch(id, Event::Input("typed".into()));
     host.flush(&mut app).unwrap();
     app.mutate(|rt| {
@@ -110,7 +110,7 @@ fn field_updates_binding_before_callbacks_and_does_not_observe_programmatic_writ
     host.flush(&mut app).unwrap();
     assert_eq!(*changes.borrow(), ["typed"]);
     assert!(app.dispatch_event(id, key()).default_prevented);
-    assert_eq!(host.elements[&id].value, "external");
+    assert_eq!(host.elements[&id].input.as_ref().unwrap().value, "external");
 }
 
 #[test]

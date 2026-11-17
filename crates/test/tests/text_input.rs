@@ -1,4 +1,4 @@
-use refract_core::{prelude::*, App, ElementId, ElementKind, Event, Patch};
+use refract_core::{prelude::*, App, ElementId, ElementKind, Event, Patch, TextInputProperties};
 use refract_test::TestHost;
 
 fn form(multiline: bool) -> impl View {
@@ -41,8 +41,11 @@ fn mode_changes_replace_only_the_control_and_preserve_its_binding() {
         let next = input_id(&host);
         assert_ne!(next, id);
         assert_eq!(host.children[&None], [wrapper]);
-        assert_eq!(host.elements[&next].multiline, multiline);
-        assert_eq!(host.elements[&next].value, "edited");
+        assert_eq!(
+            host.elements[&next].input.as_ref().unwrap().multiline,
+            multiline
+        );
+        assert_eq!(host.elements[&next].input.as_ref().unwrap().value, "edited");
         let patches = &host.updates.last().unwrap().patches;
         assert!(patches
             .iter()
@@ -61,7 +64,10 @@ fn mode_is_part_of_root_element_identity_too() {
     let input = |multiline| {
         view().modify(false, move |e| {
             e.kind = ElementKind::TextInput;
-            e.multiline = multiline;
+            e.input = Some(Box::new(TextInputProperties {
+                multiline,
+                ..Default::default()
+            }));
         })
     };
     let mut app = App::new(input(false));
@@ -74,14 +80,18 @@ fn mode_is_part_of_root_element_identity_too() {
 }
 
 #[test]
-fn multiline_is_only_valid_for_inputs_and_both_modes_are_interactive() {
-    let mut invalid = App::new(view().modify(false, |e| e.multiline = true));
-    assert!(invalid
-        .prepare()
-        .err()
-        .unwrap()
-        .0
-        .contains("multiline requires a text input"));
+fn input_properties_are_required_only_for_inputs_and_both_modes_are_interactive() {
+    for invalid in [
+        view().modify(false, |e| e.input = Some(Box::default())),
+        view().modify(false, |e| e.kind = ElementKind::TextInput),
+    ] {
+        assert!(App::new(invalid)
+            .prepare()
+            .err()
+            .unwrap()
+            .0
+            .contains("input properties require a text input"));
+    }
 
     for multiline in [false, true] {
         let mut nested = App::new(

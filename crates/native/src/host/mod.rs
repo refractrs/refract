@@ -278,8 +278,7 @@ impl Host {
                             image,
                             canvas: Default::default(),
                             canvas_visible: false,
-                            editor: (element.kind == ElementKind::TextInput)
-                                .then(|| TextEditor::new(element)),
+                            editor: element.input.as_deref().map(TextEditor::new),
                         },
                     );
                     refresh.insert(*id);
@@ -495,8 +494,8 @@ impl Host {
         let entry = self.entries.get_mut(&id).unwrap();
         let typography = inherited.inherit(&entry.element.style);
         entry.typography = typography.clone();
-        if let Some(editor) = &mut entry.editor {
-            editor.sync(&entry.element, &typography, &mut self.text);
+        if let (Some(editor), Some(input)) = (&mut entry.editor, &entry.element.input) {
+            editor.sync(input, &typography, &mut self.text);
         }
         let value = match entry.element.kind {
             ElementKind::Text => Some(entry.element.text.clone()),

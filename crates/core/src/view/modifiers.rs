@@ -154,6 +154,12 @@ macro_rules! element_modifiers {
             let value = value.into();
             $apply(self, move |e| e.label = Some(value.clone()))
         }
+
+        /// Include this element in pointer-event geometry snapshots for spatial interactions.
+        $visibility fn geometry_tag(self, tag: impl Into<String>) -> $output {
+            let tag = tag.into();
+            $apply(self, move |e| e.geometry_tag = Some(tag.clone()))
+        }
     };
 }
 pub(crate) use element_modifiers;
@@ -414,22 +420,46 @@ impl View for MemoView {
 pub trait ViewExt: View + Sized {
     /// Override this subtree's transaction when `value` changes after mounting.
     /// All animatable properties changed in the subtree by that update participate.
-    fn animation<T: PartialEq + 'static>(self, animation: impl Into<Option<crate::Animation>>, value: T) -> crate::TransactionView {
+    fn animation<T: PartialEq + 'static>(
+        self,
+        animation: impl Into<Option<crate::Animation>>,
+        value: T,
+    ) -> crate::TransactionView {
         let animation = animation.into();
         let value = Rc::new(value);
         let compare = value.clone();
         crate::TransactionView {
             child: self.into_any(),
             scope: crate::AnimationScope {
-                value: Some(Memo { value, equal: Rc::new(move |other| other.downcast_ref::<T>().is_some_and(|v| v == compare.as_ref())) }),
-                modify: Rc::new(move |tx| { if !tx.disables_animations { tx.animation = animation; } }),
+                value: Some(Memo {
+                    value,
+                    equal: Rc::new(move |other| {
+                        other
+                            .downcast_ref::<T>()
+                            .is_some_and(|v| v == compare.as_ref())
+                    }),
+                }),
+                modify: Rc::new(move |tx| {
+                    if !tx.disables_animations {
+                        tx.animation = animation;
+                    }
+                }),
             },
         }
     }
 
     /// Change this subtree's update transaction. The closure must be pure.
-    fn transaction(self, modify: impl Fn(&mut crate::Transaction) + 'static) -> crate::TransactionView {
-        crate::TransactionView { child: self.into_any(), scope: crate::AnimationScope { value: None, modify: Rc::new(modify) } }
+    fn transaction(
+        self,
+        modify: impl Fn(&mut crate::Transaction) + 'static,
+    ) -> crate::TransactionView {
+        crate::TransactionView {
+            child: self.into_any(),
+            scope: crate::AnimationScope {
+                value: None,
+                modify: Rc::new(modify),
+            },
+        }
     }
 
     element_modifiers!(Modified, modify_outer);

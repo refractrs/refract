@@ -8,6 +8,7 @@ use crate::{
 /// A bound text control. These builders set native control properties directly.
 pub struct Field {
     binding: Binding<String>,
+    selection: Option<Binding<Option<crate::TextSelection>>>,
     handler: Option<Handler>,
     element: Element,
 }
@@ -33,7 +34,7 @@ impl Field {
     /// Changing modes remounts the host control while retaining the bound value;
     /// focus, selection, undo history, and active composition are reset.
     pub fn multiline(mut self, value: bool) -> Self {
-        self.element.multiline = value;
+        self.element.input.as_mut().expect("field input").multiline = value;
         self
     }
 
@@ -71,7 +72,47 @@ impl Field {
 
     /// Set the hint displayed when the editable value is empty.
     pub fn placeholder(mut self, value: impl Into<String>) -> Self {
-        self.element.placeholder = Some(value.into());
+        self.element
+            .input
+            .as_mut()
+            .expect("field input")
+            .placeholder = Some(value.into());
+        self
+    }
+
+    /// Bind the caret or directional selection without remounting the editor.
+    /// `None` leaves selection under host control. Hosts observe user selection
+    /// changes and publish the current range before editing commands.
+    pub fn selection(mut self, value: Binding<Option<crate::TextSelection>>) -> Self {
+        self.selection = Some(value);
+        self
+    }
+
+    /// Show the host caret and selection by default. Disable their presentation
+    /// when the application paints its own selection. The logical range, focus,
+    /// selection observations, and editing behavior remain under host control.
+    pub fn selection_visible(mut self, visible: bool) -> Self {
+        self.element
+            .input
+            .as_mut()
+            .expect("field input")
+            .selection_visible = visible;
+        self
+    }
+
+    /// Opt into styled editing with application-owned UTF-16 formatting spans.
+    /// Supply an empty vector for an unformatted rich field; mode stays stable.
+    pub fn text_spans(mut self, spans: Vec<crate::TextSpan>) -> Self {
+        let input = self.element.input.as_mut().expect("field input");
+        input.rich_text = true;
+        input.spans = spans;
+        self
+    }
+
+    /// Decorate a text range with an explicit color without moving or hiding the
+    /// host selection. On web, this requires a styled field enabled with `text_spans`.
+    pub fn text_highlight(mut self, highlight: Option<crate::TextHighlight>) -> Self {
+        self.element.input.as_mut().expect("field input").highlight = highlight;
         self
     }
 }
@@ -80,14 +121,23 @@ impl View for Field {
     fn body(&self, cx: &mut ViewContext<'_>) -> Result<impl View, ViewError> {
         let mut element = self.element.clone();
         // Reading during body evaluation subscribes this control to model changes.
-        element.value = cx.read(&self.binding);
+        let input = element.input.as_mut().expect("field input");
+        input.value = cx.read(&self.binding);
+        input.selection = self
+            .selection
+            .as_ref()
+            .and_then(|selection| cx.read(selection));
 
         // Native edits travel back through the same binding. Equal values do not
         // trigger another graph invalidation.
         let value = self.binding.clone();
+        let selection = self.selection.clone();
         let callbacks = self.handler.clone();
         let focus = callbacks.as_ref().and_then(|h| h.focus.clone());
         let mut handler = Handler::new(move |cx, e| {
+            if let (Some(binding), Event::TextSelection(range)) = (&selection, e) {
+                binding.set_if_changed(cx.runtime(), Some(*range));
+            }
             if let Event::Input(v) = e {
                 value.set_if_changed(cx.runtime(), v.clone())
             }
@@ -108,6 +158,7 @@ impl View for Field {
 pub fn field(value: Binding<String>) -> Field {
     Field {
         binding: value,
+        selection: None,
         handler: None,
         element: Element::new(ElementKind::TextInput),
     }

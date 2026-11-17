@@ -83,12 +83,12 @@ fn prerender_app(mut app: App, options: PrerenderOptions) -> Result<String, View
             }
             if e.kind == ElementKind::Text {
                 out.push_str(&crate::html::escape(&e.text));
-            } else if e.kind == ElementKind::TextInput {
+            } else if let Some(input) = &e.input {
                 // HTML parsing strips one initial newline from textarea contents.
-                if e.value.starts_with('\n') {
+                if input.value.starts_with('\n') {
                     out.push('\n');
                 }
-                out.push_str(&crate::html::escape(&e.value));
+                out.push_str(&crate::html::escape(&input.value));
             }
             if let Some(canvas) = &e.canvas {
                 let fallback = canvas
