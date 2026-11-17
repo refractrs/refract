@@ -395,9 +395,11 @@ impl Host {
             y: rect.y - entry.scroll.y,
         };
         let mut children = entry.children.clone();
-        // A translucent black tint matches the web button's subtle darkening.
-        // Paint it after descendants so image/text content gets feedback too.
-        let feedback = (self.hover == Some(id) && !entry.element.disabled)
+        // A tint can darken an opaque control surface, but must not fill a
+        // transparent activation region. CSS brightness preserves transparency;
+        // filling it here creates a second rectangle inside app-owned row hovers.
+        let has_opaque_surface = s.background.is_some_and(|color| color.3 == 255);
+        let feedback = (self.hover == Some(id) && !entry.element.disabled && has_opaque_surface)
             .then_some((s.radius, if self.pressed == Some(id) { 26 } else { 13 }));
         let has_opacity = s.opacity.is_some() || has_effects;
         let ring = if self.focus == Some(id)
