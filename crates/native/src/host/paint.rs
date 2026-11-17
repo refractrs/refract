@@ -98,7 +98,7 @@ impl Host {
             self.stats.layout_passes += 1;
             self.needs_layout = false;
         }
-        self.resolve_scroll_layout()?;
+        self.resolve_scroll_layout(now)?;
         if std::mem::take(&mut self.reveal_focus) {
             self.reveal_focused_control()?;
         }

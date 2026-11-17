@@ -6,7 +6,8 @@ use super::Host;
 use refract_core::{ElementId, Event, Layout, ScrollMetrics, ScrollOffset, ScrollSize};
 
 impl Host {
-    pub(super) fn resolve_scroll_layout(&mut self) -> crate::Result<()> {
+    pub(super) fn resolve_scroll_layout(&mut self, now: std::time::Instant) -> crate::Result<()> {
+        self.scrolling.motion_deadline = None;
         for entry in self.entries.values_mut() {
             let Layout::Scroll(axis) = entry.element.style.layout else {
                 continue;
@@ -35,6 +36,16 @@ impl Host {
                 axis,
                 metrics,
             );
+            let advanced = entry.scroll_tracker.advance(
+                entry.element.scroll.unwrap_or_default(),
+                axis,
+                metrics,
+                now.saturating_duration_since(self.animation_origin),
+            );
+            if advanced.offset != metrics.offset {
+                self.scrolling.motion_deadline = Some(now + std::time::Duration::from_millis(16));
+            }
+            let metrics = advanced;
             let max = metrics.max_offset();
             entry.scroll.x = metrics.offset.x as f32;
             entry.scroll.y = metrics.offset.y as f32;

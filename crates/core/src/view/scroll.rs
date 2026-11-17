@@ -86,12 +86,14 @@ pub enum ScrollFollow {
 }
 
 /// Behavioral properties of a scroll element, separate from its visual style.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ScrollOptions {
     pub initial_position: ScrollPosition,
     pub follow: ScrollFollow,
     /// Whether the adapter should deliver snapshots to the retained handler.
     pub observe: bool,
+    /// Continuous host-frame motion in logical pixels per second. Zero stops immediately.
+    pub velocity: ScrollOffset,
 }
 
 /// A scroll container with type-preserving style and behavior modifiers.
@@ -143,6 +145,13 @@ impl ScrollView {
         self
     }
 
+    /// Drive continuous scrolling, for example while dragging near a viewport edge.
+    /// The host clamps at content bounds and stops scheduling frames there.
+    pub fn velocity(mut self, velocity: ScrollOffset) -> Self {
+        self.element.scroll.as_mut().unwrap().velocity = velocity;
+        self
+    }
+
     /// Add pointer/keyboard activation while preserving scroll configuration.
     pub fn on_press(mut self, action: impl Fn(&mut ActionContext<'_>) + 'static) -> Self {
         crate::element::add_press_handler(&mut self.element, &mut self.handler, action);
@@ -191,6 +200,7 @@ impl View for ScrollView {
 pub struct ScrollTracker {
     previous: Option<ScrollMetrics>,
     notified: Option<ScrollMetrics>,
+    motion_time: Option<std::time::Duration>,
 }
 
 impl ScrollTracker {
@@ -223,6 +233,37 @@ impl ScrollTracker {
             metrics.offset.y = metrics.offset.y.clamp(0.0, max.y);
         } else {
             metrics.offset.y = 0.0;
+        }
+        metrics
+    }
+
+    /// Integrate continuous motion once per host frame. Bound elapsed time so a
+    /// suspended window resumes without jumping an entire drag across the page.
+    pub fn advance(
+        &mut self,
+        options: ScrollOptions,
+        axis: Axis,
+        mut metrics: ScrollMetrics,
+        now: std::time::Duration,
+    ) -> ScrollMetrics {
+        let velocity = options.velocity;
+        if velocity == ScrollOffset::default() || !velocity.x.is_finite() || !velocity.y.is_finite()
+        {
+            self.motion_time = None;
+            return metrics;
+        }
+        let elapsed = self
+            .motion_time
+            .replace(now)
+            .map(|last| now.saturating_sub(last).as_secs_f64())
+            .unwrap_or(1.0 / 60.0)
+            .min(0.05);
+        let max = metrics.max_offset();
+        if matches!(axis, Axis::Horizontal | Axis::Both) {
+            metrics.offset.x = (metrics.offset.x + velocity.x * elapsed).clamp(0.0, max.x);
+        }
+        if matches!(axis, Axis::Vertical | Axis::Both) {
+            metrics.offset.y = (metrics.offset.y + velocity.y * elapsed).clamp(0.0, max.y);
         }
         metrics
     }

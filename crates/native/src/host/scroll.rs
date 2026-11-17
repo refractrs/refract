@@ -40,6 +40,7 @@ pub(super) struct ScrollState {
     frame_time: Option<Instant>,
     resized: bool,
     deadline: Option<Instant>,
+    pub(super) motion_deadline: Option<Instant>,
 }
 
 impl ScrollState {
@@ -113,9 +114,12 @@ impl Host {
     /// Start at the deepest visible scroll surface. If it is at its boundary,
     /// try its ancestors, never a covered sibling underneath it.
     fn scroll_target(&self, point: Point, delta: Point) -> Option<ElementId> {
-        let mut target = self.paint_order.iter().rev().copied().find(|id| {
-            self.entries.contains_key(id) && self.point_inside(*id, point)
-        });
+        let mut target = self
+            .paint_order
+            .iter()
+            .rev()
+            .copied()
+            .find(|id| self.entries.contains_key(id) && self.point_inside(*id, point));
         while let Some(id) = target {
             let entry = self.entries.get(&id)?;
             if self.scrolled_offset(id, delta).is_some_and(|next| {
@@ -223,7 +227,11 @@ impl Host {
     /// Called by the window's event-loop deadline scheduler. A hidden scrollbar
     /// never keeps an idle app repainting. These deadlines do not run app effects.
     pub fn scrollbar_deadline(&self) -> Option<Instant> {
-        self.scrolling.deadline
+        self.scrolling
+            .deadline
+            .into_iter()
+            .chain(self.scrolling.motion_deadline)
+            .min()
     }
 
     pub fn scrollbar_pointer(&mut self, point: Option<Point>) -> bool {
@@ -266,9 +274,12 @@ impl Host {
     /// Reveal even at a scroll boundary, where no offset can change. Follow the
     /// visible surface's ancestry rather than showing covered sibling scrollbars.
     pub fn reveal_scrollbars_at(&mut self, point: Point) -> bool {
-        let mut target = self.paint_order.iter().rev().copied().find(|id| {
-            self.entries.contains_key(id) && self.point_inside(*id, point)
-        });
+        let mut target = self
+            .paint_order
+            .iter()
+            .rev()
+            .copied()
+            .find(|id| self.entries.contains_key(id) && self.point_inside(*id, point));
         while let Some(id) = target {
             if self.scrolling.reveal(id, Instant::now()) {
                 return true;
@@ -279,16 +290,21 @@ impl Host {
     }
 
     fn bar_contains(&self, bar: &Scrollbar, point: Point) -> bool {
-        let Some(local) = self.local_point(bar.target, point) else { return false; };
+        let Some(local) = self.local_point(bar.target, point) else {
+            return false;
+        };
         if !self.point_inside(bar.target, point)
             || !bar.track.contains(local)
             || !bar.clip.contains(local)
         {
             return false;
         }
-        let mut top = self.paint_order.iter().rev().copied().find(|id| {
-            self.entries.contains_key(id) && self.point_inside(*id, point)
-        });
+        let mut top = self
+            .paint_order
+            .iter()
+            .rev()
+            .copied()
+            .find(|id| self.entries.contains_key(id) && self.point_inside(*id, point));
         while let Some(id) = top {
             if id == bar.target {
                 return true;

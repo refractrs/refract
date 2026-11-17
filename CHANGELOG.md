@@ -4,6 +4,9 @@ Notable changes to Refract, newest first.
 
 ## Unreleased
 
+- Add ScrollView::velocity for frame-driven drag scrolling on native
+  and web, with bounded elapsed time and automatic stopping at edges.
+
 - Add field selection bindings, bold/italic/underline spans, and independent
   text highlights with UTF-16 offsets on both hosts. Expose tagged
   geometry and text hit offsets for multi-field editor interactions.
