@@ -65,6 +65,19 @@ impl Typography {
             && self.line_height == other.line_height
     }
 
+    /// Match CSS's default optical sizing. Variable fonts otherwise use their
+    /// design default (SF's is 28), making small UI labels too narrow and light.
+    /// Fonts without an optical-size axis simply ignore this setting.
+    pub fn font_variations(&self) -> parley::FontVariations<'static> {
+        parley::FontVariations::Source(std::borrow::Cow::Owned(format!("\"opsz\" {}", self.size)))
+    }
+
+    /// The web root declares a unitless 1.5 line height. Resolve it at each leaf's
+    /// font size; explicitly inherited pixel heights keep their existing meaning.
+    pub fn resolved_line_height(&self) -> f32 {
+        self.line_height.unwrap_or(self.size * 1.5)
+    }
+
     pub fn font_style(&self) -> parley::FontStyle {
         if self.italic {
             parley::FontStyle::Italic
@@ -125,13 +138,12 @@ impl TextSystem {
         )));
         builder.push_default(StyleProperty::FontFamily(typography.family.as_str().into()));
         builder.push_default(StyleProperty::FontStyle(typography.font_style()));
+        builder.push_default(StyleProperty::FontVariations(typography.font_variations()));
         builder.push_default(StyleProperty::LetterSpacing(typography.letter_spacing));
         builder.push_default(StyleProperty::WordSpacing(typography.word_spacing));
-        if let Some(height) = typography.line_height {
-            builder.push_default(StyleProperty::LineHeight(parley::LineHeight::Absolute(
-                height,
-            )));
-        }
+        builder.push_default(StyleProperty::LineHeight(parley::LineHeight::Absolute(
+            typography.resolved_line_height(),
+        )));
         let layout = builder.build(shaped_text);
         // Intrinsic widths depend on the shaped text, not its current wrapping.
         // Cache them once so resize measurement stays independent of paint order.

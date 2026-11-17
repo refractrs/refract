@@ -172,10 +172,11 @@ impl TextEditor {
                 typography.weight as f32,
             )));
             styles.insert(StyleProperty::FontStyle(typography.font_style()));
+            styles.insert(StyleProperty::FontVariations(typography.font_variations()));
             styles.insert(StyleProperty::LetterSpacing(typography.letter_spacing));
             styles.insert(StyleProperty::WordSpacing(typography.word_spacing));
             styles.insert(StyleProperty::LineHeight(parley::LineHeight::Absolute(
-                typography.line_height.unwrap_or(typography.size * 1.5),
+                typography.resolved_line_height(),
             )));
             self.typography = Some(typography.clone());
         }
@@ -217,7 +218,7 @@ impl TextEditor {
         // Placeholder and editable text must share line metrics so the baseline
         // does not jump when the first character replaces the placeholder.
         let mut placeholder_typography = typography.clone();
-        placeholder_typography.line_height = Some(typography.line_height.unwrap_or(typography.size * 1.5));
+        placeholder_typography.line_height = Some(typography.resolved_line_height());
         let placeholder = input.placeholder.as_deref().unwrap_or("");
         if self
             .placeholder
