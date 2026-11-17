@@ -2,6 +2,88 @@ use super::*;
 use std::rc::Rc;
 
 #[test]
+fn recycled_captures_replace_wide_narrow_and_empty_dependencies() {
+    let mut rt = Runtime::new();
+    let states: Vec<_> = (0..260).map(|_| State::new(&mut rt, 0)).collect();
+    let observer = rt.observer();
+    for range in [0..256, 128..130, 260..260, 128..260, 0..256] {
+        // Accept twice to exercise both changed and unchanged subscription sets.
+        for _ in 0..2 {
+            let (_, reads) = rt.capture(|rt| {
+                for index in range.clone().chain(range.clone().rev()) {
+                    states[index].get(rt);
+                }
+            });
+            rt.accept(&observer, reads);
+            assert_eq!(rt.stats().edges, range.len());
+        }
+        for index in [0, 127, 128, 129, 255, 259] {
+            rt.mark_clean(&observer);
+            states[index].set(&mut rt, 1);
+            assert_eq!(observer.is_dirty(&rt), range.contains(&index));
+        }
+    }
+}
+
+#[test]
+fn pending_captures_remain_independent_of_nested_mutation_and_reuse() {
+    let mut rt = Runtime::new();
+    let a = State::new(&mut rt, 0);
+    let b = State::new(&mut rt, 0);
+    let c = State::new(&mut rt, 0);
+    let derived = Derived::new(&mut rt, {
+        let c = c.clone();
+        move |rt| *c.get(rt)
+    });
+    let outer = rt.observer();
+    let inner = rt.observer();
+    for value in 1..=3 {
+        let (inner_reads, outer_reads) = rt.capture_mut(|rt| {
+            a.get(rt);
+            let (_, reads) = rt.capture(|rt| *b.get(rt));
+            c.set(rt, value);
+            a.get(rt);
+            reads
+        });
+        // Propagation reuses capture storage while both read sets are pending.
+        c.set(&mut rt, value + 1);
+        assert_eq!(*derived.get(&rt), value + 1);
+        rt.accept(&inner, inner_reads);
+        rt.accept(&outer, outer_reads);
+        assert_eq!(rt.stats().edges, 3);
+        b.set(&mut rt, value);
+        assert!(inner.is_dirty(&rt));
+        assert!(!outer.is_dirty(&rt));
+        a.set(&mut rt, value);
+        assert!(outer.is_dirty(&rt));
+    }
+}
+
+#[test]
+fn collecting_queued_observers_does_not_lose_other_pending_notifications() {
+    let mut rt = Runtime::new();
+    let state = State::new(&mut rt, 0);
+    let retired = rt.observer();
+    let retained = rt.observer();
+    for observer in [&retired, &retained] {
+        let (_, reads) = rt.capture(|rt| *state.get(rt));
+        rt.accept(observer, reads);
+    }
+    rt.batch(|rt| {
+        state.set(rt, 1);
+        drop(retired);
+        rt.collect();
+        state.set(rt, 2);
+    });
+    assert_eq!(rt.take_dirty_observers(), [retained.id()]);
+    assert_eq!(rt.stats().invalidations, 1);
+    rt.mark_clean(&retained);
+    state.set(&mut rt, 3);
+    assert_eq!(rt.take_dirty_observers(), [retained.id()]);
+    assert_eq!(rt.stats().invalidations, 2);
+}
+
+#[test]
 fn conditional_dependencies_and_equal_outputs() {
     let mut rt = Runtime::new();
     let choose = State::new(&mut rt, true);
