@@ -4,6 +4,10 @@ Notable changes to Refract, newest first.
 
 ## Unreleased
 
+- Match native text to the web renderer's typography defaults: apply optical
+  sizing to variable fonts in labels and editors, and use a 1.5 line height
+  for labels without an explicit line height.
+
 - Add ScrollView::velocity for frame-driven drag scrolling on native
   and web, with bounded elapsed time and automatic stopping at edges.
 
