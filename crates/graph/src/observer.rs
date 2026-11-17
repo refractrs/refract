@@ -16,6 +16,14 @@ pub struct Dependencies {
 }
 
 impl Dependencies {
+    pub(crate) fn clear(&mut self) {
+        self.sources.clear();
+        // A promoted capture keeps its index ready for the next read set.
+        if let Some(seen) = &mut self.seen {
+            seen.clear();
+        }
+    }
+
     /// Add an observer as a dependency, for example to aggregate a subtree.
     pub fn include(&mut self, observer: &Observer) {
         self.insert(observer.id());

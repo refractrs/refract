@@ -27,6 +27,7 @@ struct Attribute {
     compute: Option<Box<DerivedAttribute>>,
     observer: bool,
     dirty: bool,
+    queued: bool,
     cause: Option<MutationContext>,
     notified_epoch: u64,
 }
@@ -57,6 +58,8 @@ enum EvaluationState {
     Scheduled,
     Checking,
     Computing,
+    // Count actual computations at publication, including equal outputs.
+    Computed,
 }
 
 struct Evaluation {
@@ -148,17 +151,18 @@ pub struct Runtime {
 
     // A stack isolates reads made by nested captures.
     tracking: RefCell<Vec<Dependencies>>,
+    spare_dependencies: RefCell<Dependencies>,
     retired: Rc<RefCell<Vec<AttributeId>>>,
 
     // Writes enqueue immediate readers. Settlement stages the affected derived
     // subgraph before publishing any values or invalidating observers.
     queue: VecDeque<AttributeId>,
-    queued: HashSet<AttributeId>,
     settling: bool,
     evaluated: RefCell<Vec<AttributeId>>,
     evaluation_stack: RefCell<Vec<EvaluationFrame>>,
     work: WorkQueue,
     level_updates: Vec<AttributeId>,
+    readers: Vec<AttributeId>,
     settling_level: Cell<u64>,
     #[cfg(test)]
     pub(crate) validations: usize,
@@ -186,14 +190,15 @@ impl Runtime {
             channels: Default::default(),
             attributes: HashMap::new(),
             tracking: RefCell::new(Vec::new()),
+            spare_dependencies: RefCell::default(),
             retired: Rc::default(),
             queue: VecDeque::new(),
-            queued: HashSet::new(),
             settling: false,
             evaluated: RefCell::new(Vec::new()),
             evaluation_stack: RefCell::new(Vec::new()),
             work: WorkQueue::default(),
             level_updates: Vec::new(),
+            readers: Vec::new(),
             settling_level: Cell::new(0),
             #[cfg(test)]
             validations: 0,
@@ -230,6 +235,7 @@ impl Runtime {
                 }),
                 observer: false,
                 dirty: false,
+                queued: false,
                 cause: None,
                 notified_epoch: 0,
             },
@@ -308,7 +314,8 @@ impl Runtime {
     /// Evaluate a closure and return its reads without publishing graph edges.
     /// Nested captures collect their own reads independently.
     pub fn capture<R>(&self, f: impl FnOnce(&Self) -> R) -> (R, Dependencies) {
-        self.tracking.borrow_mut().push(Dependencies::default());
+        let dependencies = std::mem::take(&mut *self.spare_dependencies.borrow_mut());
+        self.tracking.borrow_mut().push(dependencies);
 
         struct Pop<'a> {
             tracking: &'a RefCell<Vec<Dependencies>>,
@@ -337,7 +344,8 @@ impl Runtime {
     /// Capture reads while allowing allocation and mutation, such as mounted
     /// state initialization during UI preparation. This does not roll back writes.
     pub fn capture_mut<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> (R, Dependencies) {
-        self.tracking.borrow_mut().push(Dependencies::default());
+        let dependencies = std::mem::take(&mut *self.spare_dependencies.borrow_mut());
+        self.tracking.borrow_mut().push(dependencies);
         // A guard borrowing `tracking` would prevent passing `&mut self` to f.
         // Catch only to restore the stack, then resume the original panic.
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
@@ -351,25 +359,35 @@ impl Runtime {
     /// Replace an observer's subscriptions and mark its accepted output clean.
     pub fn accept(&mut self, observer: &Observer, dependencies: Dependencies) {
         self.replace_dependencies(observer.id(), dependencies);
-        self.attributes
-            .get_mut(&observer.id())
-            .expect("foreign observer")
-            .dirty = false;
-        self.dirty_observers.remove(&observer.id());
-        self.attributes.get_mut(&observer.id()).unwrap().cause = None;
+        self.mark_clean(observer);
     }
 
     /// Mark an observer clean while retaining its existing subscriptions.
     pub fn mark_clean(&mut self, observer: &Observer) {
-        self.attributes
+        let attr = self
+            .attributes
             .get_mut(&observer.id())
-            .expect("foreign observer")
-            .dirty = false;
+            .expect("foreign observer");
+        attr.dirty = false;
         self.dirty_observers.remove(&observer.id());
-        self.attributes.get_mut(&observer.id()).unwrap().cause = None;
+        attr.cause = None;
     }
 
-    pub(crate) fn replace_dependencies(&mut self, target: AttributeId, dependencies: Dependencies) {
+    fn recycle_dependencies(&self, mut dependencies: Dependencies) {
+        // Keep one reusable capture, rather than a spare allocation per node.
+        // Nested captures and staged edge changes retain independent buffers.
+        let mut spare = self.spare_dependencies.borrow_mut();
+        if dependencies.sources.capacity() >= spare.sources.capacity() {
+            dependencies.clear();
+            *spare = dependencies;
+        }
+    }
+
+    pub(crate) fn replace_dependencies(
+        &mut self,
+        target: AttributeId,
+        mut dependencies: Dependencies,
+    ) {
         // Accepted edges are already valid, and collection removes retired
         // sources from this list. An unchanged read set needs no revalidation.
         if self
@@ -379,6 +397,7 @@ impl Runtime {
             .sources
             == dependencies.sources
         {
+            self.recycle_dependencies(dependencies);
             return;
         }
         // Validate before removing existing edges so invalid input cannot leave
@@ -388,20 +407,22 @@ impl Runtime {
             assert_ne!(*source, target, "self dependency");
         }
         let attr = self.attributes.get_mut(&target).expect("foreign observer");
-        let previous = std::mem::replace(&mut attr.sources, dependencies.sources);
-        for source in previous {
-            if let Some(attr) = self.attributes.get_mut(&source) {
+        let previous = std::mem::take(&mut attr.sources);
+        for source in &previous {
+            if let Some(attr) = self.attributes.get_mut(source) {
                 attr.readers.remove(&target);
             }
         }
-        let sources = self.attributes[&target].sources.clone();
-        for source in sources {
+        for source in &dependencies.sources {
             self.attributes
-                .get_mut(&source)
+                .get_mut(source)
                 .unwrap()
                 .readers
                 .insert(target);
         }
+        self.attributes.get_mut(&target).unwrap().sources =
+            std::mem::replace(&mut dependencies.sources, previous);
+        self.recycle_dependencies(dependencies);
         self.update_level(target);
     }
 
@@ -437,15 +458,17 @@ impl Runtime {
         // Derived results are published only after all computations settle.
         // Their derived readers have already resolved these changes on reads.
         let settled = self.attributes[&source].compute.is_some();
-        let readers: Vec<_> = self.attributes[&source]
-            .readers
-            .iter()
-            .copied()
-            .filter(|id| !settled || self.attributes[id].observer)
-            .collect();
-        for id in readers {
+        let mut readers = std::mem::take(&mut self.readers);
+        readers.extend(
+            self.attributes[&source]
+                .readers
+                .iter()
+                .copied()
+                .filter(|id| !settled || self.attributes[id].observer),
+        );
+        for id in readers.drain(..) {
+            let attr = self.attributes.get_mut(&id).unwrap();
             if let Some(cause) = &cause {
-                let attr = self.attributes.get_mut(&id).unwrap();
                 if attr
                     .cause
                     .as_ref()
@@ -454,10 +477,12 @@ impl Runtime {
                     attr.cause = Some(cause.clone());
                 }
             }
-            if self.queued.insert(id) {
+            if !attr.queued {
+                attr.queued = true;
                 self.queue.push_back(id);
             }
         }
+        self.readers = readers;
     }
 
     // Resolve accepted dependencies first, then let reads resolve any newly
@@ -584,9 +609,13 @@ impl Runtime {
         {
             result.value = Some(value);
         }
-        result.dependencies = Some(dependencies);
+        if attr.sources == dependencies.sources {
+            self.recycle_dependencies(dependencies);
+        } else {
+            result.dependencies = Some(dependencies);
+        }
         assert!(derived.evaluation.set(result).is_ok());
-        derived.evaluating.set(EvaluationState::Idle);
+        derived.evaluating.set(EvaluationState::Computed);
     }
 
     fn schedule(&self, id: AttributeId, work: &mut WorkQueue) {
@@ -662,20 +691,21 @@ impl Runtime {
         }
         self.work = work;
 
-        let mut changed = Vec::new();
         for id in touched.drain(..) {
-            let result = self
+            let derived = self
                 .attributes
                 .get_mut(&id)
                 .unwrap()
                 .compute
                 .as_mut()
-                .unwrap()
-                .evaluation
-                .take()
                 .unwrap();
+            let computed = derived.evaluating.replace(EvaluationState::Idle)
+                == EvaluationState::Computed;
+            let result = derived.evaluation.take().unwrap();
             if let Some(dependencies) = result.dependencies {
                 self.replace_dependencies(id, dependencies);
+            }
+            if computed {
                 self.computations += 1;
             }
             let attr = self.attributes.get_mut(&id).unwrap();
@@ -683,20 +713,19 @@ impl Runtime {
             if let Some(value) = result.value {
                 attr.value = value;
                 attr.revision = attr.revision.checked_add(1).expect("revision exhausted");
-                changed.push(id);
+                // Queue observer notifications now, but deliver them only after
+                // every staged value and dependency set has been published.
+                self.enqueue_readers(id);
             }
         }
         *self.evaluated.get_mut() = touched;
-        for id in changed {
-            self.enqueue_readers(id);
-        }
 
         let mut wake = false;
         while let Some(id) = self.queue.pop_front() {
-            self.queued.remove(&id);
-            let Some(attr) = self.attributes.get(&id) else {
+            let Some(attr) = self.attributes.get_mut(&id) else {
                 continue;
             };
+            attr.queued = false;
 
             if attr.observer {
                 // Observer bodies belong to the caller. Only propagate dirtiness
@@ -707,7 +736,6 @@ impl Runtime {
                 if attr.dirty && attr.notified_epoch >= epoch {
                     continue;
                 }
-                let attr = self.attributes.get_mut(&id).unwrap();
                 if !attr.dirty {
                     self.invalidations += 1;
                 }
@@ -788,7 +816,6 @@ impl Runtime {
                             a.sources.retain(|s| *s != id);
                         }
                     }
-                    self.queued.remove(&id);
                     self.dirty_observers.remove(&id);
                 }
             }
