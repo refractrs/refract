@@ -741,9 +741,10 @@ impl App {
                             .keys()
                             .any(|name| !cx.slots.contains_key(name)))
                 {
-                    return Err(ViewError::new(
-                        "mounted state declarations must be unconditional and stable",
-                    ));
+                    return Err(ViewError::new(format!(
+                        "mounted state declarations must be unconditional and stable (previous: {:?}, next: {:?})",
+                        cx.previous_slots.keys().collect::<Vec<_>>(), cx.slots.keys().collect::<Vec<_>>()
+                    )));
                 }
                 Ok((description, cx.slots, cx.effects))
             });
