@@ -483,6 +483,14 @@ impl ApplicationHandler<()> for NativeApp {
                 ..
             } => {
                 if state == ElementState::Pressed && self.host.menu_is_open() {
+                    self.host.menu_pointer(self.cursor);
+                    if let Some((id, command)) = self.host.selected_menu_command() {
+                        if self.clipboard_command(id, command) {
+                            self.host.close_menu();
+                            self.needs_frame = true;
+                            return;
+                        }
+                    }
                     if let Some((id, event)) =
                         self.host.menu_click(self.cursor, &mut self.clipboard)
                     {
@@ -595,6 +603,16 @@ impl ApplicationHandler<()> for NativeApp {
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 if self.host.menu_is_open() {
+                    if let Some((id, command)) = self
+                        .host
+                        .menu_keyboard_command(&event.logical_key, self.modifiers)
+                    {
+                        if self.clipboard_command(id, command) {
+                            self.host.close_menu();
+                            self.needs_frame = true;
+                            return;
+                        }
+                    }
                     if let Some((id, message)) =
                         self.host
                             .menu_key(&event.logical_key, self.modifiers, &mut self.clipboard)

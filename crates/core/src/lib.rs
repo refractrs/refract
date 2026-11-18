@@ -59,6 +59,7 @@ pub mod prelude {
         PointerEvent, PointerKind, PointerPhase,
     };
     pub use crate::events::{WheelEvent, WheelPhase, WheelUnit};
+    pub use crate::events::{ClipboardCommand, ClipboardContent, ClipboardEvent};
     pub use crate::view::{image, view};
     pub use crate::{
         field, fragment, h_stack, scroll_view, spacer, stack, text, v_stack, view_fn, z_stack,

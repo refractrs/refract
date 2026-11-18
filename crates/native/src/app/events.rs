@@ -66,6 +66,15 @@ impl NativeApp {
                 if let Some(selection) = self.host.editor_selection() {
                     self.app.dispatch(id, Event::TextSelection(selection));
                 }
+                if event.state == ElementState::Pressed && !self.host.editor_composing() {
+                    if let Some(command) =
+                        crate::editor::EditCommand::from_key(&event.logical_key, self.modifiers)
+                    {
+                        if self.clipboard_command(id, command) {
+                            return true;
+                        }
+                    }
+                }
                 let key = match &event.logical_key {
                     Key::Character(value) if value == " " => LogicalKey::Space,
                     Key::Character(value) => LogicalKey::Character(value.to_string()),
@@ -246,5 +255,59 @@ impl NativeApp {
         self.host.apply_event_response(response);
         self.needs_frame |= response.handled;
         response.default_prevented
+    }
+
+    /// Give application-owned document selections the same command boundary as
+    /// a native field. Unhandled commands continue through the field editor.
+    pub(super) fn clipboard_command(
+        &mut self,
+        id: ElementId,
+        command: crate::editor::EditCommand,
+    ) -> bool {
+        use crate::editor::EditCommand;
+        use refract_core::{ClipboardCommand, ClipboardContent, ClipboardEvent};
+        let command = match command {
+            EditCommand::Copy => ClipboardCommand::Copy,
+            EditCommand::Cut => ClipboardCommand::Cut,
+            EditCommand::Paste => ClipboardCommand::Paste,
+            _ => return false,
+        };
+        if self.clipboard.is_none() {
+            self.clipboard = arboard::Clipboard::new().ok();
+        }
+        let Some(clipboard) = self.clipboard.as_mut() else {
+            return false;
+        };
+        let content = if command == ClipboardCommand::Paste {
+            let Ok(text) = clipboard.get_text() else {
+                return false;
+            };
+            Some(ClipboardContent {
+                text,
+                html: clipboard.get().html().ok(),
+            })
+        } else {
+            None
+        };
+        let event = ClipboardEvent::new(command, content);
+        let response = self.app.dispatch_event(id, Event::Clipboard(event.clone()));
+        if !response.default_prevented {
+            return false;
+        }
+        if command != ClipboardCommand::Paste {
+            if let Some(content) = event.content() {
+                let clipboard = self.clipboard.as_mut().unwrap();
+                let result = if let Some(html) = content.html {
+                    clipboard.set_html(html, Some(content.text))
+                } else {
+                    clipboard.set_text(content.text)
+                };
+                if let Err(error) = result {
+                    eprintln!("clipboard write failed: {error}");
+                }
+            }
+        }
+        self.needs_frame = true;
+        true
     }
 }
