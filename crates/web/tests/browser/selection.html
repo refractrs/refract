@@ -1,0 +1,91 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Selection ownership checks</title>
+<style>body{font:16px system-ui;padding:32px}section{margin-bottom:24px}pre{white-space:pre-wrap}</style>
+<section id="first"></section><section id="second"></section><section id="plain"></section><section id="light"></section>
+<pre id="results">Running…</pre>
+<script type="module">
+import init, {start} from './selection_fixture.js';
+const results = document.querySelector('#results'), checks = [];
+const settle = () => new Promise(resolve => setTimeout(resolve, 40));
+function check(value, label) { if (!value) throw Error(label); checks.push(`PASS: ${label}`); }
+function mount(id, rich = true, shadow = true) {
+  const host = document.getElementById(id), app = start(host, rich, shadow);
+  const root = host.shadowRoot || host;
+  return {app, root, editor: root.querySelector('[aria-label="editor"]'), selected: () => root.querySelector('[aria-label="selection"]').textContent};
+}
+function endpoint(editor, index) {
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  let node; while ((node = walker.nextNode())) { if (index <= node.length) return [node, index]; index -= node.length; }
+  return [editor, 0];
+}
+function range(editor, anchor, focus) {
+  const [a, x] = endpoint(editor, anchor), [f, y] = endpoint(editor, focus);
+  document.getSelection().setBaseAndExtent(a, x, f, y);
+}
+try {
+  await init();
+  const a = mount('first'), b = mount('second'), plain = mount('plain', false), light = mount('light', true, false);
+  a.editor.focus(); range(a.editor, 4, 1); await settle();
+  check(a.selected() === '4:1', 'backward UTF-16 selection is observed without a key command');
+  const selected = document.getSelection().toString();
+  b.app.presentation(true, true); await settle();
+  check(document.getSelection().toString() === selected && a.root.activeElement === a.editor, 'decorating another mount preserves the active selection and focus');
+  check(b.editor.querySelector('span').style.background === 'rgb(255, 200, 0)', 'decoration color is application-configurable');
+  a.app.presentation(true, true); await settle();
+  check(document.getSelection().toString() === selected && a.selected() === '4:1', 'decoration coexists with the host selection in its own field');
+  a.app.presentation(true, false); await settle();
+  check(getComputedStyle(a.editor).caretColor === 'rgba(0, 0, 0, 0)', 'selection presentation can be explicitly hidden');
+  check(document.getSelection().toString() === selected, 'hiding presentation retains the logical selection');
+  check(!b.editor.hasAttribute('data-refract-selection-hidden'), 'selection visibility is scoped to its field');
+  a.app.presentation(false, true); a.app.select(1, 4); await settle();
+  check(a.selected() === '1:4' && document.getSelection().toString() === selected, 'programmatic selection updates preserve direction and range');
+  const revision = a.app.revision(); await settle(); await settle();
+  check(a.app.revision() === revision, 'programmatic selection notifications do not create feedback renders');
+  a.app.formatting(true); await settle();
+  const styled = [...a.editor.querySelectorAll('span')].find(span => span.textContent === 'b😀');
+  check(styled && styled.style.fontStyle === 'italic' && styled.style.fontWeight === '700' && styled.style.textDecoration === 'underline', 'italic combines with bold and underline over UTF-16 ranges');
+  check(document.getSelection().toString() === selected && a.selected() === '1:4', 'formatting updates preserve the directional selection');
+  a.app.formatting(false); await settle();
+  check(![...a.editor.querySelectorAll('span')].some(span => span.style.fontStyle === 'italic') && a.editor.textContent === 'ab😀cd', 'removing italic resets presentation without changing text');
+  b.app.select(0, 1); await settle();
+  check(a.root.activeElement === a.editor && document.getSelection().toString() === selected, 'selection requests on an unfocused field do not steal active selection');
+  const beforeComposition = a.selected();
+  a.editor.dispatchEvent(new CompositionEvent('compositionstart', {bubbles:true}));
+  range(a.editor, 0, 0); await settle();
+  check(a.selected() === beforeComposition, 'IME provisional selection is not published');
+  a.editor.dispatchEvent(new CompositionEvent('compositionend', {bubbles:true})); await settle();
+  check(a.selected() === '0:0', 'completed composition publishes the final selection');
+  plain.editor.focus(); plain.editor.setSelectionRange(4, 1, 'backward');
+  plain.editor.setSelectionRange(1, 4, 'backward'); await settle();
+  check(plain.selected() === '4:1', 'plain inputs report directional selection changes');
+  plain.editor.value = 'hello'; plain.editor.setSelectionRange(5, 5);
+  plain.editor.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:'o'})); await settle();
+  check(plain.root.querySelector('[aria-label="input-selection"]').textContent.includes('anchor: 5, focus: 5'), 'input callbacks see the updated host caret');
+  light.editor.focus(); range(light.editor, 1, 4); await settle();
+  const outside = document.getSelection().toString();
+  b.app.presentation(false, true); b.app.presentation(true, true); await settle();
+  check(document.getSelection().toString() === outside && document.activeElement === light.editor, 'shadow-root decorations do not clear a document selection');
+  a.editor.focus(); a.editor.innerHTML = '<span><br></span>';
+  document.getSelection().setBaseAndExtent(a.editor.firstChild, 0, a.editor.firstChild, 0);
+  a.editor.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'deleteContentBackward'})); await settle();
+  check(a.editor.textContent === '' && a.selected() === '0:0', 'empty rich fields retain zero text and caret offsets');
+  for (const fixture of [b, plain, light]) {
+    const wheel = () => fixture.editor.dispatchEvent(new WheelEvent('wheel', {bubbles:true, composed:true, deltaX:50}));
+    wheel();
+    check(fixture.app.wheel_max_offset() === 0, 'wheel geometry reports no horizontal overflow when text fits');
+    fixture.editor.style.width = '10px';
+    wheel();
+    check(fixture.app.wheel_max_offset() > 0, 'wheel geometry reports actual horizontal overflow after resize');
+    fixture.editor.style.width = '300px';
+    wheel();
+    check(fixture.app.wheel_max_offset() === 0, 'wheel geometry clears overflow when text fits again');
+  }
+  for (const fixture of [a,b,plain,light]) { check(!fixture.app.last_error(), 'mount has no runtime errors'); fixture.app.dispose(); }
+  document.dispatchEvent(new Event('selectionchange')); await settle();
+  results.textContent = checks.join('\n') + '\nALL CHECKS PASSED';
+} catch (error) {
+  results.textContent = checks.join('\n') + '\nFAIL: ' + (error.stack || error);
+  throw error;
+}
+</script>

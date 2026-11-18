@@ -83,7 +83,7 @@ jobs:
           cargo install wasm-bindgen-cli --version 0.2.130 --locked --root .tools
           npm install --no-save --package-lock=false playwright@1.62.1
           npx playwright install --with-deps chromium
-      - name: Run animation browser conformance
+      - name: Run animation and selection browser conformance
         run: |
           site_dir=$(mktemp -d)
           server_log=$(mktemp)
@@ -105,6 +105,10 @@ jobs:
           .tools/bin/wasm-bindgen \
             target/wasm32-unknown-unknown/debug/refract_animation.wasm \
             --target web --out-dir "$site_dir/pkg"
+          cp crates/web/tests/browser/selection.html "$site_dir/selection.html"
+          .tools/bin/wasm-bindgen \
+            target/wasm32-unknown-unknown/debug/examples/selection_fixture.wasm \
+            --target web --out-dir "$site_dir"
           python3 -m http.server 4176 --bind 127.0.0.1 \
             --directory "$site_dir" > "$server_log" 2>&1 &
           server_pid=$!
@@ -125,3 +129,4 @@ jobs:
             exit 1
           fi
           node .github/scripts/animation-smoke.mjs http://127.0.0.1:4176/
+          node .github/scripts/selection-smoke.mjs http://127.0.0.1:4176/selection.html

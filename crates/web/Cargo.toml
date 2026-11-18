@@ -62,3 +62,8 @@ crate-type = ["cdylib"]
 name = "shader_fixture"
 path = "tests/browser/shader_fixture.rs"
 crate-type = ["cdylib"]
+
+[[example]]
+name = "selection_fixture"
+path = "tests/browser/selection_fixture.rs"
+crate-type = ["cdylib"]
