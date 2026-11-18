@@ -99,9 +99,23 @@ fn apply(inner: &Rc<Inner>, native: &web_sys::Event, response: EventResponse) {
 }
 
 pub(super) fn dispatch(inner: &Rc<Inner>, native: &web_sys::Event) -> bool {
+    if native.type_() == "contextmenu" {
+        // Browsers dispatch this separately from pointerdown, sometimes after
+        // pointerup. Honor an application-owned secondary click without
+        // disabling ordinary field or keyboard-triggered browser menus.
+        let suppressed = inner.suppressed_context_menu.replace(false);
+        let pointer_triggered = native
+            .dyn_ref::<web_sys::MouseEvent>()
+            .is_some_and(|event| event.button() == 2 || event.ctrl_key());
+        if suppressed && pointer_triggered {
+            native.prevent_default();
+        }
+        return true;
+    }
     // Typing in a pointer-focused editor must not promote its editing cue to
     // a navigation ring. Tab is the explicit switch back to keyboard navigation.
     if native.type_() == "pointerdown" {
+        inner.suppressed_context_menu.set(false);
         let _ = inner
             .dom
             .borrow()
@@ -222,8 +236,23 @@ pub(super) fn dispatch(inner: &Rc<Inner>, native: &web_sys::Event) -> bool {
                 meta: pointer.meta_key(),
             },
         };
+        if phase == PointerPhase::Down
+            && (event.button == Some(PointerButton::Secondary)
+                || (event.button == Some(PointerButton::Primary) && event.modifiers.control))
+        {
+            publish_selection(inner, id);
+        }
         let response = send(inner, id, UiEvent::Pointer(event));
         apply(inner, native, response);
+        if phase == PointerPhase::Down {
+            let secondary = event.button == Some(PointerButton::Secondary)
+                || (event.button == Some(PointerButton::Primary) && event.modifiers.control);
+            inner
+                .suppressed_context_menu
+                .set(secondary && response.default_prevented);
+        } else if phase == PointerPhase::Cancel {
+            inner.suppressed_context_menu.set(false);
+        }
         if phase == PointerPhase::Down && response.default_prevented {
             inner
                 .suppressed_clicks

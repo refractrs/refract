@@ -136,6 +136,7 @@ struct Inner {
     listeners: RefCell<Vec<Listener>>,
     captures: RefCell<HashMap<u64, ElementId>>,
     suppressed_clicks: RefCell<HashMap<u64, Rc<()>>>,
+    suppressed_context_menu: Cell<bool>,
     scroll: RefCell<Option<scroll::ScrollObserver>>,
     canvases: RefCell<Option<canvas::CanvasObserver>>,
     surface_driver: refract_core::SurfaceDriver,
@@ -495,6 +496,7 @@ fn mount_inner(
         listeners: RefCell::new(vec![]),
         captures: RefCell::new(HashMap::new()),
         suppressed_clicks: RefCell::new(HashMap::new()),
+        suppressed_context_menu: Cell::new(false),
         scroll: RefCell::new(None),
         canvases: RefCell::new(None),
         scheduled: Cell::new(false),
@@ -608,6 +610,7 @@ fn mount_inner(
         "copy",
         "cut",
         "paste",
+        "contextmenu",
         "select",
     ] {
         let weak = Rc::downgrade(&inner);
