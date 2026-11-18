@@ -557,7 +557,9 @@ impl ApplicationHandler<()> for NativeApp {
                         Point { x: p.x, y: p.y }
                     }
                 };
-                self.needs_frame |= self.host.scroll_event(self.cursor, delta, phase, precise);
+                if !self.wheel_event(delta, phase, precise) {
+                    self.needs_frame |= self.host.scroll_event(self.cursor, delta, phase, precise);
+                }
             }
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             WindowEvent::Focused(true) => {

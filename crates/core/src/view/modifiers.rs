@@ -192,6 +192,12 @@ macro_rules! event_modifiers {
                 if let $crate::Event::Focus(focused) = event { action(cx, *focused); }
             }))
         }
+        /// Handle wheel/trackpad input before host scrolling defaults.
+        $visibility fn on_wheel(self, action: impl Fn(&mut $crate::ActionContext<'_>, &$crate::WheelEvent) + 'static) -> $output {
+            $apply(self, $crate::Handler::new(move |cx, event| {
+                if let $crate::Event::Wheel(event) = event { action(cx, event); }
+            }))
+        }
     };
 }
 pub(crate) use event_modifiers;

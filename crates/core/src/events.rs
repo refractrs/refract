@@ -191,7 +191,35 @@ pub struct PointerEvent {
     pub pressure: f32,
 }
 
-/// Key and pointer down/move/up/cancel events bubble through mounted ancestors.
+/// Units supplied by the wheel device. Trackpads normally report logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WheelUnit {
+    Pixel,
+    Line,
+    Page,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WheelPhase {
+    Started,
+    Moved,
+    Ended,
+    Cancelled,
+}
+
+/// Wheel input before scrolling. Positive deltas scroll right/down on both hosts.
+/// Browser wheel events have no gesture phase. Preventing the default suppresses
+/// scrolling for this event without changing the scroll view's saved position.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WheelEvent {
+    pub position: EventPoint,
+    pub delta: crate::ScrollOffset,
+    pub unit: WheelUnit,
+    pub phase: Option<WheelPhase>,
+    pub modifiers: Modifiers,
+}
+
+/// Key, pointer down/move/up/cancel, and wheel events bubble through mounted ancestors.
 /// Activation, text, scroll, focus, hover, and pointer enter/leave target one element.
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -207,6 +235,7 @@ pub enum Event {
     FocusWithin(bool),
     Hover(bool),
     Scroll(ScrollEvent),
+    Wheel(WheelEvent),
 }
 impl Event {
     pub(crate) fn bubbles(&self) -> bool {
@@ -220,6 +249,7 @@ impl Event {
                         | PointerPhase::Cancel,
                     ..
                 })
+                | Self::Wheel(_)
         )
     }
 }

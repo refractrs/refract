@@ -287,6 +287,37 @@ pub(super) fn dispatch(inner: &Rc<Inner>, native: &web_sys::Event) -> bool {
             }
         }
     }
+    if name == "wheel" {
+        let Some(wheel) = native.dyn_ref::<web_sys::WheelEvent>() else {
+            return true;
+        };
+        let root = inner.dom.borrow().root.get_bounding_client_rect();
+        let event = refract_core::WheelEvent {
+            position: EventPoint {
+                x: f64::from(wheel.client_x()) - root.left(),
+                y: f64::from(wheel.client_y()) - root.top(),
+            },
+            delta: refract_core::ScrollOffset {
+                x: wheel.delta_x(),
+                y: wheel.delta_y(),
+            },
+            unit: match wheel.delta_mode() {
+                1 => refract_core::WheelUnit::Line,
+                2 => refract_core::WheelUnit::Page,
+                _ => refract_core::WheelUnit::Pixel,
+            },
+            phase: None,
+            modifiers: Modifiers {
+                shift: wheel.shift_key(),
+                control: wheel.ctrl_key(),
+                alt: wheel.alt_key(),
+                meta: wheel.meta_key(),
+            },
+        };
+        let response = send(inner, id, UiEvent::Wheel(event));
+        apply(inner, native, response);
+        return true;
+    }
     false
 }
 
