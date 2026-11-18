@@ -263,19 +263,29 @@ impl ClipboardEvent {
 /// Activation, text, scroll, focus, hover, and pointer enter/leave target one element.
 #[derive(Clone, Debug)]
 pub enum Event {
+    /// Semantic activation, such as a click or keyboard activation of a button.
     Press,
+    /// User edit carrying the control's complete text value; model writes do not emit this.
     Input(String),
-    /// Current host selection, published before keyboard commands.
+    /// Current UTF-16 selection, observed on changes and synchronized before commands.
     TextSelection(TextSelection),
+    /// Text control submission, such as Enter in a single-line field.
     Submit,
+    /// Keyboard press or release with modifiers, repeat, and composition state.
     Key(KeyEvent),
+    /// Pointer interaction with its phase, position, buttons, and modifiers.
     Pointer(PointerEvent),
+    /// Direct focus change; true when this element gains focus, false when it loses focus.
     Focus(bool),
-    /// Targeted notification: this element or a descendant owns focus.
+    /// Subtree focus change; true while this element or a descendant owns focus.
     FocusWithin(bool),
+    /// Hover change; true when the pointer enters the element, false when it leaves.
     Hover(bool),
+    /// Observed scroll position and viewport/content metrics from the host.
     Scroll(ScrollEvent),
+    /// Wheel input before host scrolling, with deltas and their units.
     Wheel(WheelEvent),
+    /// Copy, cut, or paste command with shared clipboard content for synchronous handling.
     Clipboard(ClipboardEvent),
 }
 impl Event {
