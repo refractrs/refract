@@ -11,6 +11,18 @@ fn flatten(
     text: &mut String,
     found: &mut Option<u32>,
 ) {
+    // Browsers keep a solitary <br> (sometimes inside an empty formatting span)
+    // after deleting the last character. It maintains the caret's line box; it
+    // is not a newline in the document. Apply the same interpretation to value
+    // and selection offsets so the next insertion still starts at offset zero.
+    if root && is_empty_placeholder(node) {
+        if let Some((target, _)) = target {
+            if node.contains(Some(target)) {
+                *found = Some(0);
+            }
+        }
+        return;
+    }
     if node.node_type() == Node::TEXT_NODE {
         let value = node.node_value().unwrap_or_default();
         if let Some((target, offset)) = target {
@@ -50,6 +62,15 @@ fn flatten(
             flatten(&child, false, target, text, found);
         }
     }
+}
+
+fn is_empty_placeholder(node: &Node) -> bool {
+    if !node.text_content().unwrap_or_default().is_empty() {
+        return false;
+    }
+    node.dyn_ref::<web_sys::Element>()
+        .and_then(|element| element.query_selector_all("br").ok())
+        .is_some_and(|breaks| breaks.length() == 1)
 }
 
 pub(super) fn value(node: &HtmlElement) -> String {
