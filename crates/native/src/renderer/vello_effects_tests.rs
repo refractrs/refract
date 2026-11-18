@@ -354,6 +354,58 @@ fn gpu_blur_composites_subtrees_backdrops_clips_and_alpha() {
 
 #[test]
 #[ignore = "requires a GPU"]
+fn gpu_transparent_groups_skip_nested_content_and_preserve_following_siblings() {
+    let mut gpu = Gpu::new();
+    let background = fill(rect(0.0, 0.0, 96.0, 96.0), Paint::rgb(20, 80, 120));
+    let sibling = fill(rect(60.0, 60.0, 20.0, 20.0), Paint::rgb(0, 255, 0));
+    for hidden in [
+        DrawCommand::PushOpacity(0.0),
+        DrawCommand::PushLayer {
+            clip: rect(0.0, 0.0, 96.0, 96.0),
+            radius: 8.0.into(),
+            opacity: 0.0,
+        },
+        effect(8.0, 4.0, 0.0),
+    ] {
+        for scale in [1.0, 2.0] {
+            let expected = gpu.pixels(&[background.clone(), sibling.clone()], scale);
+            let actual = gpu.pixels(
+                &[
+                    background.clone(),
+                    hidden.clone(),
+                    DrawCommand::PushTransform(refract_core::Affine2d::IDENTITY),
+                    DrawCommand::PushInsetLayer {
+                        rect: rect(0.0, 0.0, 96.0, 96.0),
+                        radius: 4.0.into(),
+                        insets: refract_core::Insets::all(2.0),
+                    },
+                    effect(3.0, 2.0, 0.5),
+                    fill(rect(0.0, 0.0, 96.0, 96.0), Paint::rgb(255, 0, 0)),
+                    DrawCommand::PopLayer,
+                    DrawCommand::PopLayer,
+                    DrawCommand::PopLayer,
+                    DrawCommand::PopLayer,
+                    sibling.clone(),
+                ],
+                scale,
+            );
+            assert_eq!(actual, expected);
+        }
+    }
+    // A visible group still composites its contents.
+    let visible = gpu.pixels(
+        &[
+            DrawCommand::PushOpacity(1.0),
+            sibling,
+            DrawCommand::PopLayer,
+        ],
+        1.0,
+    );
+    assert_eq!(pixel(&visible, 70, 70, 1), &[0, 255, 0, 255]);
+}
+
+#[test]
+#[ignore = "requires a GPU"]
 fn gpu_animation_transforms_preserve_clips_and_group_opacity() {
     let mut gpu = Gpu::new();
     let commands = vec![

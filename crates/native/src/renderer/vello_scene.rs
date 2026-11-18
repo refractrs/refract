@@ -80,6 +80,13 @@ impl Encoder<'_> {
         let scale = Affine::scale(self.scale_factor) * transform;
         while let Some(command) = commands.next() {
             match command {
+                DrawCommand::PushLayer { opacity, .. }
+                | DrawCommand::PushOpacity(opacity)
+                | DrawCommand::PushEffects { opacity, .. }
+                    if *opacity <= 0.0 =>
+                {
+                    skip_layer(commands);
+                }
                 DrawCommand::Canvas { rect, commands } => {
                     self.canvas(scene, commands, *rect, transform)?
                 }
@@ -372,6 +379,28 @@ impl Encoder<'_> {
                     );
             }
             _ => unreachable!("layer commands are handled by encode"),
+        }
+    }
+}
+
+// Fully transparent groups contribute no pixels. Consume their balanced command
+// subtree without encoding clips, glyphs, shadows, or filters on the GPU.
+fn skip_layer(commands: &mut std::slice::Iter<'_, DrawCommand>) {
+    let mut depth = 1;
+    for command in commands.by_ref() {
+        match command {
+            DrawCommand::PushLayer { .. }
+            | DrawCommand::PushInsetLayer { .. }
+            | DrawCommand::PushTransform(_)
+            | DrawCommand::PushOpacity(_)
+            | DrawCommand::PushEffects { .. } => depth += 1,
+            DrawCommand::PopLayer => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => {}
         }
     }
 }
