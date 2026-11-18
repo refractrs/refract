@@ -24,7 +24,7 @@ vello = ["dep:vello", "dep:pollster", "dep:objc2-quartz-core", "dep:objc2-app-ki
 refract-core.workspace = true
 winit = "0.30.13"
 vello = { version = "0.11.0", optional = true }
-parley = { version = "0.12.0", path = "../../vendor/parley" }
+parley = { package = "refract-parley", version = "0.12.0", path = "../../vendor/parley" }
 skrifa = "0.44.0"
 arboard = { version = "3.6", default-features = false }
 taffy = "0.15.1"
