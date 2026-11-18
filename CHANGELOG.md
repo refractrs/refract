@@ -8,26 +8,24 @@ Notable changes to Refract, newest first.
   phases on native and web. Handlers can prevent default scrolling.
 - Preserve transparent activation regions during native hover feedback, avoiding
   an extra shaded rectangle inside application-styled navigation rows.
-
 - Match native text to the web renderer's typography defaults: apply optical
   sizing to variable fonts in labels and editors, and use a 1.5 line height
   for labels without an explicit line height.
-
 - Add ScrollView::velocity for frame-driven drag scrolling on native
   and web, with bounded elapsed time and automatic stopping at edges.
-
 - Add field selection bindings, bold/italic/underline spans, and independent
   text highlights with UTF-16 offsets on both hosts. Expose tagged
   geometry and text hit offsets for multi-field editor interactions.
-
 - Vendor Parley 0.12.0 with externally supplied editor style ranges;
   retain upstream licenses and document the patch scope.
-
 - Constrain native overlay tracks to the viewport so tall documents
   overflow their scroll container instead of expanding it.
 
 ## 0.1.10
 
+- Reuse dependency capture and notification buffers during graph propagation.
+  Deduplicate queued work on each attribute and avoid staging unchanged read
+  sets. Add repeatable graph benchmarks and buffer-reuse regression coverage.
 - Add `z_index()` to order sibling views in every container on web and
   desktop. Higher values paint in front and receive pointer input first;
   equal values retain declaration order. Preserve layout and keyboard order.
