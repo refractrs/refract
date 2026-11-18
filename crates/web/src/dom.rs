@@ -605,6 +605,9 @@ fn mount_inner(
         "compositionend",
         "scroll",
         "wheel",
+        "copy",
+        "cut",
+        "paste",
         "select",
     ] {
         let weak = Rc::downgrade(&inner);

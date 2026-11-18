@@ -198,6 +198,12 @@ macro_rules! event_modifiers {
                 if let $crate::Event::Wheel(event) = event { action(cx, event); }
             }))
         }
+        /// Handle host clipboard commands, including browser edit-menu actions.
+        $visibility fn on_clipboard(self, action: impl Fn(&mut $crate::ActionContext<'_>, &$crate::ClipboardEvent) + 'static) -> $output {
+            $apply(self, $crate::Handler::new(move |cx, event| {
+                if let $crate::Event::Clipboard(event) = event { action(cx, event); }
+            }))
+        }
     };
 }
 pub(crate) use event_modifiers;

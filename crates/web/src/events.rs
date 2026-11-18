@@ -120,7 +120,6 @@ pub(super) fn dispatch(inner: &Rc<Inner>, native: &web_sys::Event) -> bool {
         let Some(key) = native.dyn_ref::<web_sys::KeyboardEvent>() else {
             return true;
         };
-        // Publish the native caret before application key handlers run.
         publish_selection(inner, id);
         let event = KeyEvent {
             key: Key::from_name(&key.key()),
@@ -315,6 +314,41 @@ pub(super) fn dispatch(inner: &Rc<Inner>, native: &web_sys::Event) -> bool {
             },
         };
         let response = send(inner, id, UiEvent::Wheel(event));
+        apply(inner, native, response);
+        return true;
+    }
+    if matches!(name.as_str(), "copy" | "cut" | "paste") {
+        let Some(clipboard) = native.dyn_ref::<web_sys::ClipboardEvent>() else {
+            return true;
+        };
+        let Some(data) = clipboard.clipboard_data() else {
+            return true;
+        };
+        publish_selection(inner, id);
+        let command = match name.as_str() {
+            "copy" => refract_core::ClipboardCommand::Copy,
+            "cut" => refract_core::ClipboardCommand::Cut,
+            _ => refract_core::ClipboardCommand::Paste,
+        };
+        let content = (command == refract_core::ClipboardCommand::Paste).then(|| {
+            refract_core::ClipboardContent {
+                text: data.get_data("text/plain").unwrap_or_default(),
+                html: data
+                    .get_data("text/html")
+                    .ok()
+                    .filter(|html| !html.is_empty()),
+            }
+        });
+        let event = refract_core::ClipboardEvent::new(command, content);
+        let response = send(inner, id, UiEvent::Clipboard(event.clone()));
+        if response.default_prevented && command != refract_core::ClipboardCommand::Paste {
+            if let Some(content) = event.content() {
+                let _ = data.set_data("text/plain", &content.text);
+                if let Some(html) = content.html {
+                    let _ = data.set_data("text/html", &html);
+                }
+            }
+        }
         apply(inner, native, response);
         return true;
     }

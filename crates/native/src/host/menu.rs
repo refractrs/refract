@@ -203,6 +203,26 @@ impl Host {
         None
     }
 
+    pub fn selected_menu_command(&self) -> Option<(ElementId, EditCommand)> {
+        let menu = self.menu.as_ref()?;
+        Some((menu.target, MENU_COMMANDS[menu.selected?]))
+    }
+
+    pub fn menu_keyboard_command(
+        &self,
+        key: &Key,
+        modifiers: ModifiersState,
+    ) -> Option<(ElementId, EditCommand)> {
+        if matches!(key, Key::Named(NamedKey::Enter | NamedKey::Space)) {
+            self.selected_menu_command()
+        } else {
+            Some((
+                self.menu.as_ref()?.target,
+                EditCommand::from_key(key, modifiers)?,
+            ))
+        }
+    }
+
     pub fn edit_command(
         &mut self,
         id: ElementId,

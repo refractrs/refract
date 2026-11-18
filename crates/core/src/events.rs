@@ -219,7 +219,47 @@ pub struct WheelEvent {
     pub modifiers: Modifiers,
 }
 
-/// Key, pointer down/move/up/cancel, and wheel events bubble through mounted ancestors.
+/// Text representations exchanged by clipboard commands.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ClipboardContent {
+    pub text: String,
+    pub html: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClipboardCommand {
+    Copy,
+    Cut,
+    Paste,
+}
+
+/// A host clipboard command. Paste supplies content; Copy/Cut handlers provide
+/// content with `set_content` and prevent the host default. The shared payload
+/// lets hosts synchronously populate browser clipboard events without async I/O.
+#[derive(Clone, Debug)]
+pub struct ClipboardEvent {
+    pub command: ClipboardCommand,
+    content: std::rc::Rc<std::cell::RefCell<Option<ClipboardContent>>>,
+}
+
+impl ClipboardEvent {
+    pub fn new(command: ClipboardCommand, content: Option<ClipboardContent>) -> Self {
+        Self {
+            command,
+            content: std::rc::Rc::new(std::cell::RefCell::new(content)),
+        }
+    }
+
+    pub fn content(&self) -> Option<ClipboardContent> {
+        self.content.borrow().clone()
+    }
+
+    pub fn set_content(&self, content: ClipboardContent) {
+        *self.content.borrow_mut() = Some(content);
+    }
+}
+
+/// Key, pointer down/move/up/cancel, wheel, and clipboard events bubble through mounted ancestors.
 /// Activation, text, scroll, focus, hover, and pointer enter/leave target one element.
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -236,6 +276,7 @@ pub enum Event {
     Hover(bool),
     Scroll(ScrollEvent),
     Wheel(WheelEvent),
+    Clipboard(ClipboardEvent),
 }
 impl Event {
     pub(crate) fn bubbles(&self) -> bool {
@@ -250,6 +291,7 @@ impl Event {
                     ..
                 })
                 | Self::Wheel(_)
+                | Self::Clipboard(_)
         )
     }
 }
