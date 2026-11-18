@@ -218,7 +218,8 @@ fn gallery(cx: &mut ViewContext<'_>) -> impl View {
                         .gap(22.0)
                         .children((0..3).map(|index| card(index, fit.clone()).key(index)))
                         .min_width(720.0)
-                        .scrollable().axis(Axis::Horizontal)
+                        .scrollable()
+                        .axis(Axis::Horizontal)
                         .fill_width(),
                 ),
         )

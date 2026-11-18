@@ -4,10 +4,7 @@ use refract_test::TestHost;
 fn form(multiline: bool) -> impl View {
     view_fn(move |cx| {
         let value = cx.state("value", || "initial".to_owned());
-        Ok(field(value)
-            .multiline(multiline)
-            .key("editor")
-            .padding(8.0))
+        Ok(field(value).multiline(multiline).key("editor").padding(8.0))
     })
 }
 

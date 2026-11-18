@@ -2,13 +2,13 @@
 //! Uniform corners use Vello's analytic blur. Asymmetric corners use a bounded,
 //! cached alpha mask so all four corners contribute to the same Gaussian blur.
 
-use super::{Rect, vello_geometry::RoundedBox};
+use super::{vello_geometry::RoundedBox, Rect};
 use refract_core::{BoxShadow, CornerRadii};
 use std::{collections::VecDeque, sync::Arc};
 use vello::{
-    Scene,
     kurbo::{Affine, Shape},
     peniko::{Blob, Color, Fill, ImageAlphaType, ImageData, ImageFormat},
+    Scene,
 };
 
 #[derive(Default)]

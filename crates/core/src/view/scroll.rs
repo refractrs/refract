@@ -120,7 +120,9 @@ impl crate::view::modifiers::ElementBuilder for ScrollView {
     fn element_mut(&mut self) -> &mut crate::Element {
         &mut self.element
     }
-    fn handler_mut(&mut self) -> &mut Option<Handler> { &mut self.handler }
+    fn handler_mut(&mut self) -> &mut Option<Handler> {
+        &mut self.handler
+    }
 }
 
 impl ScrollView {

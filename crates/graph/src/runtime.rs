@@ -699,8 +699,8 @@ impl Runtime {
                 .compute
                 .as_mut()
                 .unwrap();
-            let computed = derived.evaluating.replace(EvaluationState::Idle)
-                == EvaluationState::Computed;
+            let computed =
+                derived.evaluating.replace(EvaluationState::Idle) == EvaluationState::Computed;
             let result = derived.evaluation.take().unwrap();
             if let Some(dependencies) = result.dependencies {
                 self.replace_dependencies(id, dependencies);

@@ -361,9 +361,7 @@ impl App {
     /// read-only handles to descendants through an environment object. The
     /// initializer runs once; it must not perform host I/O when also used for
     /// prerendering.
-    pub fn with_inputs<V: View, I>(
-        initialize: impl FnOnce(&mut Runtime) -> (V, I),
-    ) -> (Self, I) {
+    pub fn with_inputs<V: View, I>(initialize: impl FnOnce(&mut Runtime) -> (V, I)) -> (Self, I) {
         let mut app = Self::new(crate::Empty);
         let (view, inputs) = initialize(&mut app.runtime);
         app.view = view.into_any();
@@ -473,7 +471,9 @@ impl App {
             let Some(mount) = self.mounts.get(&current) else {
                 break;
             };
-            if mount.owner.get() && (focus_lost || !mount.element.as_ref().is_some_and(|e| e.disabled)) {
+            if mount.owner.get()
+                && (focus_lost || !mount.element.as_ref().is_some_and(|e| e.disabled))
+            {
                 if let Some(handler) = &mount.handler {
                     route.push((
                         current,
@@ -565,7 +565,15 @@ impl App {
         }
         let env = self.environment.clone();
         let view = self.view.clone();
-        let result = self.build(old_root, None, view, env, self.replace_root, AnimationContext::default(), &mut tx);
+        let result = self.build(
+            old_root,
+            None,
+            view,
+            env,
+            self.replace_root,
+            AnimationContext::default(),
+            &mut tx,
+        );
         let root = match result {
             Ok(root) => root,
             Err(error) => {
@@ -619,7 +627,9 @@ impl App {
         if tx.removed.insert(id) {
             let mut context = context.clone();
             if let Some(scope) = &self.mounts[&id].animation_scope {
-                if scope.value.is_none() { context.overrides.push(scope.modify.clone()); }
+                if scope.value.is_none() {
+                    context.overrides.push(scope.modify.clone());
+                }
             }
             tx.animations.insert(id, context.resolved());
             for child in self.mounts[&id].children.iter() {
@@ -699,7 +709,8 @@ impl App {
         if let Some(cause) = self.runtime.observer_context(&mount.body) {
             if cause.epoch > animation_context.epoch {
                 animation_context.epoch = cause.epoch;
-                animation_context.transaction = cause.get::<Transaction>().copied().unwrap_or_default();
+                animation_context.transaction =
+                    cause.get::<Transaction>().copied().unwrap_or_default();
             }
         }
 
@@ -789,9 +800,15 @@ impl App {
             if let Some(scope) = &mount.animation_scope {
                 let active = match &scope.value {
                     None => true,
-                    Some(value) => previous.as_ref().and_then(|m| m.animation_scope.as_ref()).and_then(|s| s.value.as_ref()).is_some_and(|old| !value.same(old)),
+                    Some(value) => previous
+                        .as_ref()
+                        .and_then(|m| m.animation_scope.as_ref())
+                        .and_then(|s| s.value.as_ref())
+                        .is_some_and(|old| !value.same(old)),
                 };
-                if active { animation_context.overrides.push(scope.modify.clone()); }
+                if active {
+                    animation_context.overrides.push(scope.modify.clone());
+                }
             }
 
             // Match siblings by key (or position), type, and host identity.
@@ -835,7 +852,15 @@ impl App {
                 .collect();
             for (index, child) in descriptions {
                 let old = existing.remove(&identity(&child, index));
-                children.push(self.build(old, Some(id), child, child_env.clone(), true, animation_context.clone(), tx)?);
+                children.push(self.build(
+                    old,
+                    Some(id),
+                    child,
+                    child_env.clone(),
+                    true,
+                    animation_context.clone(),
+                    tx,
+                )?);
             }
             for removed in existing.into_values() {
                 self.remove_tree(removed, &animation_context, tx);
@@ -843,7 +868,9 @@ impl App {
             mount.children = Rc::new(children);
         } else {
             if let Some(scope) = &mount.animation_scope {
-                if scope.value.is_none() { animation_context.overrides.push(scope.modify.clone()); }
+                if scope.value.is_none() {
+                    animation_context.overrides.push(scope.modify.clone());
+                }
             }
             // Keep this body and its child descriptions; visit only dirty paths.
             let dirty = self.dirty_children.get(&id).cloned().unwrap_or_default();
@@ -874,7 +901,9 @@ impl App {
             None
         };
         tx.subscriptions.push((mount.subtree.clone(), dependencies));
-        if mount.element.is_some() { tx.animations.insert(id, animation_context.resolved()); }
+        if mount.element.is_some() {
+            tx.animations.insert(id, animation_context.resolved());
+        }
         tx.changed.insert(id, Rc::new(mount));
         Ok(id)
     }

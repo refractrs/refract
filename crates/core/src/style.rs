@@ -41,13 +41,21 @@ pub struct FocusRing {
 
 impl Default for FocusRing {
     fn default() -> Self {
-        Self { color: Color::BLUE, width: 2.0, offset: 2.0 }
+        Self {
+            color: Color::BLUE,
+            width: 2.0,
+            offset: 2.0,
+        }
     }
 }
 
 impl FocusRing {
     pub const fn new(color: Color, width: f32, offset: f32) -> Self {
-        Self { color, width, offset }
+        Self {
+            color,
+            width,
+            offset,
+        }
     }
 
     /// Suppress this indicator, for example when a parent supplies focus feedback.
@@ -56,19 +64,30 @@ impl FocusRing {
     }
 
     pub fn validate(&self) -> Result<(), ViewError> {
-        if !self.width.is_finite() || self.width < 0.0
-            || !self.offset.is_finite() || self.offset < 0.0
+        if !self.width.is_finite()
+            || self.width < 0.0
+            || !self.offset.is_finite()
+            || self.offset < 0.0
         {
-            return Err(ViewError::new("focus ring width and offset must be finite and nonnegative"));
+            return Err(ViewError::new(
+                "focus ring width and offset must be finite and nonnegative",
+            ));
         }
         Ok(())
     }
 
     /// Resolve the quieter treatment used for pointer editing and focus-within.
     pub fn pointer(self) -> Self {
-        Self::new(Color(self.color.0, self.color.1, self.color.2,
-            (f32::from(self.color.3) * (80.0 / 255.0)).round() as u8),
-            self.width.min(1.0), 0.0)
+        Self::new(
+            Color(
+                self.color.0,
+                self.color.1,
+                self.color.2,
+                (f32::from(self.color.3) * (80.0 / 255.0)).round() as u8,
+            ),
+            self.width.min(1.0),
+            0.0,
+        )
     }
 }
 
@@ -629,15 +648,13 @@ mod tests {
     #[test]
     fn text_spacing_allows_signed_values_but_rejects_nonfinite_values() {
         for spacing in [-2.0, 0.0, 3.5] {
-            assert!(
-                Style {
-                    letter_spacing: Some(spacing),
-                    word_spacing: Some(spacing),
-                    ..Default::default()
-                }
-                .validate()
-                .is_ok()
-            );
+            assert!(Style {
+                letter_spacing: Some(spacing),
+                word_spacing: Some(spacing),
+                ..Default::default()
+            }
+            .validate()
+            .is_ok());
         }
         for spacing in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             for style in [
@@ -667,14 +684,12 @@ mod tests {
                     &mut border.left,
                 ][side]
                     .width = invalid;
-                assert!(
-                    Style {
-                        border: Some(border),
-                        ..Style::default()
-                    }
-                    .validate()
-                    .is_err()
-                );
+                assert!(Style {
+                    border: Some(border),
+                    ..Style::default()
+                }
+                .validate()
+                .is_err());
                 let mut radius = CornerRadii::default();
                 [
                     &mut radius.top_left,
@@ -683,25 +698,21 @@ mod tests {
                     &mut radius.bottom_left,
                 ][side]
                     .clone_from(&invalid);
-                assert!(
-                    Style {
-                        radius,
-                        ..Style::default()
-                    }
-                    .validate()
-                    .is_err()
-                );
+                assert!(Style {
+                    radius,
+                    ..Style::default()
+                }
+                .validate()
+                .is_err());
             }
         }
-        assert!(
-            Style {
-                border: Some(Border::default().left(4.0, Color::BLACK)),
-                radius: CornerRadii::all(20.0).top_left(0.0),
-                ..Style::default()
-            }
-            .validate()
-            .is_ok()
-        );
+        assert!(Style {
+            border: Some(Border::default().left(4.0, Color::BLACK)),
+            radius: CornerRadii::all(20.0).top_left(0.0),
+            ..Style::default()
+        }
+        .validate()
+        .is_ok());
     }
 
     #[test]
@@ -804,11 +815,9 @@ mod tests {
 
     #[test]
     fn signed_offsets_and_sharp_shadows_are_valid_but_invalid_geometry_is_rejected() {
-        assert!(
-            BoxShadow::new(-4.0, -2.0, 0.0, Color::BLACK)
-                .validate()
-                .is_ok()
-        );
+        assert!(BoxShadow::new(-4.0, -2.0, 0.0, Color::BLACK)
+            .validate()
+            .is_ok());
         for (x, y, blur) in [
             (f32::NAN, 0.0, 2.0),
             (0.0, f32::INFINITY, 2.0),
@@ -821,15 +830,28 @@ mod tests {
     #[test]
     fn focus_indicators_reject_invalid_geometry() {
         for invalid in [-1.0, f32::NAN, f32::INFINITY] {
-            for ring in [FocusRing::new(Color::BLUE, invalid, 0.0),
-                FocusRing::new(Color::BLUE, 2.0, invalid)] {
-                assert!(Style { focus_ring: Some(ring), ..Default::default() }.validate().is_err());
-                assert!(Style { focus_within: Some(ring), ..Default::default() }.validate().is_err());
+            for ring in [
+                FocusRing::new(Color::BLUE, invalid, 0.0),
+                FocusRing::new(Color::BLUE, 2.0, invalid),
+            ] {
+                assert!(Style {
+                    focus_ring: Some(ring),
+                    ..Default::default()
+                }
+                .validate()
+                .is_err());
+                assert!(Style {
+                    focus_within: Some(ring),
+                    ..Default::default()
+                }
+                .validate()
+                .is_err());
             }
         }
         assert!(FocusRing::none().validate().is_ok());
-        assert_eq!(FocusRing::new(Color(1, 2, 3, 128), 3.0, 4.0).pointer(),
-            FocusRing::new(Color(1, 2, 3, 40), 1.0, 0.0));
+        assert_eq!(
+            FocusRing::new(Color(1, 2, 3, 128), 3.0, 4.0).pointer(),
+            FocusRing::new(Color(1, 2, 3, 40), 1.0, 0.0)
+        );
     }
-
 }

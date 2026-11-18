@@ -6,7 +6,9 @@ mod transform;
 mod transition;
 
 pub use animation::*;
-pub use transaction::{with_animation, with_transaction, AnimationScope, Transaction, TransactionView};
+pub use transaction::{
+    with_animation, with_transaction, AnimationScope, Transaction, TransactionView,
+};
 pub use transform::*;
 pub use transition::*;
 
@@ -264,7 +266,11 @@ impl PresentationState {
             }
             visit(&mut result.style, |key, value| {
                 if let Some(track) = tracks.get(&key) {
-                    *value = track.sample(now).value.clamp(-f64::from(f32::MAX), f64::from(f32::MAX)) as f32;
+                    *value = track
+                        .sample(now)
+                        .value
+                        .clamp(-f64::from(f32::MAX), f64::from(f32::MAX))
+                        as f32;
                 }
             });
         }
@@ -392,8 +398,12 @@ fn visit(s: &mut Style, mut f: impl FnMut(u16, &mut f32)) {
     }
     // Independently retargeted springs can temporarily cross valid constraints.
     // Keep the displayed box valid without altering either track's momentum.
-    if let (Some(min), Some(max)) = (&mut s.min_width, s.max_width) { *min = min.min(max); }
-    if let (Some(min), Some(max)) = (&mut s.min_height, s.max_height) { *min = min.min(max); }
+    if let (Some(min), Some(max)) = (&mut s.min_width, s.max_width) {
+        *min = min.min(max);
+    }
+    if let (Some(min), Some(max)) = (&mut s.min_height, s.max_height) {
+        *min = min.min(max);
+    }
     if let Some(color) = &mut s.background {
         color_channels(30, color, &mut f);
     }

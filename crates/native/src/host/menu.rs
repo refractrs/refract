@@ -328,8 +328,8 @@ impl Host {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use refract::prelude::*;
     use crate::renderer::Point;
+    use refract::prelude::*;
     use refract_core::App;
     use winit::keyboard::Key;
 

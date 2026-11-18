@@ -3,9 +3,9 @@
 use super::Rect;
 use refract_core::{Border, CornerRadii, Insets};
 use vello::{
-    Scene,
     kurbo::{Affine, BezPath, Rect as KRect},
     peniko::{Color, Fill},
+    Scene,
 };
 
 #[derive(Clone, Copy, Debug)]

@@ -5,14 +5,14 @@
 //! Core state is committed only after the corresponding DOM update succeeds.
 
 // Scroll sampling shares private mount state but lives in a separate source file.
+#[path = "canvas.rs"]
+mod canvas;
 #[path = "events.rs"]
 mod events;
 #[path = "scroll.rs"]
 mod scroll;
 #[path = "surface.rs"]
 mod surface;
-#[path = "canvas.rs"]
-mod canvas;
 
 use js_sys::Function;
 use refract_core::{
@@ -284,7 +284,9 @@ fn dispose(inner: &Inner) {
     // Stop incoming work before dropping callbacks and the application they use.
     inner.active.set(false);
     if let Some(id) = inner.animation_frame.take() {
-        if let Some(window) = web_sys::window() { let _ = window.cancel_animation_frame(id); }
+        if let Some(window) = web_sys::window() {
+            let _ = window.cancel_animation_frame(id);
+        }
     }
     inner.animation_callback.borrow_mut().take();
     inner.queue.borrow_mut().clear();
@@ -546,12 +548,20 @@ fn mount_inner(
             })
         {
             if let Some(inner) = weak.upgrade() {
-                let _ = inner.dom.borrow().root.set_attribute("data-refract-input", "keyboard");
+                let _ = inner
+                    .dom
+                    .borrow()
+                    .root
+                    .set_attribute("data-refract-input", "keyboard");
             }
         }
     });
     let target: web_sys::EventTarget = inner.dom.borrow().document.clone().into();
-    target.add_event_listener_with_callback_and_bool("keydown", callback.as_ref().unchecked_ref(), true)?;
+    target.add_event_listener_with_callback_and_bool(
+        "keydown",
+        callback.as_ref().unchecked_ref(),
+        true,
+    )?;
     inner.listeners.borrow_mut().push(Listener {
         root: target,
         name: "keydown",
@@ -658,7 +668,9 @@ fn mount_inner(
 
 /// Coalesce pending writes into one flush; callbacks may outlive a disposed mount.
 fn animation_now() -> std::time::Duration {
-    std::time::Duration::from_secs_f64(web_sys::window().unwrap().performance().unwrap().now() / 1000.0)
+    std::time::Duration::from_secs_f64(
+        web_sys::window().unwrap().performance().unwrap().now() / 1000.0,
+    )
 }
 
 fn request_animation(inner: &Rc<Inner>) -> Result<(), JsValue> {
@@ -671,19 +683,35 @@ fn request_animation(inner: &Rc<Inner>) -> Result<(), JsValue> {
     if inner.animation_callback.borrow().is_none() {
         let weak = Rc::downgrade(inner);
         let callback = Closure::wrap(Box::new(move |timestamp: f64| {
-            let Some(inner) = weak.upgrade() else { return; };
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
             inner.animation_frame.set(None);
-            if !inner.active.get() { return; }
+            if !inner.active.get() {
+                return;
+            }
             let result = (|| -> Result<(), JsValue> {
                 let mut dom = inner.dom.borrow_mut();
-                let samples = dom.presentation.advance(std::time::Duration::from_secs_f64(timestamp / 1000.0));
+                let samples = dom
+                    .presentation
+                    .advance(std::time::Duration::from_secs_f64(timestamp / 1000.0));
                 for (id, element) in samples {
                     if let Some(entry) = dom.entries.get_mut(&id) {
                         let css = crate::style::css(&element);
                         let style = entry.node.style();
                         let mut calls = 0;
-                        for key in entry.styles.keys() { if !css.contains_key(key) { style.remove_property(key)?; calls += 1; } }
-                        for (key,value) in &css { if entry.styles.get(key) != Some(value) { style.set_property(key,value)?; calls += 1; } }
+                        for key in entry.styles.keys() {
+                            if !css.contains_key(key) {
+                                style.remove_property(key)?;
+                                calls += 1;
+                            }
+                        }
+                        for (key, value) in &css {
+                            if entry.styles.get(key) != Some(value) {
+                                style.set_property(key, value)?;
+                                calls += 1;
+                            }
+                        }
                         entry.styles = css;
                         dom.calls += calls;
                     }
@@ -702,7 +730,9 @@ fn request_animation(inner: &Rc<Inner>) -> Result<(), JsValue> {
         *inner.animation_callback.borrow_mut() = Some(callback);
     }
     let callback = inner.animation_callback.borrow();
-    let id = web_sys::window().unwrap().request_animation_frame(callback.as_ref().unwrap().as_ref().unchecked_ref())?;
+    let id = web_sys::window()
+        .unwrap()
+        .request_animation_frame(callback.as_ref().unwrap().as_ref().unchecked_ref())?;
     inner.animation_frame.set(Some(id));
     Ok(())
 }
@@ -1295,42 +1325,75 @@ impl Dom {
     }
 
     fn active_element(&self) -> Option<web_sys::Element> {
-        self.root.get_root_node().dyn_into::<web_sys::ShadowRoot>().ok()
+        self.root
+            .get_root_node()
+            .dyn_into::<web_sys::ShadowRoot>()
+            .ok()
             .and_then(|root| root.active_element())
             .or_else(|| self.document.active_element())
     }
 
     fn capture_exits(&mut self) -> Result<(), JsValue> {
-        let ids: Vec<_> = self.presentation.exit_ids().filter(|id| !self.exits.contains_key(id)).collect();
+        let ids: Vec<_> = self
+            .presentation
+            .exit_ids()
+            .filter(|id| !self.exits.contains_key(id))
+            .collect();
         for id in ids {
-            let Some(entry)=self.entries.get(&id) else {continue;};
-            let images=self.entries.values().filter(|e| entry.node.contains(Some(&e.node))).filter_map(|e|e.image_url.clone()).collect();
-            let mut path=vec![entry.node.clone()];
-            let mut parent=entry.node.parent_element();
-            while let Some(node)=parent {
-                if node.is_same_node(Some(self.root.as_ref())) {break;}
-                parent=node.parent_element();
+            let Some(entry) = self.entries.get(&id) else {
+                continue;
+            };
+            let images = self
+                .entries
+                .values()
+                .filter(|e| entry.node.contains(Some(&e.node)))
+                .filter_map(|e| e.image_url.clone())
+                .collect();
+            let mut path = vec![entry.node.clone()];
+            let mut parent = entry.node.parent_element();
+            while let Some(node) = parent {
+                if node.is_same_node(Some(self.root.as_ref())) {
+                    break;
+                }
+                parent = node.parent_element();
                 path.push(node.dyn_into::<HtmlElement>()?);
             }
             path.reverse();
-            let container:HtmlElement=self.document.create_element("div")?.dyn_into()?;
+            let container: HtmlElement = self.document.create_element("div")?.dyn_into()?;
             container.set_attribute("data-refract-exit", "")?;
             container.set_attribute("aria-hidden", "true")?;
             container.set_attribute("inert", "")?;
-            let style=container.style();
-            for (key,value) in [("position","absolute"),("left","0"),("top","0"),("pointer-events","none")] {style.set_property(key,value)?;}
-            style.set_property("width",&format!("{}px",self.root.client_width()))?;
-            style.set_property("height",&format!("{}px",self.root.client_height()))?;
-            let mut parent=container.clone(); let mut target=None;
-            let mut scrolls=Vec::new();
+            let style = container.style();
+            for (key, value) in [
+                ("position", "absolute"),
+                ("left", "0"),
+                ("top", "0"),
+                ("pointer-events", "none"),
+            ] {
+                style.set_property(key, value)?;
+            }
+            style.set_property("width", &format!("{}px", self.root.client_width()))?;
+            style.set_property("height", &format!("{}px", self.root.client_height()))?;
+            let mut parent = container.clone();
+            let mut target = None;
+            let mut scrolls = Vec::new();
             for (index, original) in path.iter().enumerate() {
-                let deep=index+1==path.len();
-                let clone:HtmlElement=original.clone_node_with_deep(deep)?.dyn_into()?;
-                if deep { crate::shader::copy_shader_canvases(original, &clone); }
+                let deep = index + 1 == path.len();
+                let clone: HtmlElement = original.clone_node_with_deep(deep)?.dyn_into()?;
+                if deep {
+                    crate::shader::copy_shader_canvases(original, &clone);
+                }
                 clone.remove_attribute("data-refract-id")?;
-                let nodes=clone.query_selector_all("[data-refract-id]")?;
-                for i in 0..nodes.length() { if let Some(node)=nodes.item(i).and_then(|n|n.dyn_into::<web_sys::Element>().ok()) {node.remove_attribute("data-refract-id")?;} }
-                let style=clone.style();
+                let nodes = clone.query_selector_all("[data-refract-id]")?;
+                for i in 0..nodes.length() {
+                    if let Some(node) = nodes
+                        .item(i)
+                        .and_then(|n| n.dyn_into::<web_sys::Element>().ok())
+                    {
+                        node.remove_attribute("data-refract-id")?;
+                    }
+                }
+                let style = clone.style();
                 if !deep {
                     // Ancestors preserve geometry and clipping, not their own paint.
                     style.set_property("background", "none")?;
@@ -1339,38 +1402,76 @@ impl Dom {
                     style.set_property("outline", "none")?;
                     style.set_property("backdrop-filter", "none")?;
                 }
-                style.set_property("position","absolute")?;
-                style.set_property("left",&format!("{}px",original.offset_left()))?;
-                style.set_property("top",&format!("{}px",original.offset_top()))?;
-                style.set_property_with_priority("width",&format!("{}px",original.offset_width()),"important")?;
-                style.set_property_with_priority("height",&format!("{}px",original.offset_height()),"important")?;
-                style.set_property("max-width","none")?; style.set_property("max-height","none")?;
-                style.set_property("min-width","0")?; style.set_property("min-height","0")?;
-                style.set_property("pointer-events","none")?;
+                style.set_property("position", "absolute")?;
+                style.set_property("left", &format!("{}px", original.offset_left()))?;
+                style.set_property("top", &format!("{}px", original.offset_top()))?;
+                style.set_property_with_priority(
+                    "width",
+                    &format!("{}px", original.offset_width()),
+                    "important",
+                )?;
+                style.set_property_with_priority(
+                    "height",
+                    &format!("{}px", original.offset_height()),
+                    "important",
+                )?;
+                style.set_property("max-width", "none")?;
+                style.set_property("max-height", "none")?;
+                style.set_property("min-width", "0")?;
+                style.set_property("min-height", "0")?;
+                style.set_property("pointer-events", "none")?;
                 parent.append_child(&clone)?;
-                scrolls.push((clone.clone(),original.scroll_left(),original.scroll_top()));
-                if deep {target=Some(clone.clone());}
-                parent=clone;
+                scrolls.push((clone.clone(), original.scroll_left(), original.scroll_top()));
+                if deep {
+                    target = Some(clone.clone());
+                }
+                parent = clone;
             }
             self.root.append_child(&container)?;
-            for (node,x,y) in scrolls {node.set_scroll_left(x);node.set_scroll_top(y);}
-            let node=target.unwrap();
-            let transform=node.style().get_property_value("transform")?;
-            let opacity=node.style().get_property_value("opacity")?.parse().unwrap_or(1.0);
-            self.exits.insert(id,ExitDom{container,node,transform,opacity,_images:images});
+            for (node, x, y) in scrolls {
+                node.set_scroll_left(x);
+                node.set_scroll_top(y);
+            }
+            let node = target.unwrap();
+            let transform = node.style().get_property_value("transform")?;
+            let opacity = node
+                .style()
+                .get_property_value("opacity")?
+                .parse()
+                .unwrap_or(1.0);
+            self.exits.insert(
+                id,
+                ExitDom {
+                    container,
+                    node,
+                    transform,
+                    opacity,
+                    _images: images,
+                },
+            );
         }
         Ok(())
     }
 
-    fn animate_exits(&mut self, now: std::time::Duration) -> Result<(),JsValue> {
-        let ids:Vec<_>=self.exits.keys().copied().collect();
+    fn animate_exits(&mut self, now: std::time::Duration) -> Result<(), JsValue> {
+        let ids: Vec<_> = self.exits.keys().copied().collect();
         for id in ids {
-            if let Some(effect)=self.presentation.exit_effect(id,now) {
-                let exit=&self.exits[&id]; let style=exit.node.style();
-                style.set_property("opacity",&(exit.opacity*effect.opacity).to_string())?;
-                style.set_property("transform",&format!("translate({}px, {}px) scale({}) {}",effect.offset_x,effect.offset_y,effect.scale,exit.transform))?;
-                self.calls+=2;
-            } else if let Some(exit)=self.exits.remove(&id) {exit.container.remove();self.calls+=1;}
+            if let Some(effect) = self.presentation.exit_effect(id, now) {
+                let exit = &self.exits[&id];
+                let style = exit.node.style();
+                style.set_property("opacity", &(exit.opacity * effect.opacity).to_string())?;
+                style.set_property(
+                    "transform",
+                    &format!(
+                        "translate({}px, {}px) scale({}) {}",
+                        effect.offset_x, effect.offset_y, effect.scale, exit.transform
+                    ),
+                )?;
+                self.calls += 2;
+            } else if let Some(exit) = self.exits.remove(&id) {
+                exit.container.remove();
+                self.calls += 1;
+            }
         }
         Ok(())
     }
@@ -1474,14 +1575,20 @@ impl Dom {
                             ..Default::default()
                         },
                     };
-                    let displayed=self.presentation.element(*id,now).unwrap_or_else(||element.clone());
+                    let displayed = self
+                        .presentation
+                        .element(*id, now)
+                        .unwrap_or_else(|| element.clone());
                     self.calls += apply_properties(&mut entry, &displayed, true)?;
-                    entry.element=element.clone();
+                    entry.element = element.clone();
                     self.calls += 1;
                     self.entries.insert(*id, entry);
                 }
                 Patch::Update(id, element) => {
-                    let displayed = self.presentation.element(*id, now).unwrap_or_else(|| element.clone());
+                    let displayed = self
+                        .presentation
+                        .element(*id, now)
+                        .unwrap_or_else(|| element.clone());
                     let entry = self.entries.get_mut(id).unwrap();
                     self.calls += apply_properties(entry, &displayed, false)?;
                     entry.element = element.clone();
@@ -1515,12 +1622,17 @@ impl Dom {
         }
 
         if let Some(previous) = recover {
-            if let Some(element) = active.as_ref().and_then(|node| node.dyn_ref::<HtmlElement>()) {
+            if let Some(element) = active
+                .as_ref()
+                .and_then(|node| node.dyn_ref::<HtmlElement>())
+            {
                 let _ = element.blur();
             }
             let _ = previous;
             if let Some(target) = candidates.into_iter().find(|id| {
-                self.entries.get(id).is_some_and(|entry| entry.element.is_focusable())
+                self.entries
+                    .get(id)
+                    .is_some_and(|entry| entry.element.is_focusable())
             }) {
                 let node = &self.entries[&target].node;
                 node.focus()?;
@@ -1528,7 +1640,8 @@ impl Dom {
         } else if let Some(active) = active {
             // Moving a retained node may blur it. Restore only that same node;
             // unrelated updates must never steal focus from another mount.
-            if self.root.contains(Some(&active)) && self.active_element().as_ref() != Some(&active) {
+            if self.root.contains(Some(&active)) && self.active_element().as_ref() != Some(&active)
+            {
                 if let Some(element) = active.dyn_ref::<HtmlElement>() {
                     let _ = element.focus();
                 }

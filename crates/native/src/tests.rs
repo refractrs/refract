@@ -1709,16 +1709,22 @@ fn independent_borders_affect_layout_and_preserve_corners_in_paint_and_image_cli
 fn pointer_editing_and_keyboard_navigation_have_distinct_focus_feedback() {
     let mut app = App::new(view_fn(|cx| {
         let value = cx.state("draft", String::new);
-        Ok(v_stack().child(field(value)).child(text("button").on_press(|_| {})))
+        Ok(v_stack()
+            .child(field(value))
+            .child(text("button").on_press(|_| {})))
     }));
     let mut host = Host::new().unwrap();
     flush(&mut app, &mut host);
     frame(&mut host);
     let strokes = |host: &mut Host| {
-        frame(host).commands.into_iter().filter_map(|command| match command {
-            DrawCommand::Stroke { width, color, .. } => Some((width, color)),
-            _ => None,
-        }).collect::<Vec<_>>()
+        frame(host)
+            .commands
+            .into_iter()
+            .filter_map(|command| match command {
+                DrawCommand::Stroke { width, color, .. } => Some((width, color)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
     };
     host.focus_next(false);
     let editor = host.focus.unwrap();
@@ -1741,7 +1747,11 @@ fn focus_within_delegates_the_editor_ring_without_layout_changes() {
     let accent = Color::rgb(30, 100, 75);
     let mut app = App::new(view_fn(move |cx| {
         let value = cx.state("draft", String::new);
-        Ok(v_stack().width(200.0).height(100.0).radius(14.0).clipped()
+        Ok(v_stack()
+            .width(200.0)
+            .height(100.0)
+            .radius(14.0)
+            .clipped()
             .focus_within(FocusRing::new(accent, 3.0, 4.0))
             .child(field(value).focus_ring(FocusRing::none())))
     }));
@@ -1751,40 +1761,84 @@ fn focus_within_delegates_the_editor_ring_without_layout_changes() {
     let before = host.stats();
     host.focus_next(false);
     let keyboard = frame(&mut host);
-    let rings: Vec<_> = keyboard.commands.iter().filter_map(|c| match c {
-        DrawCommand::Stroke { rect, radius, width, color } => Some((rect, radius, width, color)),
-        _ => None,
-    }).collect();
+    let rings: Vec<_> = keyboard
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            DrawCommand::Stroke {
+                rect,
+                radius,
+                width,
+                color,
+            } => Some((rect, radius, width, color)),
+            _ => None,
+        })
+        .collect();
     assert_eq!(rings.len(), 1);
     let (rect, radius, width, color) = rings[0];
     assert_eq!((rect.width, rect.height), (214.0, 114.0));
     assert_eq!(radius.top_left, 21.0);
     assert_eq!((*width, *color), (3.0, accent));
     // The container's own clip must end before its outer indicator is painted.
-    let index = keyboard.commands.iter().position(|c| matches!(c, DrawCommand::Stroke { .. })).unwrap();
-    assert!(matches!(keyboard.commands[index - 1], DrawCommand::PopLayer));
+    let index = keyboard
+        .commands
+        .iter()
+        .position(|c| matches!(c, DrawCommand::Stroke { .. }))
+        .unwrap();
+    assert!(matches!(
+        keyboard.commands[index - 1],
+        DrawCommand::PopLayer
+    ));
     host.focus_pointer(host.focus);
     let pointer = frame(&mut host);
-    assert!(pointer.commands.iter().any(|c| matches!(c,
-        DrawCommand::Stroke { width: 1.0, color: Color(30, 100, 75, 80), .. })));
+    assert!(pointer.commands.iter().any(|c| matches!(
+        c,
+        DrawCommand::Stroke {
+            width: 1.0,
+            color: Color(30, 100, 75, 80),
+            ..
+        }
+    )));
     assert_eq!(host.stats().layout_passes, before.layout_passes);
     host.set_focus(None);
-    assert!(!frame(&mut host).commands.iter().any(|c| matches!(c, DrawCommand::Stroke { .. })));
+    assert!(!frame(&mut host)
+        .commands
+        .iter()
+        .any(|c| matches!(c, DrawCommand::Stroke { .. })));
 }
 
 #[test]
 fn presentation_transforms_move_hit_targets_without_relayout() {
-    let content = |x| view().width(80.0).height(40.0).on_press(|_| {}).label("moving")
-        .offset(x, 30.0).scale_effect(1.2).rotation_effect(20.0);
+    let content = |x| {
+        view()
+            .width(80.0)
+            .height(40.0)
+            .on_press(|_| {})
+            .label("moving")
+            .offset(x, 30.0)
+            .scale_effect(1.2)
+            .rotation_effect(20.0)
+    };
     let mut app = App::new(content(100.0));
-    let mut host = Host::new().unwrap(); flush(&mut app, &mut host);
+    let mut host = Host::new().unwrap();
+    flush(&mut app, &mut host);
     let first = frame(&mut host);
-    let id = app.elements().into_iter().find(|(_,e)|e.label.as_deref()==Some("moving")).unwrap().0;
+    let id = app
+        .elements()
+        .into_iter()
+        .find(|(_, e)| e.label.as_deref() == Some("moving"))
+        .unwrap()
+        .0;
     assert_eq!(host.hit_test(Point { x: 400.0, y: 380.0 }), Some(id));
     assert_eq!(host.hit_test(Point { x: 10.0, y: 10.0 }), None);
-    assert!(first.commands.iter().any(|c| matches!(c, DrawCommand::PushTransform(_))));
+    assert!(first
+        .commands
+        .iter()
+        .any(|c| matches!(c, DrawCommand::PushTransform(_))));
     let layouts = host.stats().layout_passes;
-    app.set_view(content(200.0)); flush(&mut app, &mut host); frame(&mut host);
+    app.set_view(content(200.0));
+    flush(&mut app, &mut host);
+    frame(&mut host);
     assert_eq!(host.stats().layout_passes, layouts);
     assert_eq!(host.hit_test(Point { x: 500.0, y: 380.0 }), Some(id));
     assert_eq!(host.hit_test(Point { x: 400.0, y: 380.0 }), None);
@@ -1792,42 +1846,117 @@ fn presentation_transforms_move_hit_targets_without_relayout() {
 
 #[test]
 fn animation_frames_sleep_when_settled_and_do_not_relayout_paint_changes() {
-    let saved=Rc::new(RefCell::new(None));
-    let mut app=App::new(view_fn({let saved=saved.clone(); move |cx| {
-        let value=cx.state("value",||false); *saved.borrow_mut()=Some(value.clone());
-        Ok(text("animated").opacity(if cx.read(&value) {0.0} else {1.0}))
-    }}));
-    let mut host=Host::new().unwrap(); flush(&mut app,&mut host); frame(&mut host);
-    let start=Instant::now();
-    with_animation(app.runtime_mut(),Animation::linear(Duration::from_secs(1)),|rt|saved.borrow().as_ref().unwrap().set(rt,true));
-    let p=app.prepare().unwrap().unwrap(); host.apply_at(&p.update,start).unwrap(); app.commit(p).unwrap();
-    let before=host.stats(); let revision=app.revision();
-    let middle=host.frame_at(600.0,700.0,2.0,Color::WHITE,start+Duration::from_millis(500)).unwrap();
-    assert!(middle.commands.iter().any(|c|matches!(c,DrawCommand::PushLayer{opacity,..} if (*opacity-0.5).abs()<0.001)));
-    assert_eq!(host.stats().layout_passes,before.layout_passes);
-    assert_eq!(host.stats().text_shapes,before.text_shapes);
-    assert_eq!(app.revision(),revision);
-    host.frame_at(600.0,700.0,2.0,Color::WHITE,start+Duration::from_secs(1)).unwrap();
+    let saved = Rc::new(RefCell::new(None));
+    let mut app = App::new(view_fn({
+        let saved = saved.clone();
+        move |cx| {
+            let value = cx.state("value", || false);
+            *saved.borrow_mut() = Some(value.clone());
+            Ok(text("animated").opacity(if cx.read(&value) { 0.0 } else { 1.0 }))
+        }
+    }));
+    let mut host = Host::new().unwrap();
+    flush(&mut app, &mut host);
+    frame(&mut host);
+    let start = Instant::now();
+    with_animation(
+        app.runtime_mut(),
+        Animation::linear(Duration::from_secs(1)),
+        |rt| saved.borrow().as_ref().unwrap().set(rt, true),
+    );
+    let p = app.prepare().unwrap().unwrap();
+    host.apply_at(&p.update, start).unwrap();
+    app.commit(p).unwrap();
+    let before = host.stats();
+    let revision = app.revision();
+    let middle = host
+        .frame_at(
+            600.0,
+            700.0,
+            2.0,
+            Color::WHITE,
+            start + Duration::from_millis(500),
+        )
+        .unwrap();
+    assert!(middle
+        .commands
+        .iter()
+        .any(|c| matches!(c,DrawCommand::PushLayer{opacity,..} if (*opacity-0.5).abs()<0.001)));
+    assert_eq!(host.stats().layout_passes, before.layout_passes);
+    assert_eq!(host.stats().text_shapes, before.text_shapes);
+    assert_eq!(app.revision(), revision);
+    host.frame_at(
+        600.0,
+        700.0,
+        2.0,
+        Color::WHITE,
+        start + Duration::from_secs(1),
+    )
+    .unwrap();
     assert!(host.animation_deadline().is_none());
 }
 
 #[test]
 fn exiting_snapshot_is_visible_but_no_longer_interactive() {
-    let saved=Rc::new(RefCell::new(None));
-    let mut app=App::new(view_fn({let saved=saved.clone();move |cx| {
-        let visible=cx.state("visible",||true);*saved.borrow_mut()=Some(visible.clone());
-        Ok(v_stack().child(if cx.read(&visible) {text("outgoing").on_press(|_|{}).transition(Transition::opacity()).into_any()} else {Empty.into_any()}))
-    }}));
-    let mut host=Host::new().unwrap();flush(&mut app,&mut host);frame(&mut host);
-    let start=Instant::now();
-    with_animation(app.runtime_mut(),Animation::linear(Duration::from_secs(1)),|rt|saved.borrow().as_ref().unwrap().set(rt,false));
-    let p=app.prepare().unwrap().unwrap();host.apply_at(&p.update,start).unwrap();app.commit(p).unwrap();
-    let middle=host.frame_at(600.0,700.0,2.0,Color::WHITE,start+Duration::from_millis(500)).unwrap();
-    assert!(middle.commands.iter().any(|c|matches!(c,DrawCommand::Glyphs{..})));
-    assert!(middle.commands.iter().any(|c|matches!(c,DrawCommand::PushOpacity(x) if (*x-0.5).abs()<0.001)));
-    assert_eq!(host.hit_test(Point{x:300.0,y:350.0}),None);
-    let end=host.frame_at(600.0,700.0,2.0,Color::WHITE,start+Duration::from_secs(2)).unwrap();
-    assert!(!end.commands.iter().any(|c|matches!(c,DrawCommand::Glyphs{..})));
+    let saved = Rc::new(RefCell::new(None));
+    let mut app = App::new(view_fn({
+        let saved = saved.clone();
+        move |cx| {
+            let visible = cx.state("visible", || true);
+            *saved.borrow_mut() = Some(visible.clone());
+            Ok(v_stack().child(if cx.read(&visible) {
+                text("outgoing")
+                    .on_press(|_| {})
+                    .transition(Transition::opacity())
+                    .into_any()
+            } else {
+                Empty.into_any()
+            }))
+        }
+    }));
+    let mut host = Host::new().unwrap();
+    flush(&mut app, &mut host);
+    frame(&mut host);
+    let start = Instant::now();
+    with_animation(
+        app.runtime_mut(),
+        Animation::linear(Duration::from_secs(1)),
+        |rt| saved.borrow().as_ref().unwrap().set(rt, false),
+    );
+    let p = app.prepare().unwrap().unwrap();
+    host.apply_at(&p.update, start).unwrap();
+    app.commit(p).unwrap();
+    let middle = host
+        .frame_at(
+            600.0,
+            700.0,
+            2.0,
+            Color::WHITE,
+            start + Duration::from_millis(500),
+        )
+        .unwrap();
+    assert!(middle
+        .commands
+        .iter()
+        .any(|c| matches!(c, DrawCommand::Glyphs { .. })));
+    assert!(middle
+        .commands
+        .iter()
+        .any(|c| matches!(c,DrawCommand::PushOpacity(x) if (*x-0.5).abs()<0.001)));
+    assert_eq!(host.hit_test(Point { x: 300.0, y: 350.0 }), None);
+    let end = host
+        .frame_at(
+            600.0,
+            700.0,
+            2.0,
+            Color::WHITE,
+            start + Duration::from_secs(2),
+        )
+        .unwrap();
+    assert!(!end
+        .commands
+        .iter()
+        .any(|c| matches!(c, DrawCommand::Glyphs { .. })));
     assert!(host.animation_deadline().is_none());
 }
 

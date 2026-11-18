@@ -163,11 +163,7 @@ fn styled_builders_keep_child_layout_and_semantic_methods() {
         .background(Color::WHITE)
         .gap(8.0)
         .height(100.0)
-        .child(
-            image("/cover.png")
-                .fit(ImageFit::Cover)
-                .label("Cover"),
-        );
+        .child(image("/cover.png").fit(ImageFit::Cover).label("Cover"));
     let mut app = App::new(stack);
     let mut host = TestHost::default();
     host.flush(&mut app).unwrap();

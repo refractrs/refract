@@ -26,21 +26,36 @@ fn initialize(rt: &mut Runtime) -> (impl View, Handles) {
         .child(view_fn(move |cx| {
             let inputs = cx.object::<Inputs>()?;
             observed.set(observed.get() + 1);
-            Ok::<_, ViewError>(text(format!(
-                "{}:{}", cx.read(&inputs.name), cx.read(&inputs.count)
-            )).label("host inputs"))
+            Ok::<_, ViewError>(
+                text(format!(
+                    "{}:{}",
+                    cx.read(&inputs.name),
+                    cx.read(&inputs.count)
+                ))
+                .label("host inputs"),
+            )
         }))
         .child(view_fn(|cx| {
             let local = cx.state("local", || 0);
             let value = cx.read(&local);
-            Ok::<_, ViewError>(text(format!("local:{value}"))
-                .label("local state")
-                .on_press(move |cx| local.update(cx.runtime(), |v| *v += 1)))
+            Ok::<_, ViewError>(
+                text(format!("local:{value}"))
+                    .label("local state")
+                    .on_press(move |cx| local.update(cx.runtime(), |v| *v += 1)),
+            )
         }))
         .environment_object(Rc::new(Inputs {
-            name: name.read_only(), count: count.read_only(),
+            name: name.read_only(),
+            count: count.read_only(),
         }));
-    (content, Handles { name, count, evaluations })
+    (
+        content,
+        Handles {
+            name,
+            count,
+            evaluations,
+        },
+    )
 }
 
 #[wasm_bindgen]

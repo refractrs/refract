@@ -11,15 +11,36 @@ pub(crate) fn css(e: &Element) -> BTreeMap<&'static str, String> {
     out.insert("z-index", s.z_index.to_string());
     let t = s.transform;
     if t != Transform::default() {
-        out.insert("transform", format!("translate({}px, {}px) rotate({}deg) scale({}, {})", t.offset_x, t.offset_y, t.rotation, t.scale_x, t.scale_y));
-        out.insert("transform-origin", format!("{}% {}%", t.anchor.x * 100.0, t.anchor.y * 100.0));
+        out.insert(
+            "transform",
+            format!(
+                "translate({}px, {}px) rotate({}deg) scale({}, {})",
+                t.offset_x, t.offset_y, t.rotation, t.scale_x, t.scale_y
+            ),
+        );
+        out.insert(
+            "transform-origin",
+            format!("{}% {}%", t.anchor.x * 100.0, t.anchor.y * 100.0),
+        );
     }
     // Set both sets on every node: CSS variables inherit, focus styles do not.
     for (ring, color, width, offset, pointer_color, pointer_width) in [
-        (s.focus_ring.unwrap_or_default(), "--refract-focus-color", "--refract-focus-width",
-            "--refract-focus-offset", "--refract-edit-color", "--refract-edit-width"),
-        (s.focus_within.unwrap_or(FocusRing::none()), "--refract-within-color", "--refract-within-width",
-            "--refract-within-offset", "--refract-within-edit-color", "--refract-within-edit-width"),
+        (
+            s.focus_ring.unwrap_or_default(),
+            "--refract-focus-color",
+            "--refract-focus-width",
+            "--refract-focus-offset",
+            "--refract-edit-color",
+            "--refract-edit-width",
+        ),
+        (
+            s.focus_within.unwrap_or(FocusRing::none()),
+            "--refract-within-color",
+            "--refract-within-width",
+            "--refract-within-offset",
+            "--refract-within-edit-color",
+            "--refract-within-edit-width",
+        ),
     ] {
         out.insert(color, ring.color.css());
         out.insert(width, format!("{}px", ring.width));
@@ -415,16 +436,16 @@ mod tests {
         element.style.border = None;
         element.style.radius = 4.0.into();
         let reset = super::css(&element);
-        assert!(
-            !reset
-                .keys()
-                .any(|key| key.starts_with("border-") && *key != "border-radius")
-        );
+        assert!(!reset
+            .keys()
+            .any(|key| key.starts_with("border-") && *key != "border-radius"));
         assert_eq!(reset["border-radius"], "4px 4px 4px 4px");
     }
     #[test]
     fn focus_styles_reset_and_do_not_inherit_from_ancestors() {
-        let Some(Description::Element(mut element, _, _)) = view().describe() else { panic!("element") };
+        let Some(Description::Element(mut element, _, _)) = view().describe() else {
+            panic!("element")
+        };
         element.style.focus_ring = Some(FocusRing::none());
         element.style.focus_within = Some(FocusRing::new(Color::BLACK, 3.0, 4.0));
         let custom = css(&element);
@@ -439,5 +460,4 @@ mod tests {
         assert_eq!(reset["--refract-within-width"], "0px");
         assert_eq!(reset["--refract-within-edit-width"], "0px");
     }
-
 }

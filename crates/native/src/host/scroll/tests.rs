@@ -117,7 +117,8 @@ fn no_overflow_means_no_scrollbar_and_removed_capture_is_safe() {
         text("fits")
             .width(180.0)
             .height(100.0)
-            .scrollable().axis(Axis::Both),
+            .scrollable()
+            .axis(Axis::Both),
     );
     assert!(host.scrolling.bars.is_empty());
     let (_, mut host) = setup(pane());

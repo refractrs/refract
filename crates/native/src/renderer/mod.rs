@@ -9,12 +9,12 @@ pub use damage::{Damage, DamageTracker, PixelRect};
 
 #[cfg(feature = "vello")]
 mod vello;
+#[cfg(feature = "vello")]
+mod vello_canvas;
 #[cfg(feature = "debug-damage")]
 mod vello_debug;
 #[cfg(feature = "vello")]
 mod vello_effects;
-#[cfg(feature = "vello")]
-mod vello_shader;
 #[cfg(feature = "vello")]
 mod vello_geometry;
 #[cfg(feature = "vello")]
@@ -22,7 +22,7 @@ mod vello_painter;
 #[cfg(feature = "vello")]
 mod vello_scene;
 #[cfg(feature = "vello")]
-mod vello_canvas;
+mod vello_shader;
 #[cfg(feature = "vello")]
 mod vello_shadow;
 

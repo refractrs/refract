@@ -171,10 +171,7 @@ macro_rules! export_prerender {
 #[macro_export]
 macro_rules! export_prerender_with_inputs {
     ($initialize:expr) => {
-        $crate::export_prerender_with_inputs!(
-            $initialize,
-            $crate::PrerenderOptions::default()
-        );
+        $crate::export_prerender_with_inputs!($initialize, $crate::PrerenderOptions::default());
     };
     ($initialize:expr, $options:expr) => {
         #[cfg(target_arch = "wasm32")]

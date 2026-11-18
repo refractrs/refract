@@ -44,19 +44,34 @@ impl Host {
     }
 
     pub(super) fn local_point(&self, id: ElementId, point: Point) -> Option<Point> {
-        let (x, y) = self.entries.get(&id)?.transform.inverse()?.point(point.x, point.y);
+        let (x, y) = self
+            .entries
+            .get(&id)?
+            .transform
+            .inverse()?
+            .point(point.x, point.y);
         Some(Point { x, y })
     }
 
     pub(super) fn point_inside(&self, id: ElementId, point: Point) -> bool {
-        let Some(local) = self.local_point(id, point) else { return false; };
-        if !self.entries[&id].rect.contains(local) { return false; }
+        let Some(local) = self.local_point(id, point) else {
+            return false;
+        };
+        if !self.entries[&id].rect.contains(local) {
+            return false;
+        }
         let mut cursor = Some(id);
         while let Some(id) = cursor {
             let e = &self.entries[&id];
-            if e.element.style.clipped || matches!(e.element.style.layout, refract_core::Layout::Scroll(_)) {
-                let Some(local) = self.local_point(id, point) else { return false; };
-                if !e.rect.contains(local) { return false; }
+            if e.element.style.clipped
+                || matches!(e.element.style.layout, refract_core::Layout::Scroll(_))
+            {
+                let Some(local) = self.local_point(id, point) else {
+                    return false;
+                };
+                if !e.rect.contains(local) {
+                    return false;
+                }
             }
             cursor = e.parent;
         }
@@ -103,7 +118,9 @@ impl Host {
     pub(super) fn has_focus_within(&self, id: ElementId) -> bool {
         let mut current = self.focus;
         while let Some(target) = current {
-            if target == id { return true; }
+            if target == id {
+                return true;
+            }
             current = self.entries.get(&target).and_then(|entry| entry.parent);
         }
         false
@@ -142,17 +159,23 @@ impl Host {
                 editor.cancel_composition(&mut self.text);
             }
             if let Some(previous) = self.focus {
-                self.input.pending.push((previous, refract_core::Event::Focus(false)));
+                self.input
+                    .pending
+                    .push((previous, refract_core::Event::Focus(false)));
             }
             self.focus = target;
             if let Some(target) = target {
-                self.input.pending.push((target, refract_core::Event::Focus(true)));
+                self.input
+                    .pending
+                    .push((target, refract_core::Event::Focus(true)));
             }
         }
     }
 
     pub fn editor_pointer(&mut self, point: Point, extend: bool) {
-        let Some(point) = self.focus.and_then(|id| self.local_point(id, point)) else { return; };
+        let Some(point) = self.focus.and_then(|id| self.local_point(id, point)) else {
+            return;
+        };
         if let Some(editor) = self
             .focus
             .and_then(|id| self.entries.get_mut(&id))
@@ -201,9 +224,28 @@ impl Host {
     pub fn ime_area(&self) -> Option<crate::renderer::Rect> {
         let entry = self.entries.get(&self.focus?)?;
         let r = entry.editor.as_ref()?.ime_area();
-        let corners = [(r.x,r.y),(r.x+r.width,r.y),(r.x,r.y+r.height),(r.x+r.width,r.y+r.height)].map(|(x,y)| entry.transform.point(x,y));
-        let x = corners.iter().map(|p|p.0).fold(f32::INFINITY,f32::min);
-        let y = corners.iter().map(|p|p.1).fold(f32::INFINITY,f32::min);
-        Some(crate::renderer::Rect { x, y, width: corners.iter().map(|p|p.0).fold(f32::NEG_INFINITY,f32::max)-x, height: corners.iter().map(|p|p.1).fold(f32::NEG_INFINITY,f32::max)-y })
+        let corners = [
+            (r.x, r.y),
+            (r.x + r.width, r.y),
+            (r.x, r.y + r.height),
+            (r.x + r.width, r.y + r.height),
+        ]
+        .map(|(x, y)| entry.transform.point(x, y));
+        let x = corners.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
+        let y = corners.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
+        Some(crate::renderer::Rect {
+            x,
+            y,
+            width: corners
+                .iter()
+                .map(|p| p.0)
+                .fold(f32::NEG_INFINITY, f32::max)
+                - x,
+            height: corners
+                .iter()
+                .map(|p| p.1)
+                .fold(f32::NEG_INFINITY, f32::max)
+                - y,
+        })
     }
 }

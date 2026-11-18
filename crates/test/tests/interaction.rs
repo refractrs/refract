@@ -13,9 +13,11 @@ fn primitives_support_press_before_and_after_style_modifiers() {
                 ($node:expr) => {{
                     let node = $node;
                     let node = if styled_first {
-                        node.width(100.0).on_press(move |_| callback.borrow_mut().push(1))
+                        node.width(100.0)
+                            .on_press(move |_| callback.borrow_mut().push(1))
                     } else {
-                        node.on_press(move |_| callback.borrow_mut().push(1)).width(100.0)
+                        node.on_press(move |_| callback.borrow_mut().push(1))
+                            .width(100.0)
                     };
                     node.into_any()
                 }};
