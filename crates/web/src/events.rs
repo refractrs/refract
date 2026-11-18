@@ -497,6 +497,9 @@ impl Dom {
                 })
         });
         Some(refract_core::ElementGeometry {
+            scroll: (entry.element.input.is_some()
+                || matches!(entry.element.style.layout, refract_core::Layout::Scroll(_)))
+            .then(|| super::scroll::metrics(&entry.node)),
             text_offset,
             bounds,
             transform: linear,

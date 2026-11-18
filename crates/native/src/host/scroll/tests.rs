@@ -26,6 +26,46 @@ fn pane() -> impl View {
 }
 
 #[test]
+fn field_event_geometry_tracks_overflow_and_current_scroll_offset() {
+    let (mut app, mut host) = setup(view_fn(|cx| {
+        let value = cx.state("value", || "A long line of text ".repeat(30));
+        Ok(field(value).width(180.0).height(38.0))
+    }));
+    let id = host.roots[0];
+    let metrics = host.geometry(id).unwrap().scroll.unwrap();
+    assert!(metrics.max_offset().x > 0.0);
+    let rect = host.entries[&id].rect;
+    assert!(host.scroll(
+        Point {
+            x: rect.x + 10.0,
+            y: rect.y + 10.0
+        },
+        Point { x: -50.0, y: 0.0 },
+    ));
+    assert_eq!(host.geometry(id).unwrap().scroll.unwrap().offset.x, 50.0);
+    app.set_view(
+        view_fn(|cx| {
+            let value = cx.state("value", || "Fits".to_owned());
+            Ok(field(value).width(180.0).height(38.0))
+        })
+        .key("short"),
+    );
+    let pending = app.prepare().unwrap().unwrap();
+    host.apply(&pending.update).unwrap();
+    app.commit(pending).unwrap();
+    paint(&mut host);
+    assert_eq!(
+        host.geometry(host.roots[0])
+            .unwrap()
+            .scroll
+            .unwrap()
+            .max_offset()
+            .x,
+        0.0
+    );
+}
+
+#[test]
 fn precise_deltas_capture_a_pane_and_do_not_create_graph_or_layout_work() {
     let (mut app, mut host) = setup(h_stack().child(pane()).child(pane()));
     let bars = host.scrolling.bars.clone();
@@ -39,6 +79,15 @@ fn precise_deltas_capture_a_pane_and_do_not_create_graph_or_layout_work() {
     assert!(host.scroll_event(point(bars[0]), delta, TouchPhase::Started, true));
     assert!(host.scroll_event(point(bars[1]), delta, TouchPhase::Moved, true));
     assert_eq!(host.entries[&bars[0].target].scroll.y, 34.5);
+    assert_eq!(
+        host.geometry(bars[0].target)
+            .unwrap()
+            .scroll
+            .unwrap()
+            .offset
+            .y,
+        34.5
+    );
     assert_eq!(host.entries[&bars[1].target].scroll.y, 0.0);
     host.scroll_event(point(bars[1]), Point::default(), TouchPhase::Ended, true);
     assert!(host.scroll_event(point(bars[1]), delta, TouchPhase::Started, true));

@@ -16,6 +16,33 @@ impl Host {
     pub fn geometry(&self, id: ElementId) -> Option<refract_core::ElementGeometry> {
         let entry = self.entries.get(&id)?;
         let rect = entry.rect;
+        let scroll = if let Some(editor) = &entry.editor {
+            let (bounds, offset, max) = editor.scroll_geometry();
+            Some(refract_core::ScrollMetrics {
+                offset: refract_core::ScrollOffset {
+                    x: offset.x.into(),
+                    y: offset.y.into(),
+                },
+                viewport_size: refract_core::ScrollSize {
+                    width: bounds.width.into(),
+                    height: bounds.height.into(),
+                },
+                content_size: refract_core::ScrollSize {
+                    width: f64::from(bounds.width) + f64::from(max.x),
+                    height: f64::from(bounds.height) + f64::from(max.y),
+                },
+            })
+        } else if matches!(entry.element.style.layout, refract_core::Layout::Scroll(_)) {
+            Some(refract_core::ScrollMetrics {
+                offset: refract_core::ScrollOffset {
+                    x: entry.scroll.x.into(),
+                    y: entry.scroll.y.into(),
+                },
+                ..entry.scroll_metrics
+            })
+        } else {
+            None
+        };
         let text_offset = self.input.active.values().next().and_then(|pointer| {
             let point = self.local_point(
                 id,
@@ -27,6 +54,7 @@ impl Host {
             entry.editor.as_ref()?.hit_offset(point)
         });
         Some(refract_core::ElementGeometry {
+            scroll,
             text_offset,
             bounds: refract_core::Rect::new(0.0, 0.0, rect.width.into(), rect.height.into()),
             transform: entry.transform.then(refract_core::Affine2d([
