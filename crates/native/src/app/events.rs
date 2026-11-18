@@ -16,6 +16,14 @@ impl NativeApp {
     }
 
     fn send_pointer(&mut self, pointer: PointerEvent) -> bool {
+        if pointer.phase == PointerPhase::Down
+            && (pointer.button == Some(PointerButton::Secondary)
+                || (pointer.button == Some(PointerButton::Primary) && pointer.modifiers.control))
+        {
+            if let (Some(id), Some(selection)) = (self.host.focus, self.host.editor_selection()) {
+                self.app.dispatch(id, Event::TextSelection(selection));
+            }
+        }
         let mut prevented = false;
         for (id, event) in self.host.pointer_events(pointer) {
             let original = matches!(&event, Event::Pointer(e) if e.phase == pointer.phase);
