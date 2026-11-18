@@ -232,9 +232,10 @@ fn configure_window_presentation(surface: &wgpu::Surface<'_>, window: &Window) {
         // Renderer setup and surface recovery run on the Winit UI thread.
         if let Some(metal) = unsafe { surface.as_hal::<wgpu::hal::api::Metal>() } {
             let layer = metal.render_layer().lock();
-            // wgpu honors this property by waiting for command scheduling
-            // before presenting inside the Core Animation transaction.
-            layer.setPresentsWithTransaction(true);
+            // Resize pixels must land in AppKit's geometry transaction. During
+            // ordinary drawing, let Metal present asynchronously so GPU command
+            // scheduling cannot block the UI thread on every scroll frame.
+            layer.setPresentsWithTransaction(live_resize);
             // SAFETY: QuartzCore exports these immutable gravity constants.
             // Match the layer's coordinate orientation when anchoring pixels.
             let gravity = unsafe {
