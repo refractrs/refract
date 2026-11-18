@@ -1,3 +1,38 @@
+# refract-parley
+
+This is Refract's temporary fork of
+[Parley](https://github.com/linebender/parley), based on the crates.io release
+of `parley` 0.12.0. It is published as `refract-parley` and maintained in
+[`vendor/parley`](https://github.com/refractrs/refract/tree/main/vendor/parley).
+Report issues with this fork to the
+[Refract repository](https://github.com/refractrs/refract/issues).
+
+The only source change is `PlainEditor::set_ranged_styles` and its backing
+storage in `src/editing/editor.rs`. This lets the host supply externally owned
+formatting while retaining Parley's caret layout, selection, hit testing, and
+IME editing. Spans use UTF-8 byte offsets and must be refreshed by the host
+after edits. Refract intends to return to upstream Parley once a published
+release offers equivalent externally supplied editor style ranges.
+
+The fork's version is independent of Refract's release version. Its standalone
+manifest keeps it outside the Refract workspace. Publish it before dependent
+Refract crates:
+
+```sh
+cargo publish --manifest-path vendor/parley/Cargo.toml
+```
+
+Dependents can retain the `parley` import name:
+
+```toml
+parley = { package = "refract-parley", version = "0.12.0" }
+```
+
+Upstream copyright notices and the Apache-2.0 and MIT licenses are retained.
+The upstream README follows.
+
+---
+
 <div align="center">
 
 # Parley
