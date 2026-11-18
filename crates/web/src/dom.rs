@@ -604,6 +604,7 @@ fn mount_inner(
         "lostpointercapture",
         "compositionend",
         "scroll",
+        "wheel",
         "select",
     ] {
         let weak = Rc::downgrade(&inner);
@@ -617,11 +618,22 @@ fn mount_inner(
             }
         });
 
-        if let Err(error) = root.add_event_listener_with_callback_and_bool(
-            name,
-            callback.as_ref().unchecked_ref(),
-            matches!(name, "scroll" | "pointerenter" | "pointerleave" | "select"),
-        ) {
+        let registration = if name == "wheel" {
+            let options = web_sys::AddEventListenerOptions::new();
+            options.set_passive(false);
+            root.add_event_listener_with_callback_and_add_event_listener_options(
+                name,
+                callback.as_ref().unchecked_ref(),
+                &options,
+            )
+        } else {
+            root.add_event_listener_with_callback_and_bool(
+                name,
+                callback.as_ref().unchecked_ref(),
+                matches!(name, "scroll" | "pointerenter" | "pointerleave" | "select"),
+            )
+        };
+        if let Err(error) = registration {
             dispose(&inner);
             return Err(error);
         }

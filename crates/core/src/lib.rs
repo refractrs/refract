@@ -58,6 +58,7 @@ pub mod prelude {
         EventPoint, Key, KeyEvent, KeyState, Modifiers, PointerButton, PointerButtons,
         PointerEvent, PointerKind, PointerPhase,
     };
+    pub use crate::events::{WheelEvent, WheelPhase, WheelUnit};
     pub use crate::view::{image, view};
     pub use crate::{
         field, fragment, h_stack, scroll_view, spacer, stack, text, v_stack, view_fn, z_stack,

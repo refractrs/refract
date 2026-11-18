@@ -4,6 +4,8 @@ Notable changes to Refract, newest first.
 
 ## Unreleased
 
+- Add `on_wheel` with portable deltas, units, modifiers, and available gesture
+  phases on native and web. Handlers can prevent default scrolling.
 - Preserve transparent activation regions during native hover feedback, avoiding
   an extra shaded rectangle inside application-styled navigation rows.
 

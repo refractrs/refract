@@ -205,4 +205,46 @@ impl NativeApp {
         }
     }
 
+    pub(super) fn wheel_event(
+        &mut self,
+        delta: Point,
+        phase: winit::event::TouchPhase,
+        precise: bool,
+    ) -> bool {
+        use refract_core::{ScrollOffset, WheelEvent, WheelPhase, WheelUnit};
+        use winit::event::TouchPhase;
+        let Some(id) = self.host.input_hit_test(self.cursor) else {
+            return false;
+        };
+        let unit_scale = if precise { 1.0 } else { 32.0 };
+        let event = WheelEvent {
+            position: EventPoint {
+                x: self.cursor.x.into(),
+                y: self.cursor.y.into(),
+            },
+            // Winit describes content motion; the portable event uses scroll offsets.
+            delta: ScrollOffset {
+                x: -f64::from(delta.x) / unit_scale,
+                y: -f64::from(delta.y) / unit_scale,
+            },
+            unit: if precise {
+                WheelUnit::Pixel
+            } else {
+                WheelUnit::Line
+            },
+            phase: Some(match phase {
+                TouchPhase::Started => WheelPhase::Started,
+                TouchPhase::Moved => WheelPhase::Moved,
+                TouchPhase::Ended => WheelPhase::Ended,
+                TouchPhase::Cancelled => WheelPhase::Cancelled,
+            }),
+            modifiers: self.event_modifiers(),
+        };
+        let response = self
+            .app
+            .dispatch_event_with_geometry(id, Event::Wheel(event), |id| self.host.geometry(id));
+        self.host.apply_event_response(response);
+        self.needs_frame |= response.handled;
+        response.default_prevented
+    }
 }
