@@ -144,19 +144,32 @@ mod browser {
             let stage = cx.state("stage", || 0);
             let current = cx.read(&stage);
             let border = match current {
-                0 => Some(Border::all(1.0, Color::BLACK).top(2.0, Color::BLUE).left(8.0, Color::BLACK)),
+                0 => Some(
+                    Border::all(1.0, Color::BLACK)
+                        .top(2.0, Color::BLUE)
+                        .left(8.0, Color::BLACK),
+                ),
                 1 => Some(Border::all(3.0, Color::BLUE)),
                 2 => None,
                 _ => Some(Border::default().bottom(5.0, Color::BLACK)),
             };
-            let radius = if current == 0 { CornerRadii::all(12.0).top_left(0.0).bottom_right(24.0) }
-                else { CornerRadii::all(6.0) };
-            Ok(view().width(120.0).height(80.0).radius(radius)
-                .background(Color::WHITE).label("border fixture")
+            let radius = if current == 0 {
+                CornerRadii::all(12.0).top_left(0.0).bottom_right(24.0)
+            } else {
+                CornerRadii::all(6.0)
+            };
+            Ok(view()
+                .width(120.0)
+                .height(80.0)
+                .radius(radius)
+                .background(Color::WHITE)
+                .label("border fixture")
                 .on_press(move |cx| stage.update(cx.runtime(), |n| *n += 1))
                 .modify(false, move |element| element.style.border = border))
         });
-        Ok(CounterApp { mount: refract_web::mount(host, content, refract_web::MountOptions::default())? })
+        Ok(CounterApp {
+            mount: refract_web::mount(host, content, refract_web::MountOptions::default())?,
+        })
     }
 
     #[cfg(feature = "browser-tests")]
@@ -168,9 +181,13 @@ mod browser {
             macro_rules! target {
                 ($view:expr) => {{
                     let presses = presses.clone();
-                    $view.width(80.0).height(40.0).on_press(move |cx| {
-                        presses.update(cx.runtime(), |n| *n += 1);
-                    }).into_any()
+                    $view
+                        .width(80.0)
+                        .height(40.0)
+                        .on_press(move |cx| {
+                            presses.update(cx.runtime(), |n| *n += 1);
+                        })
+                        .into_any()
                 }};
             }
             let targets = [

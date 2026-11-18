@@ -1,8 +1,8 @@
 //! Retained native elements. Patches update this tree, not the application's views.
 
-mod input;
-mod focus;
 mod events;
+mod focus;
+mod input;
 mod menu;
 mod paint;
 mod scroll;
@@ -238,17 +238,29 @@ impl Host {
         self.next_animation_frame = self.presentation.is_animating().then_some(now);
         // Capture the old order before a disabled or removed control loses its
         // position. Recovery only considers controls that already existed.
-        let recovery = self.focus.filter(|focused| update.patches.iter().any(|patch| match patch {
-            Patch::Remove(id) => id == focused,
-            Patch::Update(id, element) => id == focused && (element.disabled
-                || (self.entries[id].element.is_focusable() && !element.is_focusable())),
-            _ => false,
-        })).map(|focused| self.focus_recovery_order(focused));
+        let recovery = self
+            .focus
+            .filter(|focused| {
+                update.patches.iter().any(|patch| match patch {
+                    Patch::Remove(id) => id == focused,
+                    Patch::Update(id, element) => {
+                        id == focused
+                            && (element.disabled
+                                || (self.entries[id].element.is_focusable()
+                                    && !element.is_focusable()))
+                    }
+                    _ => false,
+                })
+            })
+            .map(|focused| self.focus_recovery_order(focused));
         let mut refresh = HashSet::new();
         for patch in &update.patches {
             match patch {
                 Patch::Create(id, target) => {
-                    let displayed = self.presentation.element(*id,time).unwrap_or_else(||target.clone());
+                    let displayed = self
+                        .presentation
+                        .element(*id, time)
+                        .unwrap_or_else(|| target.clone());
                     let element = &displayed;
                     let image = element
                         .source
@@ -285,7 +297,10 @@ impl Host {
                     self.needs_layout = true;
                 }
                 Patch::Update(id, target) => {
-                    let displayed = self.presentation.element(*id, time).unwrap_or_else(|| target.clone());
+                    let displayed = self
+                        .presentation
+                        .element(*id, time)
+                        .unwrap_or_else(|| target.clone());
                     let element = &displayed;
                     let entry = self.entries.get_mut(id).unwrap();
                     let next_style = layout::style(element);
@@ -341,13 +356,20 @@ impl Host {
                 }
             }
         }
-        self.input.capture.retain(|_, id| self.entries.get(id).is_some_and(|e| !e.element.disabled));
-        if self.focus.is_some_and(|id| self.entries.get(&id).is_none_or(|e| e.element.disabled)) {
+        self.input
+            .capture
+            .retain(|_, id| self.entries.get(id).is_some_and(|e| !e.element.disabled));
+        if self
+            .focus
+            .is_some_and(|id| self.entries.get(&id).is_none_or(|e| e.element.disabled))
+        {
             self.set_focus(None);
         }
         if let Some(candidates) = recovery {
             let target = candidates.into_iter().find(|id| {
-                self.entries.get(id).is_some_and(|entry| entry.element.is_focusable())
+                self.entries
+                    .get(id)
+                    .is_some_and(|entry| entry.element.is_focusable())
             });
             self.set_focus(target);
             self.reveal_focus = target.is_some();
@@ -385,35 +407,64 @@ impl Host {
     fn capture_exits(&mut self) {
         use crate::renderer::DrawCommand;
         for id in self.presentation.exit_ids() {
-            if self.exits.contains_key(&id) { continue; }
-            let Some(entry)=self.entries.get(&id) else { continue; };
-            let range=entry.paint_range.clone();
-            if range.is_empty() || range.end > self.last_commands.len() { continue; }
-            let mut ancestors=Vec::new();
+            if self.exits.contains_key(&id) {
+                continue;
+            }
+            let Some(entry) = self.entries.get(&id) else {
+                continue;
+            };
+            let range = entry.paint_range.clone();
+            if range.is_empty() || range.end > self.last_commands.len() {
+                continue;
+            }
+            let mut ancestors = Vec::new();
             for command in &self.last_commands[..range.start] {
                 match command {
-                    DrawCommand::PushTransform(_) | DrawCommand::PushOpacity(_) | DrawCommand::PushLayer{..} | DrawCommand::PushInsetLayer{..} | DrawCommand::PushEffects{..} => ancestors.push(command.clone()),
-                    DrawCommand::PopLayer => { ancestors.pop(); },
-                    _=>{}
+                    DrawCommand::PushTransform(_)
+                    | DrawCommand::PushOpacity(_)
+                    | DrawCommand::PushLayer { .. }
+                    | DrawCommand::PushInsetLayer { .. }
+                    | DrawCommand::PushEffects { .. } => ancestors.push(command.clone()),
+                    DrawCommand::PopLayer => {
+                        ancestors.pop();
+                    }
+                    _ => {}
                 }
             }
-            let depth=ancestors.len();
+            let depth = ancestors.len();
             ancestors.extend_from_slice(&self.last_commands[range]);
-            ancestors.extend(std::iter::repeat_n(DrawCommand::PopLayer,depth));
-            self.exits.insert(id,ExitVisual { commands:ancestors, rect:entry.rect, transform:entry.transform });
+            ancestors.extend(std::iter::repeat_n(DrawCommand::PopLayer, depth));
+            self.exits.insert(
+                id,
+                ExitVisual {
+                    commands: ancestors,
+                    rect: entry.rect,
+                    transform: entry.transform,
+                },
+            );
         }
     }
 
-    pub(super) fn paint_exits(&mut self, frame: &mut crate::renderer::Frame, now: std::time::Instant) {
+    pub(super) fn paint_exits(
+        &mut self,
+        frame: &mut crate::renderer::Frame,
+        now: std::time::Instant,
+    ) {
         use crate::renderer::DrawCommand;
-        let time=now.saturating_duration_since(self.animation_origin);
-        self.exits.retain(|id,_| self.presentation.exit_effect(*id,time).is_some());
-        for (id,visual) in &self.exits {
-            let effect=self.presentation.exit_effect(*id,time).unwrap();
-            let r=visual.rect;
-            let delta=effect.transform().matrix(r.x,r.y,r.width,r.height);
-            let delta=visual.transform.then(delta).then(visual.transform.inverse().unwrap_or_default());
-            frame.commands.push(DrawCommand::PushOpacity(effect.opacity));
+        let time = now.saturating_duration_since(self.animation_origin);
+        self.exits
+            .retain(|id, _| self.presentation.exit_effect(*id, time).is_some());
+        for (id, visual) in &self.exits {
+            let effect = self.presentation.exit_effect(*id, time).unwrap();
+            let r = visual.rect;
+            let delta = effect.transform().matrix(r.x, r.y, r.width, r.height);
+            let delta = visual
+                .transform
+                .then(delta)
+                .then(visual.transform.inverse().unwrap_or_default());
+            frame
+                .commands
+                .push(DrawCommand::PushOpacity(effect.opacity));
             frame.commands.push(DrawCommand::PushTransform(delta));
             frame.commands.extend_from_slice(&visual.commands);
             frame.commands.push(DrawCommand::PopLayer);
@@ -432,21 +483,30 @@ impl Host {
     }
 
     pub(super) fn advance_animations(&mut self, now: std::time::Instant) -> Result<()> {
-        let samples = self.presentation.advance(now.saturating_duration_since(self.animation_origin));
+        let samples = self
+            .presentation
+            .advance(now.saturating_duration_since(self.animation_origin));
         let mut colors = Vec::new();
         for (id, displayed) in samples {
-            let Some(entry) = self.entries.get_mut(&id) else { continue; };
+            let Some(entry) = self.entries.get_mut(&id) else {
+                continue;
+            };
             let style = layout::style(&displayed);
             if self.tree.style(entry.node)? != &style {
                 self.tree.set_style(entry.node, style)?;
                 self.needs_layout = true;
             }
-            if entry.element.style.foreground != displayed.style.foreground { colors.push(id); }
+            if entry.element.style.foreground != displayed.style.foreground {
+                colors.push(id);
+            }
             entry.element.style = displayed.style;
             entry.element.canvas = displayed.canvas;
         }
         for id in colors {
-            let inherited = self.entries[&id].parent.map(|p|self.entries[&p].typography.clone()).unwrap_or_default();
+            let inherited = self.entries[&id]
+                .parent
+                .map(|p| self.entries[&p].typography.clone())
+                .unwrap_or_default();
             self.refresh_text(id, &inherited)?;
         }
         self.next_animation_frame = (self.presentation.is_animating()

@@ -335,7 +335,9 @@ impl Host {
         else {
             return false;
         };
-        let Some(local) = self.local_point(bar.target, point) else { return false; };
+        let Some(local) = self.local_point(bar.target, point) else {
+            return false;
+        };
         let p = if bar.vertical { local.y } else { local.x };
         let start = if bar.vertical {
             bar.thumb.y
@@ -384,7 +386,9 @@ impl Host {
             self.scrolling.drag = None;
             return false;
         };
-        let Some(local) = self.local_point(bar.target, point) else { return false; };
+        let Some(local) = self.local_point(bar.target, point) else {
+            return false;
+        };
         let Some(entry) = self.entries.get_mut(&bar.target) else {
             self.scrolling.drag = None;
             return false;

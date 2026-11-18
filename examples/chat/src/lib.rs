@@ -6,9 +6,9 @@ mod model;
 mod producer;
 mod service;
 mod surface;
-mod theme;
 #[cfg(test)]
 mod tests;
+mod theme;
 mod views;
 
 use refract::prelude::*;

@@ -92,11 +92,12 @@ impl DamageTracker {
         // Filters can sample outside damage, and backdrop filters depend on earlier
         // siblings. Until dependencies are modeled, even an unchanged filter makes
         // any changed frame a full repaint.
-        if frame
-            .commands
-            .iter()
-            .any(|c| matches!(c, DrawCommand::PushEffects { .. } | DrawCommand::PushTransform(_)))
-        {
+        if frame.commands.iter().any(|c| {
+            matches!(
+                c,
+                DrawCommand::PushEffects { .. } | DrawCommand::PushTransform(_)
+            )
+        }) {
             return Damage::Full;
         }
         let Some(rect) = bounds else {
@@ -166,7 +167,9 @@ fn changed_commands<'a>(old: &'a [DrawCommand], new: &'a [DrawCommand]) -> Vec<&
 fn is_layer(command: &DrawCommand) -> bool {
     matches!(
         command,
-        DrawCommand::PushTransform(_) | DrawCommand::PushOpacity(_) | DrawCommand::PushLayer { .. }
+        DrawCommand::PushTransform(_)
+            | DrawCommand::PushOpacity(_)
+            | DrawCommand::PushLayer { .. }
             | DrawCommand::PushInsetLayer { .. }
             | DrawCommand::PushEffects { .. }
             | DrawCommand::PopLayer

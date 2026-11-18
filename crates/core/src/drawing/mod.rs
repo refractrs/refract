@@ -1,11 +1,11 @@
 //! Portable vector geometry, views, and drawing commands.
 
 mod canvas;
-mod shape;
 mod shader;
+mod shape;
 pub use canvas::*;
-pub use shape::*;
 pub use shader::*;
+pub use shape::*;
 
 mod geometry;
 mod graphics;

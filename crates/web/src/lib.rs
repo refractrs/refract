@@ -4,13 +4,13 @@ mod dom;
 #[cfg(target_arch = "wasm32")]
 mod rich_text;
 mod html;
-mod svg;
 #[cfg(target_arch = "wasm32")]
 mod image;
+mod prerender;
 #[cfg(target_arch = "wasm32")]
 mod shader;
-mod prerender;
 mod style;
+mod svg;
 #[cfg(target_arch = "wasm32")]
 pub use dom::*;
 #[doc(hidden)]

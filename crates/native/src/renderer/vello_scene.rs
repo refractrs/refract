@@ -69,8 +69,14 @@ impl Encoder<'_> {
         self.encode_at(commands, scene, backdrop, extent, Affine::IDENTITY)
     }
 
-    fn encode_at(&mut self, commands: &mut std::slice::Iter<'_, DrawCommand>, scene: &mut Scene,
-        backdrop: &Backdrop, extent: Rect, transform: Affine) -> Result<()> {
+    fn encode_at(
+        &mut self,
+        commands: &mut std::slice::Iter<'_, DrawCommand>,
+        scene: &mut Scene,
+        backdrop: &Backdrop,
+        extent: Rect,
+        transform: Affine,
+    ) -> Result<()> {
         let scale = Affine::scale(self.scale_factor) * transform;
         while let Some(command) = commands.next() {
             match command {
@@ -79,12 +85,30 @@ impl Encoder<'_> {
                 }
                 DrawCommand::PopLayer => return Ok(()),
                 DrawCommand::PushTransform(matrix) => {
-                    self.encode_at(commands, scene, backdrop, extent, transform * Affine::new(matrix.0))?;
+                    self.encode_at(
+                        commands,
+                        scene,
+                        backdrop,
+                        extent,
+                        transform * Affine::new(matrix.0),
+                    )?;
                 }
                 DrawCommand::PushOpacity(opacity) => {
                     let mut content = Scene::new();
-                    self.encode_at(commands, &mut content, &Backdrop::default(), extent, transform)?;
-                    scene.push_layer(Fill::NonZero, BlendMode::default(), *opacity, Affine::IDENTITY, &extent);
+                    self.encode_at(
+                        commands,
+                        &mut content,
+                        &Backdrop::default(),
+                        extent,
+                        transform,
+                    )?;
+                    scene.push_layer(
+                        Fill::NonZero,
+                        BlendMode::default(),
+                        *opacity,
+                        Affine::IDENTITY,
+                        &extent,
+                    );
                     scene.append(&content, None);
                     scene.pop_layer();
                 }
@@ -130,7 +154,13 @@ impl Encoder<'_> {
                         }
                     }
                     // Filters and backdrop filters establish a new backdrop root.
-                    self.encode_at(commands, &mut content, &Backdrop::default(), input_extent, transform)?;
+                    self.encode_at(
+                        commands,
+                        &mut content,
+                        &Backdrop::default(),
+                        input_extent,
+                        transform,
+                    )?;
                     if sigma > 0.0 {
                         content = self.effects.blur(
                             self.renderer,
@@ -175,11 +205,19 @@ impl Encoder<'_> {
                     scene.pop_layer();
                 }
                 _ => {
-                    if transform == Affine::IDENTITY { self.primitive(scene, command); }
-                    else {
+                    if transform == Affine::IDENTITY {
+                        self.primitive(scene, command);
+                    } else {
                         let mut primitive = Scene::new();
                         self.primitive(&mut primitive, command);
-                        scene.append(&primitive, Some(Affine::scale(self.scale_factor) * transform * Affine::scale(1.0 / self.scale_factor)));
+                        scene.append(
+                            &primitive,
+                            Some(
+                                Affine::scale(self.scale_factor)
+                                    * transform
+                                    * Affine::scale(1.0 / self.scale_factor),
+                            ),
+                        );
                     }
                 }
             }

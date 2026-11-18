@@ -154,7 +154,7 @@ impl Host {
         canvas_time: std::time::Duration,
         frame: &mut Frame,
     ) -> Result<()> {
-        let paint_start=frame.commands.len();
+        let paint_start = frame.commands.len();
         let focus_within = self.has_focus_within(id);
         let entry = self.entries.get_mut(&id).unwrap();
         let layout = self.tree.layout(entry.node)?;
@@ -170,7 +170,11 @@ impl Host {
         let transformed = local_transform != refract_core::Affine2d::IDENTITY;
         let world_transform = parent_transform.then(local_transform);
         entry.transform = world_transform;
-        if transformed { frame.commands.push(DrawCommand::PushTransform(local_transform)); }
+        if transformed {
+            frame
+                .commands
+                .push(DrawCommand::PushTransform(local_transform));
+        }
         let clipped = s.clipped || matches!(s.layout, Layout::Scroll(_));
         entry.clip = if clipped {
             inherited_clip.intersect(rect)
@@ -193,8 +197,14 @@ impl Host {
             });
         } else if let Some(opacity) = s.opacity {
             if world_transform == refract_core::Affine2d::IDENTITY {
-                frame.commands.push(DrawCommand::PushLayer { clip: inherited_clip, radius: 0.0.into(), opacity });
-            } else { frame.commands.push(DrawCommand::PushOpacity(opacity)); }
+                frame.commands.push(DrawCommand::PushLayer {
+                    clip: inherited_clip,
+                    radius: 0.0.into(),
+                    opacity,
+                });
+            } else {
+                frame.commands.push(DrawCommand::PushOpacity(opacity));
+            }
         }
         if let Some(shadow) = s.shadow {
             frame.commands.push(DrawCommand::BoxShadow {
@@ -439,8 +449,12 @@ impl Host {
             };
             let outset = ring.offset + ring.width;
             frame.commands.push(DrawCommand::Stroke {
-                rect: Rect { x: rect.x - outset, y: rect.y - outset,
-                    width: rect.width + outset * 2.0, height: rect.height + outset * 2.0 },
+                rect: Rect {
+                    x: rect.x - outset,
+                    y: rect.y - outset,
+                    width: rect.width + outset * 2.0,
+                    height: rect.height + outset * 2.0,
+                },
                 radius: refract_core::CornerRadii {
                     top_left: radius.top_left + outset,
                     top_right: radius.top_right + outset,
@@ -454,8 +468,10 @@ impl Host {
         if has_opacity {
             frame.commands.push(DrawCommand::PopLayer);
         }
-        if transformed { frame.commands.push(DrawCommand::PopLayer); }
-        self.entries.get_mut(&id).unwrap().paint_range=paint_start..frame.commands.len();
+        if transformed {
+            frame.commands.push(DrawCommand::PopLayer);
+        }
+        self.entries.get_mut(&id).unwrap().paint_range = paint_start..frame.commands.len();
         Ok(())
     }
 }
