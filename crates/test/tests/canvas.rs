@@ -190,6 +190,7 @@ fn pointer_geometry_uses_each_handler_coordinate_system() {
     });
     app.dispatch_event_with_geometry(id, event.clone(), |_| {
         Some(refract_core::ElementGeometry {
+            scroll: None,
             text_offset: None,
             bounds: Rect::new(0.0, 0.0, 100.0, 50.0),
             transform: refract_core::Affine2d([2.0, 0.0, 0.0, 2.0, 100.0, 60.0]),

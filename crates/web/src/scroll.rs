@@ -124,7 +124,7 @@ fn offset(node: &HtmlElement, property: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
-fn metrics(node: &HtmlElement) -> ScrollMetrics {
+pub(super) fn metrics(node: &HtmlElement) -> ScrollMetrics {
     let viewport = ScrollSize {
         width: node.client_width() as f64,
         height: node.client_height() as f64,

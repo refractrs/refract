@@ -262,6 +262,8 @@ pub(crate) fn add_press_handler(
 pub struct ElementGeometry {
     pub bounds: crate::Rect,
     pub transform: crate::Affine2d,
+    /// Current scroll geometry for scroll views and text fields, when available.
+    pub scroll: Option<crate::ScrollMetrics>,
     /// UTF-16 hit position for the current pointer, when this is a text field.
     pub text_offset: Option<u32>,
 }
