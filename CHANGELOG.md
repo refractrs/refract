@@ -2,24 +2,45 @@
 
 Notable changes to Refract, newest first.
 
-## Unreleased
+## 0.1.11
 
+- Add field selection bindings, bold/italic/underline spans, and explicit
+  text highlights with UTF-16 offsets on native and web. Keep highlight
+  decoration independent of host selection and expose selection visibility.
+- Observe selection changes continuously and synchronize them before
+  commands. Preserve composition, avoid echoing programmatic selections,
+  and keep focus and selection ownership independent across browser mounts.
+- Expose tagged element geometry and text hit offsets for application-owned
+  menus and selections. Include current scroll metrics during event dispatch
+  so wheel handlers can distinguish overflowing fields from fitting content.
 - Add `on_wheel` with portable deltas, units, modifiers, and available gesture
   phases on native and web. Handlers can prevent default scrolling.
-- Preserve transparent activation regions during native hover feedback, avoiding
-  an extra shaded rectangle inside application-styled navigation rows.
-- Match native text to the web renderer's typography defaults: apply optical
-  sizing to variable fonts in labels and editors, and use a 1.5 line height
-  for labels without an explicit line height.
-- Add ScrollView::velocity for frame-driven drag scrolling on native
-  and web, with bounded elapsed time and automatic stopping at edges.
-- Add field selection bindings, bold/italic/underline spans, and independent
-  text highlights with UTF-16 offsets on both hosts. Expose tagged
-  geometry and text hit offsets for multi-field editor interactions.
-- Vendor Parley 0.12.0 with externally supplied editor style ranges;
-  retain upstream licenses and document the patch scope.
+- Add bubbling clipboard events with plain text and optional HTML. Dispatch
+  native keyboard and edit-menu commands and browser clipboard events before
+  host defaults so applications can copy, cut, and paste across fields.
+- Preserve field selection before application context-menu handlers and
+  suppress browser context menus when secondary pointer input is handled.
+- Add `ScrollView::velocity` for frame-driven drag scrolling on native and
+  web, with bounded elapsed time and automatic stopping at edges.
+- Improve native scrolling responsiveness by presenting asynchronously
+  outside live resize and skipping fully transparent rendering groups.
+- Preserve transparent activation regions during native hover feedback,
+  avoiding extra shading inside application-styled navigation rows.
+- Match native text to web typography defaults with variable-font optical
+  sizing and a default line height of 1.5 for labels and editor placeholders.
 - Constrain native overlay tracks to the viewport so tall documents
   overflow their scroll container instead of expanding it.
+- Treat an empty contenteditable field's caret placeholder as empty text
+  and preserve zero-based selection offsets after deleting its last character.
+- Group field-specific Element properties in an optional boxed payload and
+  consistently document shared properties and event semantics.
+- Identify previous and next state-slot names in declaration errors.
+- Use `refract-parley` 0.12.0, a separately versioned fork of Parley with
+  externally supplied editor style ranges. Retain upstream licenses and
+  document the patch scope and publishing order under `vendor/parley`.
+- Add browser conformance coverage for selection ownership, composition,
+  highlights, formatting, empty editors, and field overflow, plus native
+  scroll geometry and transparent rendering regression coverage.
 
 ## 0.1.10
 
